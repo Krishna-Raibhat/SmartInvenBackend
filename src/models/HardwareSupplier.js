@@ -60,7 +60,7 @@ const HardwareSupplier = sequelize.define(
 );
 
 //Associations
-Owner.hasMany(HardwareSupplier, { foreignKey: "owner_id" });
-HardwareSupplier.belongsTo(Owner, { foreignKey: "owner_id" });
+Owner.hasMany(HardwareSupplier, { foreignKey: "owner_id", as: "suppliers" });
+HardwareSupplier.belongsTo(Owner, { foreignKey: "owner_id", as: "owner" });
 
 module.exports = HardwareSupplier;
