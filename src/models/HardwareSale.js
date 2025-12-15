@@ -92,15 +92,15 @@ const HardwareSale = sequelize.define(
 
 // Associations
 
-// Owner ↔ HardwareSale
+// Owner + HardwareSale
 Owner.hasMany(HardwareSale, { foreignKey: "owner_id", as: "sales" });
 HardwareSale.belongsTo(Owner, { foreignKey: "owner_id", as: "owner" });
 
-// Supplier ↔ HardwareSale
+// Supplier + HardwareSale
 HardwareSupplier.hasMany(HardwareSale, { foreignKey: "supplier_id", as: "sales" });
 HardwareSale.belongsTo(HardwareSupplier, { foreignKey: "supplier_id", as: "supplier" });
 
-// Product ↔ HardwareSale
+// Product + HardwareSale
 HardwareProduct.hasMany(HardwareSale, { foreignKey: "product_id", as: "sales" });
 HardwareSale.belongsTo(HardwareProduct, { foreignKey: "product_id", as: "product" });
 
