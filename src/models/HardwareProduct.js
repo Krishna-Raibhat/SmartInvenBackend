@@ -49,4 +49,12 @@ const HardwareProduct = sequelize.define(
   }
 );
 
+// Associations
+
+// One Owner has many HardwareProducts
+Owner.hasMany(HardwareProduct, { foreignKey: "owner_id", as: "products" });
+
+// Each HardwareProduct belongs to one Owner
+HardwareProduct.belongsTo(Owner, { foreignKey: "owner_id", as: "owner" });
+
 module.exports = HardwareProduct;
