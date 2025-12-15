@@ -1,10 +1,10 @@
 // src/app.js
 const express = require('express');
 const dotenv = require('dotenv');
-const sequelize = require('./src/config/database');
+const sequelize = require('./config/database')
 
 //Routes
-const authRoutes = require('./src/routes/authRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 
 dotenv.config();
@@ -21,7 +21,7 @@ app.use(express.json());
     console.log('Database connected.');
 
     // Make sure models are loaded before sync
-    require('./src/models/Owner');
+    require('./models/Owner');
    
 
     await sequelize.sync(); // or { alter: true } during development
