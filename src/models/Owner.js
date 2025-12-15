@@ -1,5 +1,6 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
+const Package = require("./Package"); // import Package for FK association
 
 const Owner = sequelize.define(
   "Owner",
@@ -38,6 +39,17 @@ const Owner = sequelize.define(
       allowNull: true,
       field: "fcm_token",
     },
+
+    package_id:{
+      type: DataTypes.UUID,
+      allowNull: false,
+      field: "package_id",
+      referemces: {
+        model: "packages",
+        key: "package_id",
+      },
+      onDelete: "RESTRICT",
+    },
   },
   {
     tableName: "owners",
@@ -46,5 +58,10 @@ const Owner = sequelize.define(
     updatedAt: "updated_at",
   }
 );
+
+
+// Associations
+Package.hasMany(Owner, {foreignKey: "package_id", as: "owners"});
+Owner.belongsTo(Package, { foreignKey: "package_id", as: "package" });
 
 module.exports = Owner;
