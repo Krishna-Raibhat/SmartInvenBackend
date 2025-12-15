@@ -1,6 +1,6 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
-const Owner = rewuire("./Owner");
+const Owner = require("./Owner");
 
 const HardwareSupplier = sequelize.define(
   "HardwareSupplier",
@@ -59,7 +59,7 @@ const HardwareSupplier = sequelize.define(
   }
 );
 
-/*Associations*/
+/*Associations
 Owner.hasMany(HardwareSupplier, {
     foreignKey: "owner_id",
 });
@@ -67,5 +67,6 @@ Owner.hasMany(HardwareSupplier, {
 HardwareSupplier.belongsTo(Owner, {
     foreignKey: "owner_id",
 });
+*/
 
 module.exports = HardwareSupplier;
