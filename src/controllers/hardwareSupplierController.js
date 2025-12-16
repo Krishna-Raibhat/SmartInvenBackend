@@ -3,7 +3,26 @@ const supplierService = require("../services/hardwareSupplierService");
 // CREATE
 exports.createSupplier = async (req, res) => {
   try {
-    const supplier = await supplierService.createSupplier(req.body);
+    const {
+      supplier_name,
+      phone,
+      email,
+      address
+    } = req.body;
+
+    // Get owner_id from auth middleware
+    const owner_id = req.owner.owner_id; 
+
+    // Create clean data object
+    const supplierData = {
+      supplier_name,
+      phone,
+      email,
+      address,
+      owner_id
+    };
+
+    const supplier = await supplierService.createSupplier(supplierData);
     res.status(201).json({ success: true, data: supplier });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -13,7 +32,7 @@ exports.createSupplier = async (req, res) => {
 // READ ALL
 exports.getSuppliers = async (req, res) => {
   try {
-    const { owner_id } = req.query;
+    const owner_id = req.owner.owner_id;
     const suppliers = await supplierService.getAllSuppliers(owner_id);
     res.status(200).json({ success: true, data: suppliers });
   } catch (error) {
@@ -24,11 +43,9 @@ exports.getSuppliers = async (req, res) => {
 //READ BY ID
 exports.getSupplierById = async (req, res) => {
   try {
-    const supplier = await supplierService.getSupplierById(req.params.id);
+    const supplier = await supplierService.getSupplierById(req.params.supplier_id);
     if (!supplier) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Supplier not found" });
+      return res.status(404).json({ success: false, message: "Supplier not found" });
     }
     res.status(200).json({ success: true, data: supplier });
   } catch (error) {
@@ -39,13 +56,22 @@ exports.getSupplierById = async (req, res) => {
 // UPDATE
 exports.updateSupplier = async (req, res) => {
   try {
-    const supplier = await supplierService.updateSupplier(
-      req.params.id,
-      req.body
-    );
+    const {supplierId,supplierName, phone, email, address} = req.body;
+
+    if(!supplierId){
+      return res.status(400).json({ success: false, message: "supplierId is required" });
+    } 
+    if(!supplierName && !phone && !email && !address){
+      return res.status(400).json({ success: false, message: "At least one field to update must be provided" });
+    }
+    const supplierData = {supplierName, phone, email, address};
+
+    const supplier = await supplierService.updateSupplier(supplierId,supplierData);
 
     if (!supplier) {
-      return res.status(404).json({ success: false, message: "Supplier not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Supplier not found" });
     }
 
     res.status(200).json({ success: true, data: supplier });
@@ -54,11 +80,11 @@ exports.updateSupplier = async (req, res) => {
   }
 };
 
-
-/* DELETE
+// DELETE
 exports.deleteSupplier = async (req, res) => {
   try {
-    const deleted = await supplierService.deleteSupplier(req.params.id);
+    const supplierId = req.params.supplier_id;
+    const deleted = await supplierService.deleteSupplier(supplierId);
 
     if (!deleted) {
       return res.status(404).json({ success: false, message: "Supplier not found" });
@@ -72,4 +98,4 @@ exports.deleteSupplier = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-*/
+
