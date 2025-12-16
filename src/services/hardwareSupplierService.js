@@ -2,8 +2,8 @@ const HardwareSupplier = require("../models/HardwareSupplier");
 
 class HardwareSupplierService {
   // CREATE
-  async createSupplier(data) {
-    return await HardwareSupplier.create(data);
+  async createSupplier(supplierData) {
+    return await HardwareSupplier.create(supplierData);
   }
 
   // READ ALL (optional owner filter)
@@ -24,7 +24,7 @@ class HardwareSupplierService {
     return await supplier.update(data);
   }
 
-  /* DELETE
+  // DELETE
   async deleteSupplier(id) {
     const supplier = await HardwareSupplier.findByPk(id);
     if (!supplier) return null;
@@ -32,7 +32,7 @@ class HardwareSupplierService {
     await supplier.destroy();
     return true;
   }
- */
+ 
 
 
 }
