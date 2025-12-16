@@ -13,6 +13,13 @@ const getProductByName=async(productName)=>{
 }
 */
 
+//get all the product
+const getAllProducts=async(ownerId)=>{
+    return await products.findAll({where:{
+        owner_id:ownerId
+    }})
+}
+
 //get the product
 const getProductById=async(productId)=>{
     
@@ -28,6 +35,7 @@ const addNewProduct=async(productDate)=>{
 //when product is added
 const addProductQuantity=async(productId,quantityToAdd)=>{
     const product= getProductById(productId);
+
     if(!product){
         throw new Error("Product not found");
     }
@@ -42,7 +50,10 @@ const reduceProductQuantity=async(productId,quantityToReduce)=>{
     if(!product){
         throw new Error("Product not found");
     }
-    product.unit-=quantityToReduce;
+
+    product.unit-=quantityToReduce;//subtract the quantity
+
+    //check if min quantity is available to subtract
     if(product.unit<0){
         return null;
     }
@@ -60,6 +71,7 @@ const updateProduct= async(id,productData)=>{
 }
 
 module.exports={
+    getAllProducts,
     addNewProduct,
     addProductQuantity,
     reduceProductQuantity,
