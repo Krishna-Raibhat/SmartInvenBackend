@@ -16,6 +16,14 @@ class HardwareSupplierService {
   async getSupplierById(id) {
     return await HardwareSupplier.findByPk(id);
   }
+
+  // UPDATE
+  async updateSupplier(id, data) {
+    const supplier = await HardwareSupplier.findByPk(id);
+    if(!supplier) return null;
+  }
+
+  
 }
 
 module.exports = new HardwareSupplierService();
