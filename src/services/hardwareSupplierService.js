@@ -23,7 +23,17 @@ class HardwareSupplierService {
     if(!supplier) return null;
   }
 
-  
+  /* DELETE
+  async deleteSupplier(id) {
+    const supplier = await HardwareSupplier.findByPk(id);
+    if (!supplier) return null;
+
+    await supplier.destroy();
+    return true;
+  }
+ */
+
+
 }
 
 module.exports = new HardwareSupplierService();
