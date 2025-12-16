@@ -14,6 +14,9 @@ exports.addNewProduct=async(req,res)=>{
         }
         const productData ={owner_id,product_name,type,unit};
         productService.addNewProduct(productData);
+        return res.status(200).json({
+            message:"product added successfully",
+        })
 
     }
     catch(error){
@@ -28,7 +31,8 @@ exports.addNewProduct=async(req,res)=>{
 exports.getAll=async(req,res)=>{
     try{
         const ownerId=req.owner.owner_id;
-        return productService.getAllProducts(ownerId);
+        const products=await productService.getAllProducts(ownerId);
+        return res.status(200).json(products)
 
     }
     catch (error){
@@ -59,6 +63,31 @@ exports.addProductQuantity=async(req,res)=>{
     catch (error){
         console.error("Server error during adding product quantity", error);
         return res.status(500).json({ message: "Server error during adding product quantity" });
+    }
+}
+
+//GET /api/hardwareProducts/:product_id
+exports.getProductById=async(req,res)=>{
+    try{
+        const productId=req.params.product_id;
+        
+        const product= await productService.getProductById(productId);
+
+        if(!product){
+            return res.status(404).json({
+                message:"Product not found",
+            });
+        }
+
+
+        return res.status(200).json({
+            message:"Product fetched successfully",
+            product:product,
+        });
+    }
+    catch (error){
+        console.error("Server error during fetching product by ID", error);
+        return res.status(500).json({ message: "Server error during fetching product by ID" });
     }
 }
 
@@ -93,19 +122,25 @@ exports.reduceProductQuantity=async(req,res)=>{
     }
 }
 
-/* TODO: Research more about updating specific fields
 
 
+//PUT /api/hardwareProducts/update
 exports.updateProduct=async(req,res)=>{
     try{
         
-        const{productId, productData}= req.body;
+        const{productId, productName, type, unit}= req.body;
 
-        if(!productId || !productData){
+        if(!productId ){
             return res.status(400).json({
-                message:"productId and productData are required",
+                message:"productId is required",
             });
         }
+        if(!(productName || type || unit)){
+            return res.status(400).json({
+                message:"At least one field (productName, type, unit) must be provided to update",
+            });
+        }
+        const productData={productName,type,unit};
 
         const updatedProduct= await productService.updateProduct(productId, productData);
 
@@ -118,4 +153,22 @@ exports.updateProduct=async(req,res)=>{
         console.error("Server error during updating product", error);
         return res.status(500).json({ message: "Server error during updating product" });
     }
-}*/
+}
+
+//DELETE /api/hardwareProducts/delete/:product_id
+exports.deleteProduct=async(req,res)=>{
+    try{
+        const productId=req.params.product_id;
+
+        const deletedProduct= await productService.deleteProduct(productId);
+
+        return res.status(200).json({
+            message:"Product deleted successfully",
+            product:deletedProduct,
+        });
+    }
+    catch (error){
+        console.error("Server error during deleting product", error);
+        return res.status(500).json({ message: "Server error during deleting product" });
+    }
+}   

@@ -23,9 +23,12 @@ const getAllProducts=async(ownerId)=>{
 //get the product
 const getProductById=async(productId)=>{
     
-    return await products.findByPk(productId);
+    return await products.findOne({
+        where:{product_id:productId}
+    });
 }
 
+//add new product
 const addNewProduct=async(productDate)=>{
     
     return await products.create(productDate);
@@ -34,7 +37,7 @@ const addNewProduct=async(productDate)=>{
 
 //when product is added
 const addProductQuantity=async(productId,quantityToAdd)=>{
-    const product= getProductById(productId);
+    const product= await getProductById(productId);
 
     if(!product){
         throw new Error("Product not found");
@@ -46,7 +49,7 @@ const addProductQuantity=async(productId,quantityToAdd)=>{
 
 //when product is sold/returned
 const reduceProductQuantity=async(productId,quantityToReduce)=>{
-    const product= getProductById(productId);
+    const product= await getProductById(productId);
     if(!product){
         throw new Error("Product not found");
     }
@@ -61,20 +64,40 @@ const reduceProductQuantity=async(productId,quantityToReduce)=>{
 }
 
 //when product data needs to be changed (name, type, etc)
-const updateProduct= async(id,productData)=>{
-    const product= getProductById(productId);
+const updateProduct= async(productID,productData)=>{
+    const product= await getProductById(productID);
     if(!product){
         throw new Error("Product not found");
     }
-    return product.update(productData);
+    if(productData.productName!==undefined){
+        product.product_name=productData.productName;
+    }
+    if(productData.type!==undefined){
+        product.type=productData.type;
+    }
+    if(productData.unit!==undefined){
+        product.unit=productData.unit;
+    }
+    return product.save();
 
 }
 
+//delete the product
+const deleteProduct= async(productId)=>{
+    const product= await getProductById(productId);
+    if(!product){
+        throw new Error("Product not found");
+    }
+    return product.destroy();
+}
+
 module.exports={
+    getProductById,
     getAllProducts,
     addNewProduct,
     addProductQuantity,
     reduceProductQuantity,
-    updateProduct
+    updateProduct,
+    deleteProduct
 
 }
