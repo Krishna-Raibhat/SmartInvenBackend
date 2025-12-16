@@ -36,7 +36,7 @@ const HardwareProduct = sequelize.define(
     },
 
     unit: {
-      type: DataTypes.STRING,
+      type: DataTypes.INTEGER,
       allowNull: false,
       field: "unit",
     },
