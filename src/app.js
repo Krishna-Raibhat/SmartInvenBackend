@@ -16,6 +16,22 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 
+// Routes
+app.use('/api/auth', authRoutes);
+
+app.use('/api/hardwareProducts', hardProdRoutes);
+app.use('/api/harwareSupplier', hardSupplierRoutes);
+
+// Test route
+app.get('/', (req, res) => {
+  res.send('Backend is running!');
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+
 // Test DB connection + sync models
 (async () => {
   try {
@@ -35,20 +51,6 @@ app.use(express.json());
   }
 })();
 
-// Routes
-app.use('/api/auth', authRoutes);
 
-app.use('api/hardwareProducts', hardProdRoutes);
-app.use('api/harwareSupplier', hardSupplierRoutes);
-
-// Test route
-app.get('/', (req, res) => {
-  res.send('Backend is running!');
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
 
 module.exports = app;
