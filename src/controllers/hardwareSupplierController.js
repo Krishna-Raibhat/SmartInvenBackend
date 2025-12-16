@@ -35,3 +35,21 @@ exports.getSupplierById = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// UPDATE
+exports.updateSupplier = async (req, res) => {
+  try {
+    const supplier = await supplierService.updateSupplier(
+      req.params.id,
+      req.body
+    );
+
+    if (!supplier) {
+      return res.status(404).json({ success: false, message: "Supplier not found" });
+    }
+
+    res.status(200).json({ success: true, data: supplier });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
