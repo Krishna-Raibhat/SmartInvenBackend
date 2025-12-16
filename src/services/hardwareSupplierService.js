@@ -21,6 +21,7 @@ class HardwareSupplierService {
   async updateSupplier(id, data) {
     const supplier = await HardwareSupplier.findByPk(id);
     if(!supplier) return null;
+    return await supplier.update(data);
   }
 
   /* DELETE
