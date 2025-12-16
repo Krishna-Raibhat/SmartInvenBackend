@@ -20,7 +20,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 
 app.use('/api/hardwareProducts', hardProdRoutes);
-app.use('/api/harwareSupplier', hardSupplierRoutes);
+app.use('/api/hardwareSupplier', hardSupplierRoutes);
 
 // Test route
 app.get('/', (req, res) => {
