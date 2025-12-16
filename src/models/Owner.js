@@ -44,7 +44,7 @@ const Owner = sequelize.define(
       type: DataTypes.UUID,
       allowNull: false,
       field: "package_id",
-      referemces: {
+      references: {
         model: "packages",
         key: "package_id",
       },
