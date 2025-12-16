@@ -1,4 +1,4 @@
-const supplierService = require("../services/hardwareSupplierService.service");
+const supplierService = require("../services/hardwareSupplierService");
 
 // CREATE
 exports.createSupplier = async (req, res) => {
