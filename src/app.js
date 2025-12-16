@@ -5,6 +5,8 @@ const sequelize = require('./config/database')
 
 //Routes
 const authRoutes = require('./routes/authRoutes');
+const hardProdRoutes=require('./routes/hardProdRoute');
+const hardSupplierRoutes= require('./routes/hardwareSupplierRoutes');
 
 
 dotenv.config();
@@ -36,7 +38,8 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 
-app.use('api/hardwareProducts');
+app.use('api/hardwareProducts', hardProdRoutes);
+app.use('api/harwareSupplier', hardSupplierRoutes);
 
 // Test route
 app.get('/', (req, res) => {
