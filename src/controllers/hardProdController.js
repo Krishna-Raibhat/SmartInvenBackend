@@ -21,7 +21,7 @@ exports.addNewProduct=async(req,res)=>{
     }
     catch(error){
         console.error("Server error during adding new product", error);
-        return res.status(500).json({ message: "Server error during adding new product " });
+        return res.status(500).json({ message: error.message });
 
     }
 
@@ -32,12 +32,17 @@ exports.getAll=async(req,res)=>{
     try{
         const ownerId=req.owner.owner_id;
         const products=await productService.getAllProducts(ownerId);
+        if(!products){
+            return res.status(404).json({
+                message:"No products found",
+            });
+        }
         return res.status(200).json(products)
 
     }
     catch (error){
         console.error("Server error during getting products", error);
-        return res.status(500).json({ message: "Server error during getting products" });
+        return res.status(500).json({ message: error.message });
     }
 }
 
@@ -62,7 +67,7 @@ exports.addProductQuantity=async(req,res)=>{
     }
     catch (error){
         console.error("Server error during adding product quantity", error);
-        return res.status(500).json({ message: "Server error during adding product quantity" });
+        return res.status(500).json({ message: error.message });
     }
 }
 
@@ -87,7 +92,7 @@ exports.getProductById=async(req,res)=>{
     }
     catch (error){
         console.error("Server error during fetching product by ID", error);
-        return res.status(500).json({ message: "Server error during fetching product by ID" });
+        return res.status(500).json({ message: error.message });
     }
 }
 
@@ -118,7 +123,7 @@ exports.reduceProductQuantity=async(req,res)=>{
     }
     catch (error){
         console.error("Server error during reducing product quantity", error);
-        return res.status(500).json({ message: "Server error during reducing product quantity" });
+        return res.status(500).json({ message: error.message });
     }
 }
 
@@ -151,7 +156,7 @@ exports.updateProduct=async(req,res)=>{
     }
     catch (error){
         console.error("Server error during updating product", error);
-        return res.status(500).json({ message: "Server error during updating product" });
+        return res.status(500).json({ message: error.message });
     }
 }
 
@@ -169,6 +174,6 @@ exports.deleteProduct=async(req,res)=>{
     }
     catch (error){
         console.error("Server error during deleting product", error);
-        return res.status(500).json({ message: "Server error during deleting product" });
+        return res.status(500).json({ message: error.message });
     }
 }   

@@ -3,7 +3,7 @@ const router = express.Router();
 
 const supplierController = require("../controllers/hardwareSupplierController");
 const authMiddleware = require("../middlewares/authMiddleware");
-const { route } = require("./authRoutes");
+
 
 router.get("/", authMiddleware, supplierController.getSuppliers);
 router.post("/addSupplier", authMiddleware, supplierController.createSupplier);
