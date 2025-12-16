@@ -1,6 +1,4 @@
-const productService= require("../services/HardProdService")
-//const productService= require("../services/hardProdService")
-
+const productService = require("../services/hardwareProductService")
 
 //POST /api/hardwareProducts/newProduct
 exports.addNewProduct=async(req,res)=>{
@@ -27,7 +25,7 @@ exports.addNewProduct=async(req,res)=>{
 }
 
 //GET /api/hardwareProducts/
-exports.getAllProducts=async(req,res)=>{
+exports.getAll=async(req,res)=>{
     try{
         const ownerId=req.owner.owner_id;
         return productService.getAllProducts(ownerId);
