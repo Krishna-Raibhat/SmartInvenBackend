@@ -53,3 +53,23 @@ exports.updateSupplier = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+
+/* DELETE
+exports.deleteSupplier = async (req, res) => {
+  try {
+    const deleted = await supplierService.deleteSupplier(req.params.id);
+
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: "Supplier not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Supplier deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+*/
