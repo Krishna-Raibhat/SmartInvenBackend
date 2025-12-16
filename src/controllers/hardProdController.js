@@ -1,8 +1,8 @@
-
-
 const productService= require("../services/HardProdService")
+//const productService= require("../services/hardProdService")
 
-//POST /api/auth/newProduct
+
+//POST /api/hardwareProducts/newProduct
 exports.addNewProduct=async(req,res)=>{
     try{
         const{product_name,type,unit}=req.body;
@@ -26,8 +26,8 @@ exports.addNewProduct=async(req,res)=>{
 
 }
 
-//GET /api/auth/allProducts
-exports.addProductQuantity=async(req,res)=>{
+//GET /api/hardwareProducts/
+exports.getAllProducts=async(req,res)=>{
     try{
         const ownerId=req.owner.owner_id;
         return productService.getAllProducts(ownerId);
@@ -39,7 +39,7 @@ exports.addProductQuantity=async(req,res)=>{
     }
 }
 
-//POST /api/auth/addUnit
+//POST /api/hardwareProducts/addUnit
 exports.addProductQuantity=async(req,res)=>{
     try{
         const{productId, quantityToAdd}= req.body;
@@ -64,7 +64,7 @@ exports.addProductQuantity=async(req,res)=>{
     }
 }
 
-//POST /api/auth/reduceUnit
+//POST /api/hardwareProducts/reduceUnit
 exports.reduceProductQuantity=async(req,res)=>{
     try{
         const{productId, quantityToReduce}= req.body;
