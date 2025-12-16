@@ -1,48 +1,48 @@
 // src/app.js
-const express = require('express');
-const dotenv = require('dotenv');
-const sequelize = require('./src/config/database');
+const express = require("express");
+const dotenv = require("dotenv");
 
-//Routes
-const authRoutes = require('./src/routes/authRoutes');
+dotenv.config(); // ✅ load env first
 
+const sequelize = require("./config/database"); // ✅ correct path
 
-dotenv.config();
+// ✅ load models once before sync
+require("./models/Owner");
+require("./models/PasswordResetOtp");
+
+// Routes
+const authRoutes = require("./routes/authRoutes"); // ✅ correct path
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
 
-// Test DB connection + sync models
+// Routes
+app.use("/api/auth", authRoutes);
+
+// Test route
+app.get("/", (req, res) => {
+  res.send("Backend is running!");
+});
+
+// Start server + DB
 (async () => {
   try {
     await sequelize.authenticate();
-    console.log('Database connected.');
+    console.log(" Database connected.");
 
-    // Make sure models are loaded before sync
-    require('./src/models/Owner');
-   
+    await sequelize.sync(); // dev only
+    console.log(" Database synced.");
 
-    await sequelize.sync(); // or { alter: true } during development
-    console.log('Database synced.');
+    app.listen(PORT, () => {
+      console.log(` Server running on port ${PORT}`);
+    });
   } catch (err) {
-    console.error('Unable to connect to the database:', err);
+    console.error(" Unable to start server:", err);
+    process.exit(1);
   }
 })();
-
-// Routes
-app.use('/api/auth', authRoutes);
-
-
-// Test route
-app.get('/', (req, res) => {
-  res.send('Backend is running!');
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
 
 module.exports = app;
