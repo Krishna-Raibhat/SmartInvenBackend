@@ -21,9 +21,11 @@ app.use(express.json());
     console.log('Database connected.');
 
     // Make sure models are loaded before sync
+    require('./models/Package');
     require('./models/Owner');
-   
-
+    require('./models/HardwareSupplier');
+    require('./models/HardwareProduct');
+    
     await sequelize.sync(); // or { alter: true } during development
     console.log('Database synced.');
   } catch (err) {
@@ -34,6 +36,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 
+app.use('api/hardwareProducts');
 
 // Test route
 app.get('/', (req, res) => {
