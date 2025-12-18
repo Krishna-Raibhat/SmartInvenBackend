@@ -1,15 +1,18 @@
 // src/app.js
-const express = require('express');
-const dotenv = require('dotenv');
-const sequelize = require('./config/database')
+const express = require("express");
+const dotenv = require("dotenv");
 
-//Routes
-const authRoutes = require('./routes/authRoutes');
-const hardProdRoutes=require('./routes/hardProdRoute');
-const hardSupplierRoutes= require('./routes/hardwareSupplierRoutes');
+dotenv.config(); // ✅ load env first
 
+const sequelize = require("./config/database"); // ✅ correct path
 
-dotenv.config();
+// ✅ load models once before sync
+require("./models/Owner");
+require("./models/PasswordResetOtp");
+
+// Routes
+const authRoutes = require("./routes/authRoutes"); // ✅ correct path
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -17,40 +20,29 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 // Routes
-app.use('/api/auth', authRoutes);
-
-app.use('/api/hardwareProducts', hardProdRoutes);
-app.use('/api/hardwareSupplier', hardSupplierRoutes);
+app.use("/api/auth", authRoutes);
 
 // Test route
-app.get('/', (req, res) => {
-  res.send('Backend is running!');
+app.get("/", (req, res) => {
+  res.send("Backend is running!");
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-
-// Test DB connection + sync models
+// Start server + DB
 (async () => {
   try {
     await sequelize.authenticate();
-    console.log('Database connected.');
+    console.log(" Database connected.");
 
-    // Make sure models are loaded before sync
-    require('./models/Package');
-    require('./models/Owner');
-    require('./models/HardwareSupplier');
-    require('./models/HardwareProduct');
-    
-    await sequelize.sync(); // or { alter: true } during development
-    console.log('Database synced.');
+    await sequelize.sync(); // dev only
+    console.log(" Database synced.");
+
+    app.listen(PORT, () => {
+      console.log(` Server running on port ${PORT}`);
+    });
   } catch (err) {
-    console.error('Unable to connect to the database:', err);
+    console.error(" Unable to start server:", err);
+    process.exit(1);
   }
 })();
-
-
 
 module.exports = app;
