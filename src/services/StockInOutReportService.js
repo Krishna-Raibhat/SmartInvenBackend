@@ -147,14 +147,19 @@ class HardwareReportService {
       const { start, end } = this.getDateRange(type, date);
       const stock_out = await this.stockOut(owner_id, start, end);
 
+      
+
       let totalQtyOut = 0;
       let totalSalesAmt = 0;
+      let totalPiad=0;
 
       for (const out of stock_out) {
         for (const item of out.items || []) {
-          totalQtyOut += item.qty || 0;
-          totalSalesAmt += item.line_total || 0;
+          totalQtyOut += Number(item.qty) || 0;
+          totalSalesAmt += Number(item.line_total) || 0;
         }
+        totalPiad+=Number(out.paid_amount)||0;
+
       }
 
       return {
@@ -163,6 +168,7 @@ class HardwareReportService {
         summary: {
           total_qty_out: totalQtyOut,
           total_sales_amount: totalSalesAmt,
+          total_paid: totalPiad,
         },
       };
     } catch (err) {
@@ -183,7 +189,10 @@ class HardwareReportService {
       let totalQtyIn = 0;
       let totalStockInValue = 0;
       let totalSales = 0;
-      let totalProfit = 0;
+      let paidAmt=0;
+      let totalCp=0;
+      let totalQtyOut = 0;
+
 
       for (const lot of stockIn) {
         totalQtyIn += lot.qty_in || 0;
@@ -192,10 +201,14 @@ class HardwareReportService {
 
       for (const out of stockOut) {
         for (const item of out.items || []) {
-          totalSales += item.line_total || 0;
-          totalProfit += (Number(item.sp) - Number(item.cp) || 0) * (item.qty || 0);
+          totalQtyOut += Number(item.qty) || 0;
+          totalSales += Number(item.line_total) || 0;
+          totalCp += (Number(item.cp) || 0) * (item.qty || 0);
         }
+        paidAmt+=Number(out.paid_amount)||0;
+    
       }
+      const totalProfit = paidAmt - totalCp;
 
       return {
         period: { type, start, end },
@@ -203,8 +216,11 @@ class HardwareReportService {
         stock_out: stockOut,
         summary: {
           total_qty_in: totalQtyIn,
-          total_stock_in_value: totalStockInValue,
-          total_sales: totalSales,
+          total_stock_in_amt: totalStockInValue,
+          total_qty_out: totalQtyOut,
+          total_qty_out_cp: totalCp,
+          total_sales_amt: totalSales,
+          total_paid: paidAmt,
           total_profit: totalProfit,
         },
       };
