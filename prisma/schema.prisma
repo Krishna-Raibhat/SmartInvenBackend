@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Package {
+  package_id   String @id @default(uuid())
+  package_key  String @unique
+  package_name String
+
+  owners     Owner[]
+  categories HardwareCategory[]
+  created_at DateTime           @default(now())
+
+  @@map("packages")
+}
+
+model Owner {
+  owner_id  String  @id @default(uuid())
+  full_name String
+  email     String  @unique
+  phone     String  @unique
+  password  String  @map("password_hash")
+  fcm_token String?
+
+  package_id String?
+  package    Package? @relation(fields: [package_id], references: [package_id], onDelete: Restrict)
+
+  suppliers HardwareSupplier[]
+
+  products      HardwareProduct[]
+  stockLots     HardwareStockLot[]
+  stockOuts     HardwareStockOut[]
+  otps          PasswordResetOtp[]
+  stockOutItems HardwareStockOutItem[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("owners")
+}
+
+model PasswordResetOtp {
+  id       String @id @default(uuid())
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  email      String
+  otp_hash   String
+  expires_at DateTime
+
+  wrong_attempts Int       @default(0)
+  locked_until   DateTime?
+  last_sent_at   DateTime?
+  verified_at    DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([owner_id])
+  @@index([email])
+  @@index([expires_at])
+  @@map("password_reset_otps")
+}
+
+model HardwareSupplier {
+  supplier_id String @id @default(uuid())
+  owner_id    String
+  owner       Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  supplier_name String
+  phone         String
+  email         String?
+  address       String?
+
+  stockLots HardwareStockLot[]
+
+  created_at DateTime @default(now())
+
+  // ✅ unique supplier phone per owner
+  @@unique([owner_id, phone])
+  @@map("hardware_suppliers")
+}
+
+model HardwareCategory {
+  category_id String @id @default(uuid())
+
+  package_id String
+  package    Package @relation(fields: [package_id], references: [package_id], onDelete: Cascade)
+
+  category_name String
+
+  // who created (optional)
+
+  products HardwareProduct[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // ✅ unique category name per package (shared)
+  @@unique([package_id, category_name])
+  @@map("hardware_categories")
+}
+
+model HardwareProduct {
+  product_id String @id @default(uuid())
+  owner_id   String
+  owner      Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  category_id String
+  category    HardwareCategory @relation(fields: [category_id], references: [category_id], onDelete: Restrict)
+
+  product_name String
+
+  stockLots     HardwareStockLot[]
+  stockOutItems HardwareStockOutItem[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // ✅ product unique per owner (not package)
+  @@unique([owner_id, product_name])
+  @@map("hardware_products")
+}
+
+model HardwareStockLot {
+  lot_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  product_id String
+  product    HardwareProduct @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
+
+  supplier_id String
+  supplier    HardwareSupplier @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
+
+  cp            Decimal
+  sp            Decimal
+  qty_in        Int
+  qty_remaining Int
+  notes         String?
+
+  stockOutItems HardwareStockOutItem[]
+
+  created_at DateTime @default(now())
+
+  @@index([owner_id, product_id])
+  @@index([owner_id, supplier_id])
+  @@map("hardware_stock_lots")
+}
+
+model HardwareStockOut {
+  stockout_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  payment_status String  @default("pending")
+  total_amount   Decimal @default(0)
+  paid_amount    Decimal @default(0)
+  note           String?
+
+  items HardwareStockOutItem[]
+
+  created_at DateTime @default(now())
+
+  @@index([owner_id])
+  @@map("hardware_stock_out")
+}
+
+model HardwareStockOutItem {
+  stockout_item_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  stockout_id String
+  stockout    HardwareStockOut @relation(fields: [stockout_id], references: [stockout_id], onDelete: Cascade)
+
+  product_id String
+  product    HardwareProduct @relation(fields: [product_id], references: [product_id], onDelete: Restrict)
+
+  lot_id String
+  lot    HardwareStockLot @relation(fields: [lot_id], references: [lot_id], onDelete: Restrict)
+
+  qty        Int
+  cp         Decimal
+  sp         Decimal
+  note       String?
+  line_total Decimal
+
+  created_at DateTime @default(now())
+
+  @@index([owner_id, stockout_id])
+  @@index([owner_id, product_id])
+  @@index([owner_id, lot_id])
+  @@map("hardware_stock_out_items")
+}
