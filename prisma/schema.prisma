@@ -23,7 +23,7 @@ model Owner {
   full_name String
   email     String  @unique
   phone     String  @unique
-  password  String  @map("password")
+  password  String  @map("password_hash")
   fcm_token String?
 
   package_id String?
@@ -138,8 +138,8 @@ model HardwareStockLot {
   supplier_id String
   supplier    HardwareSupplier @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
 
-  cp            Decimal
-  sp            Decimal
+  cp            Decimal @db.Decimal(10, 2)
+  sp            Decimal @db.Decimal(10, 2)
   qty_in        Int
   qty_remaining Int
   notes         String?
@@ -160,8 +160,8 @@ model HardwareStockOut {
   owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   payment_status String  @default("pending")
-  total_amount   Decimal @default(0)
-  paid_amount    Decimal @default(0)
+  total_amount   Decimal @db.Decimal(10, 2)
+  paid_amount    Decimal @db.Decimal(10, 2)
   note           String?
 
   items HardwareStockOutItem[]
@@ -188,10 +188,10 @@ model HardwareStockOutItem {
   lot    HardwareStockLot @relation(fields: [lot_id], references: [lot_id], onDelete: Restrict)
 
   qty        Int
-  cp         Decimal
-  sp         Decimal
+  cp         Decimal @db.Decimal(10, 2)
+  sp         Decimal @db.Decimal(10, 2)
   note       String?
-  line_total Decimal
+  line_total Decimal @db.Decimal(10, 2)
 
   created_at DateTime @default(now())
 
