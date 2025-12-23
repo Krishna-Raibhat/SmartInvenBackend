@@ -1,7 +1,7 @@
 // Import Prisma client to interact with the database
 const prisma = require("../prisma/client");
 
-// Helper function to calculate date range based on type
+/* Helper function to calculate date range based on type
 function getDateRange(type) {
   // Validate type early
   if (!type) {
@@ -77,12 +77,12 @@ function getDateRange(type) {
 
   // Return date range
   return { start, end };
-}
+}*/
 
 // Service class for profit and loss calculation
 class HardwareProfitService {
   // Calculate profit or loss
-  async getProfitLoss({ owner_id, type }) {
+  async getProfitLoss({ owner_id, start_date, end_date }) {
     // Validate owner_id
     if (!owner_id) {
       const err = new Error("Owner not authenticated");
@@ -92,16 +92,33 @@ class HardwareProfitService {
     }
 
     try {
-      // Get calculated date range
-      const { start, end } = getDateRange(type);
+      // Validate dates
+      if (!start_date || !end_date) {
+        const err = new Error("Start date and end date are required");
+        err.status = 400;
+        throw err;
+      }
+
+      const start = new Date(start_date);
+      const end = new Date(end_date);
+
+      // Normalize time
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+
+      if (start > end) {
+      const err = new Error("Start date cannot be after end date");
+      err.status = 400;
+      throw err;
+    }
 
       // Fetch sold items for owner within date range
       const items = await prisma.hardwareStockOutItem.findMany({
         where: {
           owner_id,
           created_at: {
-            gte: start,     // greater than or equals to start
-            lte: end,       // less than or equals to end
+            gte: start, // greater than or equals to start
+            lte: end, // less than or equals to end
           },
         },
         select: {
