@@ -16,6 +16,7 @@ const hardwareStockInRoutes = require("./routes/hardwareStockInRoutes");
 const hardwareStockOutRoutes = require("./routes/hardwareStockOutRoutes");
 const hardwareInventoryRoutes = require("./routes/hardwareInventoryRoutes");
 const hardwareDashboardRoutes = require("./routes/hardwareDashboardRoutes");
+const hardwareProfitLossRoutes = require("./routes/hardwareProfitLossRoutes");
 
 const app = express();
 
@@ -44,6 +45,8 @@ app.use("/api/hardware/stock-out", hardwareStockOutRoutes);
 
 app.use("/api/hardware/inventory", hardwareInventoryRoutes);
 app.use("/api/hardware/dashboard", hardwareDashboardRoutes);
+
+app.use("/api/hardware/profit-loss", hardwareProfitLossRoutes);
 
 // 404
 app.use((_req, res) => {
