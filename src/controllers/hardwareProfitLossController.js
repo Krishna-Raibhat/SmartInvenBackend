@@ -6,8 +6,7 @@ class HardwareProfitLossController {
     try {
         // Extract owner_id from authenticated user
       const owner_id = req.owner?.owner_id;
-
-
+      
       // Ensure user is authenticated
       if (!owner_id) {
         return res.status(401).json({
@@ -17,23 +16,24 @@ class HardwareProfitLossController {
         });
       }
 
-      
+  
 
-      // Extract period from query
-      const { type } = req.query;
-
-      // Validate period existence early (optional but helpful)
+      /* Validate period existence early (optional but helpful)
       if (!type) {
         return res.status(400).json({
           success: false,
           message: "Type is required",
           code: "TYPE_REQUIRED",
         });
-      }
+      }*/
+
+
+      const {start_date, end_date} = req.query
 
       const result = await hardwareProfitLossService.getProfitLoss({
         owner_id,
-        type,
+        start_date,
+        end_date,
       });
 
       // Send success response
