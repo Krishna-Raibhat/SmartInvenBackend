@@ -1,101 +1,134 @@
+// src/controllers/hardwareSupplierController.js
 const supplierService = require("../services/hardwareSupplierService");
 
-// CREATE
+const isValid10DigitPhone = (phone) => typeof phone === "string" && /^\d{10}$/.test(phone);
+const isValidEmail = (email) => typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+const fail = (res, status, error_code, message) =>
+  res.status(status).json({ success: false, error_code, message });
+
 exports.createSupplier = async (req, res) => {
   try {
-    const {
-      supplier_name,
-      phone,
-      email,
-      address
-    } = req.body;
+    let { supplier_name, phone, email, address } = req.body;
+    const owner_id = req.owner.owner_id;
 
-    // Get owner_id from auth middleware
-    const owner_id = req.owner.owner_id; 
+    supplier_name = String(supplier_name || "").trim();
+    phone = String(phone || "").trim();
 
-    // Create clean data object
-    const supplierData = {
+    if (!supplier_name || !phone) {
+      return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "supplier_name and phone are required.");
+    }
+
+    if (!isValid10DigitPhone(phone)) {
+      return fail(res, 400, "VALIDATION_PHONE_INVALID", "Phone number must be exactly 10 digits.");
+    }
+
+    if (email !== undefined && email !== null) {
+      email = String(email).trim();
+      if (email && !isValidEmail(email)) {
+        return fail(res, 400, "VALIDATION_EMAIL_INVALID", "Invalid email format.");
+      }
+    }
+
+    const supplier = await supplierService.createSupplier({
+      owner_id,
       supplier_name,
       phone,
       email,
       address,
-      owner_id
-    };
+    });
 
-    const supplier = await supplierService.createSupplier(supplierData);
-    res.status(201).json({ success: true, data: supplier });
+    return res.status(201).json({ success: true, data: supplier });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    if (error.status) return fail(res, error.status, error.code || "ERROR", error.message);
+    return fail(res, 500, "SERVER_ERROR", error.message);
   }
 };
 
-// READ ALL
 exports.getSuppliers = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const suppliers = await supplierService.getAllSuppliers(owner_id);
-    res.status(200).json({ success: true, data: suppliers });
+    return res.status(200).json({ success: true, data: suppliers });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return fail(res, 500, "SERVER_ERROR", error.message);
   }
 };
 
-//READ BY ID
 exports.getSupplierById = async (req, res) => {
   try {
-    const supplier = await supplierService.getSupplierById(req.params.supplier_id);
-    if (!supplier) {
-      return res.status(404).json({ success: false, message: "Supplier not found" });
-    }
-    res.status(200).json({ success: true, data: supplier });
+    const owner_id = req.owner.owner_id;
+    const supplier = await supplierService.getSupplierById(req.params.supplier_id, owner_id);
+
+    if (!supplier) return fail(res, 404, "NOT_FOUND", "Supplier not found");
+    return res.status(200).json({ success: true, data: supplier });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return fail(res, 500, "SERVER_ERROR", error.message);
   }
 };
 
-// UPDATE
 exports.updateSupplier = async (req, res) => {
   try {
-    const {supplierId,supplierName, phone, email, address} = req.body;
+    const owner_id = req.owner.owner_id;
+    const supplier_id = req.params.supplier_id;
 
-    if(!supplierId){
-      return res.status(400).json({ success: false, message: "supplierId is required" });
-    } 
-    if(!supplierName && !phone && !email && !address){
-      return res.status(400).json({ success: false, message: "At least one field to update must be provided" });
-    }
-    const supplierData = {supplierName, phone, email, address};
+    let { supplier_name, phone, email, address } = req.body;
 
-    const supplier = await supplierService.updateSupplier(supplierId,supplierData);
-
-    if (!supplier) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Supplier not found" });
+    if (
+      supplier_name === undefined &&
+      phone === undefined &&
+      email === undefined &&
+      address === undefined
+    ) {
+      return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "At least one field to update must be provided");
     }
 
-    res.status(200).json({ success: true, data: supplier });
+    if (supplier_name !== undefined) supplier_name = String(supplier_name || "").trim();
+    if (phone !== undefined) phone = String(phone || "").trim();
+    if (email !== undefined && email !== null) email = String(email).trim();
+
+    if (phone !== undefined && !isValid10DigitPhone(phone)) {
+      return fail(res, 400, "VALIDATION_PHONE_INVALID", "Phone number must be exactly 10 digits.");
+    }
+
+    if (email !== undefined && email !== null && email !== "" && !isValidEmail(email)) {
+      return fail(res, 400, "VALIDATION_EMAIL_INVALID", "Invalid email format.");
+    }
+
+    const updated = await supplierService.updateSupplier(supplier_id, owner_id, {
+      supplier_name,
+      phone,
+      email,   // can be null to clear
+      address, // can be null to clear
+    });
+
+    if (!updated) return fail(res, 404, "NOT_FOUND", "Supplier not found");
+    return res.status(200).json({ success: true, data: updated });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    if (error.status) return fail(res, error.status, error.code || "ERROR", error.message);
+    return fail(res, 500, "SERVER_ERROR", error.message);
   }
 };
 
-// DELETE
 exports.deleteSupplier = async (req, res) => {
   try {
-    const supplierId = req.params.supplier_id;
-    const deleted = await supplierService.deleteSupplier(supplierId);
+    const owner_id = req.owner.owner_id;
+    const supplier_id = req.params.supplier_id;
 
-    if (!deleted) {
-      return res.status(404).json({ success: false, message: "Supplier not found" });
+    const deleted = await supplierService.deleteSupplier(supplier_id, owner_id);
+
+    if (deleted === null) return fail(res, 404, "NOT_FOUND", "Supplier not found");
+    if (deleted === false) {
+      return fail(
+        res,
+        409,
+        "DELETE_BLOCKED",
+        "Cannot delete supplier because it is linked with one or more items/stock entries."
+      );
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Supplier deleted successfully",
-    });
+    return res.status(200).json({ success: true, message: "Supplier deleted successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return fail(res, 500, "SERVER_ERROR", error.message);
   }
 };
-
