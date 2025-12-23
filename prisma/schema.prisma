@@ -23,7 +23,7 @@ model Owner {
   full_name String
   email     String  @unique
   phone     String  @unique
-  password  String  @map("password_hash")
+  password  String  @map("password")
   fcm_token String?
 
   package_id String?
