@@ -7,7 +7,8 @@ const ctrl = require("../controllers/hardwareProfitLossController");
 const authMiddleware = require("../middlewares/authMiddleware");
 
 // Route to get profit/loss report
-// Example: GET /api/hardware/profit-loss?period=monthly
+// Example: GET /api/hardware/profit-loss?type=monthly
+//router.get("/type", authMiddleware, ctrl.getProfitLoss);
 router.get("/", authMiddleware, ctrl.getProfitLoss);
 
 module.exports = router;
