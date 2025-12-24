@@ -159,6 +159,9 @@ model HardwareStockOut {
   owner_id String
   owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
+  customer_name String?
+  customer_phn_number String?
+  customer_address String?
   payment_status String  @default("pending")
   total_amount   Decimal @default(0)
   paid_amount    Decimal @default(0)
