@@ -282,7 +282,7 @@ class HardwareReportService {
       
 
       return {
-        period: { type, start, end },
+        period: { startDate, endDate },
         stock_out: stockOut,
         summary: {
           total_qty_out: totalQtyOut,
