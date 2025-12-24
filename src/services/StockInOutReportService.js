@@ -149,8 +149,7 @@ class HardwareReportService {
       const { start, end } = this.getDateRange(type, date);
       const stock_out = await this.stockOut(owner_id, start, end);
 
-      
-
+    
       let totalQtyOut = 0;
       let totalSalesAmt = 0;
       let totalPiad=0;
@@ -266,30 +265,29 @@ class HardwareReportService {
   async stockOutReport(owner_id, startDate, endDate) {
     try {
      
-      const stock_out = await this.stockOut(owner_id, startDate, endDate);
-
-      
+      const stockOut = await this.stockOut(owner_id, startDate, endDate);
 
       let totalQtyOut = 0;
       let totalSalesAmt = 0;
-      let totalPiad=0;
+      let totalPaid=0;
 
-      for (const out of stock_out) {
+      for (const out of stockOut) {
         for (const item of out.items || []) {
           totalQtyOut += Number(item.qty) || 0;
           totalSalesAmt += Number(item.line_total) || 0;
         }
-        totalPiad+=Number(out.paid_amount)||0;
+        totalPaid+=Number(out.paid_amount)||0;
 
       }
+      
 
       return {
         period: { type, start, end },
-        stock_out: stock_out,
+        stock_out: stockOut,
         summary: {
           total_qty_out: totalQtyOut,
           total_sales_amount: totalSalesAmt,
-          total_paid: totalPiad,
+          total_paid: totalPaid,
         },
       };
     } catch (err) {
