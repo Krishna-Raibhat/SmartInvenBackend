@@ -112,8 +112,10 @@ class HardwareReportService {
       throw err;
     }
   }
-  // Stock-In Report
-  async stockInReport(owner_id, type, date) {
+
+  //for getting stock-in and stock-out records on daily, weekly, monthly, yearly basis
+  // Stock-In Report (date range fixed)
+  async stockInReportFixed(owner_id, type, date) {
     try {
       const { start, end } = this.getDateRange(type, date);
       const stockIn = await this.stockIn(owner_id, start, end);
@@ -141,8 +143,8 @@ class HardwareReportService {
     }
   }
 
-  // Stock-Out Report
-  async stockOutReport(owner_id, type, date) {
+  // Stock-Out Report (date range fixed)
+  async stockOutReportFixed(owner_id, type, date) {
     try {
       const { start, end } = this.getDateRange(type, date);
       const stock_out = await this.stockOut(owner_id, start, end);
@@ -178,8 +180,8 @@ class HardwareReportService {
     }
   }
 
-  // Combined Report (Stock-In + Stock-Out + Summary)
-  async combinedReport(owner_id, type, date) {
+  // Combined Report (Stock-In + Stock-Out + Summary)(date range fixed)
+  async combinedReportFixed(owner_id, type, date) {
     try {
       const { start, end } = this.getDateRange(type, date);
 
@@ -230,6 +232,125 @@ class HardwareReportService {
       throw err;
     }
   }
+
+  // Stock-In Report (date range dynamic)
+  async stockInReport(owner_id, startDate, endDate) {
+    try {
+      
+      const stockIn = await this.stockIn(owner_id, startDate, endDate);
+
+      let totalQtyIn = 0;
+      let totalStockInValue = 0;
+
+      for (const lot of stockIn) {
+        totalQtyIn += lot.qty_in || 0;
+        totalStockInValue += (Number(lot.cp) || 0) * (lot.qty_in || 0);
+      }
+
+      return {
+        period: { startDate, endDate },
+        stock_in: stockIn,
+        summary: {
+          total_qty_in: totalQtyIn,
+          total_stock_in_value: totalStockInValue,
+        },
+      };
+    } catch (err) {
+      err.message = err.message || "Failed to generate stock-in report";
+      err.status = err.status || 500;
+      throw err;
+    }
+  }
+
+  // Stock-Out Report (date range dynamic)
+  async stockOutReport(owner_id, startDate, endDate) {
+    try {
+     
+      const stock_out = await this.stockOut(owner_id, startDate, endDate);
+
+      
+
+      let totalQtyOut = 0;
+      let totalSalesAmt = 0;
+      let totalPiad=0;
+
+      for (const out of stock_out) {
+        for (const item of out.items || []) {
+          totalQtyOut += Number(item.qty) || 0;
+          totalSalesAmt += Number(item.line_total) || 0;
+        }
+        totalPiad+=Number(out.paid_amount)||0;
+
+      }
+
+      return {
+        period: { type, start, end },
+        stock_out: stock_out,
+        summary: {
+          total_qty_out: totalQtyOut,
+          total_sales_amount: totalSalesAmt,
+          total_paid: totalPiad,
+        },
+      };
+    } catch (err) {
+      err.message = err.message || "Failed to generate stock-out report";
+      err.status = err.status || 500;
+      throw err;
+    }
+  }
+
+  // Combined Report (Stock-In + Stock-Out + Summary)(date range dynamic)
+  async combinedReport(owner_id, startDate, endDate) {
+    try {
+    
+      const stockIn = await this.stockIn(owner_id, startDate, endDate);
+      const stockOut = await this.stockOut(owner_id, startDate, endDate);
+
+      let totalQtyIn = 0;
+      let totalStockInValue = 0;
+      let totalSales = 0;
+      let paidAmt=0;
+      let totalCp=0;
+      let totalQtyOut = 0;
+
+
+      for (const lot of stockIn) {
+        totalQtyIn += lot.qty_in || 0;
+        totalStockInValue += (Number(lot.cp) || 0) * (lot.qty_in || 0);
+      }
+
+      for (const out of stockOut) {
+        for (const item of out.items || []) {
+          totalQtyOut += Number(item.qty) || 0;
+          totalSales += Number(item.line_total) || 0;
+          totalCp += (Number(item.cp) || 0) * (item.qty || 0);
+        }
+        paidAmt+=Number(out.paid_amount)||0;
+    
+      }
+      const totalProfit = paidAmt - totalCp;
+
+      return {
+        period: { startDate, endDate },
+        stock_in: stockIn,
+        stock_out: stockOut,
+        summary: {
+          total_qty_in: totalQtyIn,
+          total_stock_in_amt: totalStockInValue,
+          total_qty_out: totalQtyOut,
+          total_qty_out_cp: totalCp,
+          total_sales_amt: totalSales,
+          total_paid: paidAmt,
+          total_profit: totalProfit,
+        },
+      };
+    } catch (err) {
+      err.message = err.message || "Failed to generate combined report";
+      err.status = err.status || 500;
+      throw err;
+    }
+  }
+
 }
 
 module.exports = new HardwareReportService();
