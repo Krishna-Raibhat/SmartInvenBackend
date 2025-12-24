@@ -102,9 +102,6 @@ class HardwareProfitService {
       const start = new Date(start_date);
       const end = new Date(end_date);
 
-      // Normalize time
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
 
       if (start > end) {
         const err = new Error("Start date cannot be after end date");

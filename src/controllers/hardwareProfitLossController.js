@@ -1,5 +1,39 @@
 const hardwareProfitLossService = require("../services/hardwareProfitLossService");
 
+const validateDate = (res, date) => {
+  if (!date) {
+    return res.status(400).json({
+      success: false,
+      message: "DATE_REQUIRED",
+      error: "Date is required.",
+    });
+  }
+  let reportDate = new Date();
+  if (date) {
+    reportDate = new Date(date);
+
+    //validate date
+    if (isNaN(reportDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "INVALID_DATE",
+        error: "Invalid date format. Use YYYY-MM-DD.",
+      });
+    }
+    return reportDate;
+  }
+};
+
+const validateStartEndDate = (res, startDate, endDate) => {
+  if(startDate>endDate){
+    return res.status(400).json({
+      success: false,
+      message: "INVALID_DATE_RANGE",
+      error: "Start date cannot be after end date.",
+    });
+  }
+}
+
 class HardwareProfitLossController {
 
   async getProfitLoss(req, res, next) {
@@ -29,11 +63,14 @@ class HardwareProfitLossController {
 
 
       const {start_date, end_date} = req.query
+      const startDate=validateDate(res, start_date);
+      const endDate=validateDate(res, end_date);
+      validateStartEndDate(res, startDate, endDate);
 
       const result = await hardwareProfitLossService.getProfitLoss({
         owner_id,
-        start_date,
-        end_date,
+        start_date: startDate,
+        end_date: endDate,
       });
 
       // Send success response

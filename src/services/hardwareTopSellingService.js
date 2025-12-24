@@ -1,7 +1,7 @@
 const prisma = require("../prisma/client");
 
 class HardwareTopSellingService {
-  async getTopSellingProducts({ owner_id, start_date }) {
+  async getTopSellingProducts( owner_id, start_date ) {
     if (!owner_id) {
       const err = new Error("Owner not authenticated");
       err.status = 401;
@@ -15,24 +15,22 @@ class HardwareTopSellingService {
       throw err;
     }
 
-    // Parse start date
-    const start = new Date(start_date);
-    start.setHours(0, 0, 0, 0);
+   
 
     // End date = start + 29 days const
-    end = new Date(start);
+    const end = new Date(start_date);
     end.setDate(end.getDate() + 29);
-    end.setHours(23, 59, 59, 999);
+
 
     const topProducts = await prisma.hardwareStockOutItem.groupBy({
       by: ["product_id"],
-      where: { owner_id, created_at: { gte: start, lte: end } },
+      where: { owner_id, created_at: { gte: start_date, lte: end } },
       _sum: { qty: true },
       orderBy: { _sum: { qty: "desc" } },
       take: 3,
     });
     return {
-      from: start,
+      from: start_date,
       to: end,
       top_products: topProducts.map((p) => ({
         product_id: p.product_id,
