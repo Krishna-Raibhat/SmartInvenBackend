@@ -218,6 +218,8 @@ class HardwareReportController {
       const validStartDate = validateDate(res, startDate); //validate start date
       const validEndDate = validateDate(res, endDate); //validate end date
 
+      validateStartEndDate(res, validStartDate, validEndDate);//check start date is before end date
+      
       //fetch stock-out report
       const data = await reportService.stockOutReport(
         owner_id,
@@ -251,6 +253,7 @@ class HardwareReportController {
       const validStartDate = validateDate(res, startDate); //validate start date
       const validEndDate = validateDate(res, endDate); //validate end date
 
+      validateStartEndDate(res, validStartDate, validEndDate);//check start date is before end date
       //fetch stock-in/out report
       const data = await reportService.combinedReport(
         owner_id,
