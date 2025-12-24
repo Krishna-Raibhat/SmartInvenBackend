@@ -107,15 +107,44 @@ class HardwareProfitService {
       end.setHours(23, 59, 59, 999);
 
       if (start > end) {
-      const err = new Error("Start date cannot be after end date");
-      err.status = 400;
-      throw err;
-    }
+        const err = new Error("Start date cannot be after end date");
+        err.status = 400;
+        throw err;
+      }
+
+      // Fetch stockout headers(paid_amount)
+      const stockouts = await prisma.hardwareStockOut.findMany({
+        where: {
+          owner_id,
+          created_at: {
+            gte: start,
+            lte: end,
+          },
+        },
+        select: {
+          stockout_id: true,
+          paid_amount: true,
+        },
+      });
+
+      if (stockouts.length === 0) {
+        return {
+          from: start,
+          to: end,
+          total_paid: 0,
+          total_cost: 0,
+          profit_or_loss: 0,
+          status: "profit",
+        };
+      }
+
+      const stockoutIds = stockouts.map((s) => s.stockout_id);
 
       // Fetch sold items for owner within date range
       const items = await prisma.hardwareStockOutItem.findMany({
         where: {
           owner_id,
+          stockout_id:{in: stockoutIds},
           created_at: {
             gte: start, // greater than or equals to start
             lte: end, // less than or equals to end
@@ -131,7 +160,7 @@ class HardwareProfitService {
       // Initialize totals
       let totalSales = 0;
       let totalCost = 0;
-      let totalProfit = 0;
+      let totalPaid = 0;
 
       // Calculate totals
       for (const item of items) {
@@ -140,17 +169,22 @@ class HardwareProfitService {
 
         totalCost += cost;
         totalSales += sales;
-        totalProfit += sales - cost;
       }
+
+      for (const stock of stockouts){
+        totalPaid += Number(stock.paid_amount || 0);
+      }
+
+      const totalProfit = totalPaid - totalCost;
 
       // Return profit/loss response
       return {
-        type,
         from: start,
         to: end,
-        total_sales: totalSales,
-        total_cost: totalCost,
-        profit_or_loss: totalProfit,
+        total_sales_amount: totalSales,
+        total_cost_amount: totalCost,
+        total_paid_amount: totalPaid,
+        profit_or_loss_amount: totalProfit,
         status: totalProfit >= 0 ? "profit" : "loss",
       };
     } catch (error) {
