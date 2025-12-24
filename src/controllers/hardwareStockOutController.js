@@ -8,11 +8,14 @@ exports.createStockOut = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 
-    const { payment_status, paid_amount, note, items } = req.body;
+    const { customer_name,customer_phn_number,customer_address,payment_status, paid_amount, note, items } = req.body;
 
     const data = await stockOutService.createStockOut({
       owner_id,
       sold_by: owner_id,
+      customer_name,
+      customer_phn_number,
+      customer_address,
       payment_status,
       paid_amount,
       note,

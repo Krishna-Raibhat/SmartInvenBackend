@@ -2,7 +2,7 @@
 const prisma = require("../prisma/client");
 
 class HardwareStockOutService {
-  async createStockOut({ owner_id, sold_by, payment_status, paid_amount, note, items }) {
+  async createStockOut({ owner_id, sold_by, customer_name, customer_phn_number, customer_address, payment_status, paid_amount, note, items }) {
     if (!Array.isArray(items) || items.length === 0) {
       const err = new Error("At least one item is required");
       err.status = 400;
@@ -14,6 +14,9 @@ class HardwareStockOutService {
       const header = await tx.hardwareStockOut.create({
         data: {
           owner_id,
+          customer_name: customer_name || null,
+          customer_phn_number: customer_phn_number || null,
+          customer_address: customer_address || null,
           
           payment_status: payment_status || "pending",
           paid_amount: Number(paid_amount || 0),
