@@ -118,6 +118,7 @@ model HardwareProduct {
   stockLots     HardwareStockLot[]
   stockOutItems HardwareStockOutItem[]
 
+  last_low_stock_notified_at DateTime?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

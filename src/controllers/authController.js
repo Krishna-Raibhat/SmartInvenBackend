@@ -227,7 +227,7 @@ exports.register = async (req, res) => {
 ========================= */
 exports.login = async (req, res) => {
   try {
-    let { email, password } = req.body;
+    let { email, password ,fcm_token} = req.body;
     email = normalizeEmail(email);
 
     if (!email || !password) {
@@ -269,7 +269,15 @@ exports.login = async (req, res) => {
         "Invalid email or password."
       );
     }
-
+    /* =========================
+      ✅ SAVE / UPDATE FCM TOKEN
+    ========================= */
+    if (fcm_token) {
+      await prisma.owner.update({
+        where: { owner_id: owner.owner_id },
+        data: { fcm_token },
+      });
+    }
     const token = generateToken(owner);
 
     return sendSuccess(res, 200, {

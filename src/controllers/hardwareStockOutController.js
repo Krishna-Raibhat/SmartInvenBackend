@@ -17,6 +17,7 @@ exports.createStockOut = async (req, res) => {
       customer_phn_number,
       customer_address,
       payment_status,
+      total_amount: 0, 
       paid_amount,
       note,
       items,

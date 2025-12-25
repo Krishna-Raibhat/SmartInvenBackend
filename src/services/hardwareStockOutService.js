@@ -2,7 +2,16 @@
 const prisma = require("../prisma/client");
 
 class HardwareStockOutService {
-  async createStockOut({ owner_id, sold_by, customer_name, customer_phn_number, customer_address, payment_status, paid_amount, note, items }) {
+  async createStockOut({
+    owner_id,
+    customer_name,
+    customer_phn_number,
+    customer_address,
+    payment_status,
+    paid_amount,
+    note,
+    items,
+  }) {
     if (!Array.isArray(items) || items.length === 0) {
       const err = new Error("At least one item is required");
       err.status = 400;
@@ -10,16 +19,26 @@ class HardwareStockOutService {
       throw err;
     }
 
+    // ✅ compute here (safe)
+    const paid = Number(paid_amount || 0);
+    if (!Number.isFinite(paid) || paid < 0) {
+      const err = new Error("paid_amount must be a valid number >= 0");
+      err.status = 400;
+      err.code = "VALIDATION_PAID_INVALID";
+      throw err;
+    }
+
     return prisma.$transaction(async (tx) => {
+      // ✅ total_amount is REQUIRED in schema, so set it now
       const header = await tx.hardwareStockOut.create({
         data: {
           owner_id,
-          customer_name: customer_name || null,
-          customer_phn_number: customer_phn_number || null,
-          customer_address: customer_address || null,
-          
+          customer_name: customer_name ?? null,
+          customer_phn_number: customer_phn_number ?? null,
+          customer_address: customer_address ?? null,
           payment_status: payment_status || "pending",
-          paid_amount: Number(paid_amount || 0),
+          total_amount: 0,     // ✅ required
+          paid_amount: paid,   // ✅ store paid initially
           note: note ?? null,
         },
       });
@@ -35,6 +54,14 @@ class HardwareStockOutService {
           const err = new Error("qty must be a positive integer");
           err.status = 400;
           err.code = "VALIDATION_QTY_INVALID";
+          throw err;
+        }
+
+        const sellingPrice = Number(sp);
+        if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+          const err = new Error("sp must be a positive number");
+          err.status = 400;
+          err.code = "VALIDATION_SP_INVALID";
           throw err;
         }
 
@@ -56,12 +83,12 @@ class HardwareStockOutService {
           throw err;
         }
 
+        // atomic decrement
         await tx.hardwareStockLot.update({
           where: { lot_id },
           data: { qty_remaining: { decrement: q } },
         });
 
-        const sellingPrice = Number(sp);
         const lineTotal = sellingPrice * q;
         totalAmount += lineTotal;
 
@@ -82,21 +109,24 @@ class HardwareStockOutService {
         createdItems.push(created);
       }
 
-      if (paid_amount > totalAmount) {
+      // ✅ validate paid vs computed total
+      if (paid > totalAmount) {
         const err = new Error("paid_amount cannot be greater than total_amount");
         err.status = 400;
         err.code = "VALIDATION_PAID_GT_TOTAL";
         throw err;
       }
 
+      // ✅ final payment status based on paid & total
       let finalStatus = "pending";
-      if (paid_amount >= totalAmount) finalStatus = "paid";
-      else if (paid_amount > 0) finalStatus = "partial";
+      if (paid >= totalAmount && totalAmount > 0) finalStatus = "paid";
+      else if (paid > 0 && paid < totalAmount) finalStatus = "partial";
 
       const updatedHeader = await tx.hardwareStockOut.update({
         where: { stockout_id: header.stockout_id },
         data: {
           total_amount: totalAmount,
+          paid_amount: paid,        // ✅ keep consistent
           payment_status: finalStatus,
         },
       });
