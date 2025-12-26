@@ -15,7 +15,7 @@ cron.schedule(
       });
 
       for (const owner of owners) {
-        if (!owner.fcm_token) continue;
+        
 
         // total stock per product
         const sums = await prisma.hardwareStockLot.groupBy({
@@ -79,7 +79,9 @@ cron.schedule(
              🔔 SEND NOTIFICATION
           =============================== */
           await sendLowStockNotification({
-            fcmToken: owner.fcm_token,
+            owner_id: owner.owner_id,
+            fcmToken: owner.fcm_token?? null,
+            productId: p.product_id,
             productName: p.product_name,
             remainingQty,
           });
