@@ -340,6 +340,43 @@ exports.updateMe = async (req, res) => {
     const normalizedEmail = email ? normalizeEmail(email) : null;
 
     if (!full_name && !phone && !email) {
+exports.changePassword = async (req, res) => {
+  try {
+    const ownerId = req.owner?.owner_id;
+    if (!ownerId) return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+
+    const { old_password, new_password, confirm_password } = req.body;
+
+    if (!old_password || !new_password || !confirm_password) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "All fields are required.");
+    }
+
+    if (new_password !== confirm_password) {
+      return sendError(res, 400, "VALIDATION_PASSWORD_MISMATCH", "Passwords do not match.");
+    }
+
+    const passwordErrors = validatePassword(new_password);
+    if (passwordErrors.length) {
+      return sendError(res, 400, "VALIDATION_PASSWORD_WEAK", "Password is not strong enough.", {
+        errors: passwordErrors,
+      });
+    }
+
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: ownerId },
+      select: { owner_id: true, password_hash: true },
+    });
+
+    if (!owner) return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
+
+    const isOldMatch = await bcrypt.compare(old_password, owner.password);
+    if (!isOldMatch) {
+      return sendError(res, 401, "OLD_PASSWORD_INCORRECT", "Old password is incorrect.");
+    }
+
+    const sameAsOld = await bcrypt.compare(new_password, owner.password_hash);
+    if (sameAsOld) {
+      return sendError(res, 400, "PASSWORD_SAME_AS_OLD", "New password must be different.");
       return sendError(
         res,
         400,
@@ -435,7 +472,6 @@ exports.updateMe = async (req, res) => {
 
 /* =========================
    CHANGE PASSWORD
-========================= */
 exports.changePassword = async (req, res) => {
   try {
     const ownerId = req.owner?.owner_id;
@@ -540,6 +576,38 @@ exports.forgotPasswordSendOtp = async (req, res) => {
 
     // Security best practice: don't reveal whether email exists
     if (!owner) {
+exports.forgotPasswordVerifyOtp = async (req, res) => {
+  try {
+    let { email, otp } = req.body;
+    email = normalizeEmail(email);
+
+    if (!email || !otp) return res.status(400).json({ message: "Email and OTP are required." });
+
+    const owner = await prisma.owner.findUnique({
+      where: { email },
+      select: { owner_id: true },
+    });
+
+    if (!owner) return res.status(401).json({ message: "Invalid OTP." });
+
+    const record = await prisma.passwordResetOtp.findFirst({
+      where: { owner_id: owner.owner_id },
+      orderBy: { created_at: "desc" },
+    });
+
+    if (!record) return res.status(401).json({ message: "Invalid OTP." });
+
+    const now = new Date();
+
+    if (record.locked_until && record.locked_until > now) {
+      return res.status(423).json({
+        message: "Account is locked. Try later.",
+        locked_until: record.locked_until,
+      });
+    }
+
+    if (record.expires_at <= now) {
+      return res.status(400).json({ message: "OTP expired. Please request a new OTP." });
       return res
         .status(200)
         .json({ message: "If the email exists, an OTP has been sent." });
@@ -597,7 +665,6 @@ exports.forgotPasswordSendOtp = async (req, res) => {
 
 /* =========================
    FORGOT PASSWORD: VERIFY OTP
-========================= */
 exports.forgotPasswordVerifyOtp = async (req, res) => {
   try {
     let { email, otp } = req.body;
@@ -676,6 +743,50 @@ exports.forgotPasswordVerifyOtp = async (req, res) => {
       { expiresIn: "10m" }
     );
 
+exports.forgotPasswordReset = async (req, res) => {
+  try {
+    const { reset_token, new_password, confirm_password } = req.body;
+
+    if (!reset_token || !new_password || !confirm_password) {
+      return res.status(400).json({
+        message: "reset_token, new_password and confirm_password are required.",
+      });
+    }
+
+    if (new_password !== confirm_password) {
+      return res.status(400).json({ message: "Passwords do not match." });
+    }
+
+    const passwordErrors = validatePassword(new_password);
+    if (passwordErrors.length) {
+      return res.status(400).json({
+        message: "New password is not strong enough.",
+        errors: passwordErrors,
+      });
+    }
+
+    const decoded = jwt.verify(reset_token, process.env.JWT_SECRET);
+    if (decoded.purpose !== "reset_password") {
+      return res.status(401).json({ message: "Invalid reset token." });
+    }
+
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: decoded.owner_id },
+      select: { owner_id: true },
+    });
+
+    if (!owner) return res.status(404).json({ message: "Owner not found." });
+
+    const hashed = await bcrypt.hash(new_password, 10);
+
+    await prisma.owner.update({
+      where: { owner_id: decoded.owner_id },
+      data: { password_hash: hashed },
+    });
+
+    return res.status(200).json({ message: "Password reset successful. Please login." });
+  } catch (error) {
+    console.error("forgotPasswordReset error:", error);
     return res
       .status(200)
       .json({ message: "OTP verified.", reset_token: resetToken });
