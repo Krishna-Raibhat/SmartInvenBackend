@@ -36,6 +36,7 @@ model Owner {
   stockOuts     HardwareStockOut[]
   otps          PasswordResetOtp[]
   stockOutItems HardwareStockOutItem[]
+  notifications HardwareNotification[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -118,8 +119,11 @@ model HardwareProduct {
   stockLots     HardwareStockLot[]
   stockOutItems HardwareStockOutItem[]
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  notifications HardwareNotification[]
+
+  last_low_stock_notified_at DateTime?
+  created_at                 DateTime  @default(now())
+  updated_at                 DateTime  @updatedAt
 
   // ✅ product unique per owner (not package)
   @@unique([owner_id, product_name])
@@ -138,8 +142,8 @@ model HardwareStockLot {
   supplier_id String
   supplier    HardwareSupplier @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
 
-  cp            Decimal
-  sp            Decimal
+  cp            Decimal @db.Decimal(10, 2)
+  sp            Decimal @db.Decimal(10, 2)
   qty_in        Int
   qty_remaining Int
   notes         String?
@@ -159,13 +163,13 @@ model HardwareStockOut {
   owner_id String
   owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
-  customer_name String?
+  customer_name       String?
   customer_phn_number String?
-  customer_address String?
-  payment_status String  @default("pending")
-  total_amount   Decimal @default(0)
-  paid_amount    Decimal @default(0)
-  note           String?
+  customer_address    String?
+  payment_status      String  @default("pending")
+  total_amount        Decimal @db.Decimal(10, 2)
+  paid_amount         Decimal @db.Decimal(10, 2)
+  note                String?
 
   items HardwareStockOutItem[]
 
@@ -191,10 +195,10 @@ model HardwareStockOutItem {
   lot    HardwareStockLot @relation(fields: [lot_id], references: [lot_id], onDelete: Restrict)
 
   qty        Int
-  cp         Decimal
-  sp         Decimal
+  cp         Decimal @db.Decimal(10, 2)
+  sp         Decimal @db.Decimal(10, 2)
   note       String?
-  line_total Decimal
+  line_total Decimal @db.Decimal(10, 2)
 
   created_at DateTime @default(now())
 
@@ -202,4 +206,25 @@ model HardwareStockOutItem {
   @@index([owner_id, product_id])
   @@index([owner_id, lot_id])
   @@map("hardware_stock_out_items")
+}
+
+model HardwareNotification {
+  notification_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  type    String // e.g. LOW_STOCK
+  title   String
+  message String
+
+  product_id String?
+  product    HardwareProduct? @relation(fields: [product_id], references: [product_id], onDelete: SetNull)
+
+  read_at    DateTime?
+  created_at DateTime  @default(now())
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, read_at])
+  @@map("hardware_notifications")
 }

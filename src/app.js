@@ -20,6 +20,7 @@ const hardwareProfitLossRoutes = require("./routes/hardwareProfitLossRoutes");
 const hardwareTopSelligRoutes = require("./routes/hardwareTopSellingRoutes");
 const hardwareReportRoutes = require("./routes/hardwareReportRoutes");
 const stockOutCreditRoutes = require("./routes/stockOutCreditRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
 const app = express();
 
 // Middlewares
@@ -52,8 +53,11 @@ app.use("/api/hardware/reports", hardwareReportRoutes);
 app.use("/api/stock-out", stockOutCreditRoutes);
 
 app.use("/api/hardware/profit-loss", hardwareProfitLossRoutes);
-app.use("/api/hardware/top-selling-products", hardwareTopSelligRoutes);8
+app.use("/api/hardware/top-selling-products", hardwareTopSelligRoutes);
 
+app.use("/api/notifications", notificationRoutes);
+
+require("./cron/lowStockCron");
 // 404
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
@@ -77,7 +81,7 @@ const PORT = process.env.PORT || 3000;
       console.log(`✅ Server running on port ${PORT}`);
     });
   } catch (err) {
-    console.error("❌ Unable to start server:", err);
+    console.error(" Unable to start server:", err);
     process.exit(1);
   }
 })();
