@@ -21,6 +21,12 @@ const hardwareTopSelligRoutes = require("./routes/hardwareTopSellingRoutes");
 const hardwareReportRoutes = require("./routes/hardwareReportRoutes");
 const stockOutCreditRoutes = require("./routes/stockOutCreditRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+
+const clothingSupplierRoutes = require("./routes/clothingSupplierRoutes");
+const clothingCategoryRoutes = require("./routes/clothingCategoryRoutes");const clothingSizeRoutes = require("./routes/clothingSizeRoutes");
+const clothingColorRoutes = require("./routes/clothingColorRoutes");
+
+
 const app = express();
 
 // Middlewares
@@ -60,35 +66,11 @@ app.use("/api/notifications", notificationRoutes);
 require("./cron/lowStockCron");
 // 404
 
+app.use("/api/clothing/suppliers", clothingSupplierRoutes);
+app.use("/api/clothing/categories", clothingCategoryRoutes);
+app.use("/api/clothing/sizes", clothingSizeRoutes);
+app.use("/api/clothing/colors", clothingColorRoutes);
 
-// // Start server here (no server.js)
-// const PORT = process.env.PORT || 3000;
-
-// (async () => {
-//   try {
-//     await prisma.$connect();
-//     console.log("✅ Prisma connected to DB.");
-
-//     app.listen(PORT, () => {
-//       console.log(`✅ Server running on port ${PORT}`);
-//     });
-//   } catch (err) {
-//     console.error(" Unable to start server:", err);
-//     process.exit(1);
-//   }
-// })();
-
-// // graceful shutdown
-// process.on("SIGINT", async () => {
-//   await prisma.$disconnect();
-//   process.exit(0);
-// });
-// process.on("SIGTERM", async () => {
-//   await prisma.$disconnect();
-//   process.exit(0);
-// });
-
-// module.exports = app;
 
 /* ==========================
    SERVER START

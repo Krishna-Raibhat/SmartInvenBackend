@@ -665,14 +665,15 @@ const normalizeEmail = (email) =>
     .trim()
     .toLowerCase();
 
-const generateToken = (owner) => {
+const generateToken = (payload) => {
   if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET_MISSING");
 
   return jwt.sign(
     {
-      owner_id: owner.owner_id,
-      email: owner.email,
-      package_id: owner.package_id,
+      owner_id: payload.owner_id,
+      email: payload.email,
+      package_id: payload.package_id,
+      package_key: payload.package_key, 
     },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
@@ -718,112 +719,67 @@ const validatePhone = (phone) => {
   return null;
 };
 
-/* =========================
-   REGISTER
-========================= */
+const packageNameMap = {
+  hardware: "Hardware Store",
+  clothing: "Clothing Store",
+};
+
 exports.register = async (req, res) => {
   try {
     let { full_name, phone, email, password, confirm_password, package_key } = req.body;
 
-    // normalize email
     email = normalizeEmail(email);
     package_key = String(package_key || "").trim().toLowerCase();
-    // ================= REQUIRED FIELDS =================
+
     if (!full_name || !phone || !email || !password || !confirm_password || !package_key) {
-      return sendError(
-        res,
-        400,
-        "VALIDATION_REQUIRED_FIELDS",
-        "All fields are required."
-      );
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "All fields are required.");
     }
 
-    // ================= EMAIL VALIDATION =================
+    // ✅ allow only these packages
+    const allowed = new Set(["hardware", "clothing"]);
+    if (!allowed.has(package_key)) {
+      return sendError(res, 400, "VALIDATION_PACKAGE_INVALID", "Invalid package_key.");
+    }
+
     const emailError = validateEmail(email);
-    if (emailError) {
-      return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
-    }
+    if (emailError) return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
 
-    // ================= PHONE VALIDATION =================
     const phoneError = validatePhone(phone);
-    if (phoneError) {
-      return sendError(res, 400, "VALIDATION_PHONE_INVALID", phoneError);
-    }
+    if (phoneError) return sendError(res, 400, "VALIDATION_PHONE_INVALID", phoneError);
 
-    // ================= PASSWORD MATCH =================
     if (password !== confirm_password) {
-      return sendError(
-        res,
-        400,
-        "VALIDATION_PASSWORD_MISMATCH",
-        "Password and confirm password do not match."
-      );
+      return sendError(res, 400, "VALIDATION_PASSWORD_MISMATCH", "Password and confirm password do not match.");
     }
 
-    // ================= PASSWORD STRENGTH =================
     const passwordErrors = validatePassword(password);
     if (passwordErrors.length) {
-      return sendError(
-        res,
-        400,
-        "VALIDATION_PASSWORD_WEAK",
-        "Password is not strong enough.",
-        { errors: passwordErrors }
-      );
+      return sendError(res, 400, "VALIDATION_PASSWORD_WEAK", "Password is not strong enough.", { errors: passwordErrors });
     }
 
-    // ================= UNIQUE CHECKS =================
-    const emailExists = await prisma.owner.findUnique({
-      where: { email },
-    });
+    const emailExists = await prisma.owner.findUnique({ where: { email } });
+    if (emailExists) return sendError(res, 409, "EMAIL_ALREADY_EXISTS", "Email is already registered.");
 
-    if (emailExists) {
-      return sendError(
-        res,
-        409,
-        "EMAIL_ALREADY_EXISTS",
-        "Email is already registered."
-      );
-    }
+    const phoneExists = await prisma.owner.findUnique({ where: { phone } });
+    if (phoneExists) return sendError(res, 409, "PHONE_ALREADY_EXISTS", "Phone number is already registered.");
 
-    const phoneExists = await prisma.owner.findUnique({
-      where: { phone },
-    });
-
-    if (phoneExists) {
-      return sendError(
-        res,
-        409,
-        "PHONE_ALREADY_EXISTS",
-        "Phone number is already registered."
-      );
-    }
-
-    // ================= HASH PASSWORD =================
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ================= ENSURE DEFAULT PACKAGE =================
-    let hardwarePkg = await prisma.package.findUnique({
-      where: { package_key: "hardware" },
-    });
-
-    if (!hardwarePkg) {
-      hardwarePkg = await prisma.package.create({
-        data: {
-          package_key: "hardware",
-          package_name: "Hardware Store",
-        },
+    // ✅ get/create selected package
+    let pkg = await prisma.package.findUnique({ where: { package_key } });
+    if (!pkg) {
+      pkg = await prisma.package.create({
+        data: { package_key, package_name: packageNameMap[package_key] },
       });
     }
 
-    // ================= CREATE OWNER =================
+    // ✅ create owner in selected package
     const owner = await prisma.owner.create({
       data: {
         full_name,
         phone,
         email,
         password: hashedPassword,
-        package_id: hardwarePkg.package_id,
+        package_id: pkg.package_id,
       },
       select: {
         owner_id: true,
@@ -831,11 +787,17 @@ exports.register = async (req, res) => {
         email: true,
         phone: true,
         package_id: true,
+        package: { select: { package_key: true, package_name: true } },
       },
     });
 
-    // ================= TOKEN =================
-    const token = generateToken(owner);
+    // ✅ correct token payload
+    const token = generateToken({
+      owner_id: owner.owner_id,
+      email: owner.email,
+      package_id: owner.package_id,
+      package_key: owner.package.package_key,
+    });
 
     return sendSuccess(res, 201, {
       message: "Owner registered successfully.",
@@ -844,27 +806,20 @@ exports.register = async (req, res) => {
     });
   } catch (err) {
     console.error("Register error:", err);
-
-    // Prisma unique constraint fallback
     if (err.code === "P2002") {
-      return sendError(
-        res,
-        409,
-        "DUPLICATE_VALUE",
-        "Email or phone already exists."
-      );
+      return sendError(res, 409, "DUPLICATE_VALUE", "Email or phone already exists.");
     }
-
     return sendError(res, 500, "SERVER_ERROR", "Registration failed.");
   }
 };
+
 
 /* =========================
    LOGIN
 ========================= */
 exports.login = async (req, res) => {
   try {
-    let { email, password ,fcm_token} = req.body;
+    let { email, password, fcm_token } = req.body;
     email = normalizeEmail(email);
 
     if (!email || !password) {
@@ -885,37 +840,32 @@ exports.login = async (req, res) => {
         phone: true,
         package_id: true,
         password: true,
+        package: { select: { package_key: true, package_name: true } },
       },
     });
 
     if (!owner) {
-      return sendError(
-        res,
-        401,
-        "INVALID_CREDENTIALS",
-        "Invalid email or password."
-      );
+      return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
     }
 
     const isMatch = await bcrypt.compare(password, owner.password);
     if (!isMatch) {
-      return sendError(
-        res,
-        401,
-        "INVALID_CREDENTIALS",
-        "Invalid email or password."
-      );
+      return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
     }
-    /* =========================
-      ✅ SAVE / UPDATE FCM TOKEN
-    ========================= */
+
     if (fcm_token) {
       await prisma.owner.update({
         where: { owner_id: owner.owner_id },
         data: { fcm_token },
       });
     }
-    const token = generateToken(owner);
+
+    const token = generateToken({
+      owner_id: owner.owner_id,
+      email: owner.email,
+      package_id: owner.package_id,
+      package_key: owner.package?.package_key ?? null,
+    });
 
     return sendSuccess(res, 200, {
       message: "Login successful.",
@@ -925,6 +875,9 @@ exports.login = async (req, res) => {
         full_name: owner.full_name,
         email: owner.email,
         phone: owner.phone,
+        package_id: owner.package_id,
+        package_key: owner.package?.package_key ?? null,
+        package_name: owner.package?.package_name ?? null,
       },
     });
   } catch (err) {
@@ -932,6 +885,7 @@ exports.login = async (req, res) => {
     return sendError(res, 500, "SERVER_ERROR", "Login failed.");
   }
 };
+
 
 /* =========================
    ME
