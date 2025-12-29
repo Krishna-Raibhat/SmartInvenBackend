@@ -6,7 +6,7 @@ const cors = require("cors");
 // If you don't want morgan, remove the next 2 lines
 const morgan = require("morgan");
 
-const prisma = require("./prisma/client"); // ✅ IMPORTANT (adapter-based Prisma client)
+const { prisma, connectDB }  = require("./prisma/client"); // ✅ IMPORTANT (adapter-based Prisma client)
 
 const authRoutes = require("./routes/authRoutes");
 const hardwareSupplierRoutes = require("./routes/hardwareSupplierRoutes");
@@ -59,6 +59,41 @@ app.use("/api/notifications", notificationRoutes);
 
 require("./cron/lowStockCron");
 // 404
+
+
+// // Start server here (no server.js)
+// const PORT = process.env.PORT || 3000;
+
+// (async () => {
+//   try {
+//     await prisma.$connect();
+//     console.log("✅ Prisma connected to DB.");
+
+//     app.listen(PORT, () => {
+//       console.log(`✅ Server running on port ${PORT}`);
+//     });
+//   } catch (err) {
+//     console.error(" Unable to start server:", err);
+//     process.exit(1);
+//   }
+// })();
+
+// // graceful shutdown
+// process.on("SIGINT", async () => {
+//   await prisma.$disconnect();
+//   process.exit(0);
+// });
+// process.on("SIGTERM", async () => {
+//   await prisma.$disconnect();
+//   process.exit(0);
+// });
+
+// module.exports = app;
+
+/* ==========================
+   SERVER START
+========================== */
+
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
 });
@@ -68,32 +103,36 @@ app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ success: false, message: "Internal server error" });
 });
-
-// Start server here (no server.js)
 const PORT = process.env.PORT || 3000;
 
 (async () => {
   try {
-    await prisma.$connect();
-    console.log("✅ Prisma connected to DB.");
+    await connectDB(); // 🔥 if this fails → app WILL NOT start
 
     app.listen(PORT, () => {
       console.log(`✅ Server running on port ${PORT}`);
     });
   } catch (err) {
-    console.error(" Unable to start server:", err);
+    console.error("❌ Unable to start server");
+    console.error(err.message || err);
     process.exit(1);
   }
 })();
 
-// graceful shutdown
-process.on("SIGINT", async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
-process.on("SIGTERM", async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
+/* ==========================
+   GRACEFUL SHUTDOWN
+========================== */
+async function shutdown(signal) {
+  console.log(`\n${signal} received. Closing server...`);
+  try {
+    await prisma.$disconnect();
+    console.log("✅ Prisma disconnected");
+  } catch (err) {
+    console.error("Error during Prisma disconnect:", err);
+  } finally {
+    process.exit(0);
+  }
+}
 
-module.exports = app;
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

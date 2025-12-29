@@ -38,8 +38,14 @@ model Owner {
   stockOutItems HardwareStockOutItem[]
   notifications HardwareNotification[]
 
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  customers               Customer[]
+  clothingProducts        ClothingProduct[]
+  clothingSuppliers       ClothingSupplier[]
+  clothingSales           ClothingSales[]
+  clothingCustomerReturns ClothingCustomerReturn[]
+  clothingSupplierReturns ClothingSupplierReturn[]
+  created_at              DateTime                 @default(now())
+  updated_at              DateTime                 @updatedAt
 
   @@map("owners")
 }
@@ -227,4 +233,271 @@ model HardwareNotification {
   @@index([owner_id, created_at])
   @@index([owner_id, read_at])
   @@map("hardware_notifications")
+}
+
+model Customer {
+  customer_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  full_name String
+  phone     String?
+  email     String?
+  address   String?
+
+  sales ClothingSales[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([owner_id, phone])
+  @@index([owner_id])
+  @@map("customers")
+}
+
+model ClothingCategory {
+  category_id   String @id @default(uuid())
+  category_name String @unique
+
+  products ClothingProduct[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("clothing_categories")
+}
+
+model ClothingSize {
+  size_id   String @id @default(uuid())
+  size_name String @unique
+
+  stockLots  ClothingStockLot[]
+  salesItems ClothingSalesItem[]
+
+  @@map("clothing_sizes")
+}
+
+model ClothingColor {
+  color_id   String @id @default(uuid())
+  color_name String @unique
+
+  stockLots  ClothingStockLot[]
+  salesItems ClothingSalesItem[]
+
+  @@map("clothing_colors")
+}
+
+model ClothingProduct {
+  product_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  category_id String
+  category    ClothingCategory @relation(fields: [category_id], references: [category_id], onDelete: Restrict)
+
+  product_name String
+
+  stockLots  ClothingStockLot[]
+  salesItems ClothingSalesItem[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([owner_id, product_name])
+  @@index([owner_id, category_id])
+  @@map("clothing_products")
+}
+
+model ClothingSupplier {
+  supplier_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  supplier_name String
+  phone         String
+  email         String?
+  address       String?
+
+  stockLots ClothingStockLot[]
+
+  created_at DateTime                 @default(now())
+  returns    ClothingSupplierReturn[]
+
+  @@unique([owner_id, phone])
+  @@map("clothing_suppliers")
+}
+
+model ClothingStockLot {
+  lot_id String @id @default(uuid())
+
+  product_id String
+  product    ClothingProduct @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
+
+  supplier_id String
+  supplier    ClothingSupplier @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
+
+  size_id String
+  size    ClothingSize @relation(fields: [size_id], references: [size_id], onDelete: Restrict)
+
+  color_id String
+  color    ClothingColor @relation(fields: [color_id], references: [color_id], onDelete: Restrict)
+
+  cp            Decimal @db.Decimal(10, 2)
+  sp            Decimal @db.Decimal(10, 2)
+  qty_in        Int
+  qty_remaining Int
+  notes         String?
+
+  salesItems          ClothingSalesItem[]
+  customerReturnItems ClothingCustomerReturnItem[]
+  supplierReturnItems ClothingSupplierReturnItem[]
+  created_at          DateTime                     @default(now())
+
+  @@index([product_id])
+  @@index([supplier_id])
+  @@index([product_id, size_id, color_id])
+  @@map("clothing_stock_lots")
+}
+
+model ClothingSales {
+  sales_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  customer_id String?
+  customer    Customer? @relation(fields: [customer_id], references: [customer_id], onDelete: SetNull)
+
+  payment_status String  @default("pending")
+  total_amount   Decimal @db.Decimal(10, 2)
+  paid_amount    Decimal @db.Decimal(10, 2)
+  note           String?
+
+  items           ClothingSalesItem[]
+  customerReturns ClothingCustomerReturn[]
+  created_at      DateTime                 @default(now())
+
+  @@index([owner_id, created_at])
+  @@index([customer_id])
+  @@map("clothing_sales")
+}
+
+model ClothingSalesItem {
+  sales_item_id String @id @default(uuid())
+
+  sales_id String
+  sales    ClothingSales @relation(fields: [sales_id], references: [sales_id], onDelete: Cascade)
+
+  product_id String
+  product    ClothingProduct @relation(fields: [product_id], references: [product_id], onDelete: Restrict)
+
+  lot_id String
+  lot    ClothingStockLot @relation(fields: [lot_id], references: [lot_id], onDelete: Restrict)
+
+  size_id String
+  size    ClothingSize @relation(fields: [size_id], references: [size_id], onDelete: Restrict)
+
+  color_id String
+  color    ClothingColor @relation(fields: [color_id], references: [color_id], onDelete: Restrict)
+
+  qty        Int
+  cp         Decimal @db.Decimal(10, 2)
+  sp         Decimal @db.Decimal(10, 2)
+  line_total Decimal @db.Decimal(10, 2)
+  note       String?
+
+  created_at          DateTime                     @default(now())
+  customerReturnItems ClothingCustomerReturnItem[]
+
+  @@index([sales_id])
+  @@index([product_id])
+  @@index([lot_id])
+  @@map("clothing_sales_items")
+}
+
+model ClothingCustomerReturn {
+  return_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  sales_id String?
+  sales    ClothingSales? @relation(fields: [sales_id], references: [sales_id], onDelete: SetNull)
+
+  refund_amount Decimal? @db.Decimal(10, 2)
+  note          String?
+
+  items ClothingCustomerReturnItem[]
+
+  created_at DateTime @default(now())
+
+  @@index([owner_id, created_at])
+  @@map("clothing_customer_returns")
+}
+
+model ClothingCustomerReturnItem {
+  return_item_id String @id @default(uuid())
+
+  return_id String
+  return    ClothingCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
+
+  sales_item_id String?
+  salesItem     ClothingSalesItem? @relation(fields: [sales_item_id], references: [sales_item_id], onDelete: SetNull)
+
+  lot_id String
+  lot    ClothingStockLot @relation(fields: [lot_id], references: [lot_id], onDelete: Restrict)
+
+  qty       Int
+  condition String  @default("good") // good | damaged
+  note      String?
+
+  created_at DateTime @default(now())
+
+  @@index([return_id])
+  @@index([lot_id])
+  @@map("clothing_customer_return_items")
+}
+
+model ClothingSupplierReturn {
+  return_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  supplier_id String
+  supplier    ClothingSupplier @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
+
+  status String  @default("pending") // pending | approved | completed
+  note   String?
+
+  items ClothingSupplierReturnItem[]
+
+  created_at DateTime @default(now())
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, supplier_id])
+  @@map("clothing_supplier_returns")
+}
+
+model ClothingSupplierReturnItem {
+  return_item_id String @id @default(uuid())
+
+  return_id String
+  return    ClothingSupplierReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
+
+  lot_id String
+  lot    ClothingStockLot @relation(fields: [lot_id], references: [lot_id], onDelete: Restrict)
+
+  qty    Int
+  reason String? // damaged | wrong | expired etc.
+  note   String?
+
+  created_at DateTime @default(now())
+
+  @@index([return_id])
+  @@index([lot_id])
+  @@map("clothing_supplier_return_items")
 }

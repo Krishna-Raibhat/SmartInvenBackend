@@ -723,13 +723,13 @@ const validatePhone = (phone) => {
 ========================= */
 exports.register = async (req, res) => {
   try {
-    let { full_name, phone, email, password, confirm_password } = req.body;
+    let { full_name, phone, email, password, confirm_password, package_key } = req.body;
 
     // normalize email
     email = normalizeEmail(email);
-
+    package_key = String(package_key || "").trim().toLowerCase();
     // ================= REQUIRED FIELDS =================
-    if (!full_name || !phone || !email || !password || !confirm_password) {
+    if (!full_name || !phone || !email || !password || !confirm_password || !package_key) {
       return sendError(
         res,
         400,

@@ -1,32 +1,29 @@
 const hardwareTopSellingService = require("../services/hardwareTopSellingService");
 
-const validateDate = (res, date) => {
+// ================= VALIDATOR =================
+const validateDate = (date) => {
   if (!date) {
-    return res.status(400).json({
-      success: false,
-      message: "DATE_REQUIRED",
-      error: "Date is required.",
-    });
+    const err = new Error("Date is required");
+    err.status = 400;
+    err.code = "DATE_REQUIRED";
+    throw err;
   }
-  let reportDate = new Date();
-  if (date) {
-    reportDate = new Date(date);
 
-    //validate date
-    if (isNaN(reportDate.getTime())) {
-      return res.status(400).json({
-        success: false,
-        message: "INVALID_DATE",
-        error: "Invalid date format. Use YYYY-MM-DD.",
-      });
-    }
-    return reportDate;
+  const reportDate = new Date(date);
+
+  if (isNaN(reportDate.getTime())) {
+    const err = new Error("Invalid date format. Use YYYY-MM-DD.");
+    err.status = 400;
+    err.code = "INVALID_DATE";
+    throw err;
   }
+
+  return reportDate;
 };
 
-
-
+// ================= CONTROLLER =================
 exports.getTopSellingProducts = async (req, res, next) => {
+  console.log("🔥 TOP SELLING CONTROLLER HIT");
   try {
     const owner_id = req.owner?.owner_id;
 
@@ -38,13 +35,16 @@ exports.getTopSellingProducts = async (req, res, next) => {
       });
     }
 
-    const {start_date} = req.query;
+    const { start_date } = req.query;
 
-    const validatedDate=validateDate(res, start_date);
+    const validatedDate = validateDate(start_date);
 
-    const data = await hardwareTopSellingService.getTopSellingProducts(owner_id, validatedDate);
+    const data = await hardwareTopSellingService.getTopSellingProducts(
+      owner_id,
+      validatedDate
+    );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data,
     });

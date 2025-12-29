@@ -62,7 +62,8 @@ exports.createSupplier = async (req, res) => {
   } catch (error) {
     if (error.status)
       return fail(res, error.status, error.code || "ERROR", error.message);
-    return fail(res, 500, "SERVER_ERROR", error.message);
+    console.error("createSupplier error:", error);
+    return fail(res, 500, "SERVER_ERROR","Failed to create supplier.");
   }
 };
 

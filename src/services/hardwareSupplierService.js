@@ -14,16 +14,27 @@ class HardwareSupplierService {
         },
       });
     } catch (err) {
-      if (err.code === "P2002") {
-        const targets = err.meta?.target || [];
-        // handles @@unique([owner_id, phone])
-        if (targets.includes("owner_id") && targets.includes("phone")) {
+      // ✅ Prisma unique constraint error
+      if (err?.code === "P2002") {
+        const target = err?.meta?.target;
+
+        const targetText = Array.isArray(target) ? target.join(",") : String(target || "");
+
+        // ✅ detect composite unique (owner_id + phone)
+        if (targetText.includes("owner_id") && targetText.includes("phone")) {
           const e = new Error("Supplier phone already in use.");
           e.status = 409;
           e.code = "SUPPLIER_PHONE_ALREADY_IN_USE";
           throw e;
         }
+
+        // ✅ fallback (still return friendly)
+        const e = new Error(" This supplier might already exist.");
+        e.status = 409;
+        e.code = "DUPLICATE_VALUE";
+        throw e;
       }
+
       throw err;
     }
   }
