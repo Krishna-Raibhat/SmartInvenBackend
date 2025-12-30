@@ -25,8 +25,11 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const clothingSupplierRoutes = require("./routes/clothingSupplierRoutes");
 const clothingCategoryRoutes = require("./routes/clothingCategoryRoutes");const clothingSizeRoutes = require("./routes/clothingSizeRoutes");
 const clothingColorRoutes = require("./routes/clothingColorRoutes");
-
-
+const clothingProductRoutes = require("./routes/clothingProductRoutes");
+const clothingStockLotRoutes = require("./routes/clothingStockLotRoutes");
+const clothingSalesRoutes = require("./routes/clothingSalesRoutes");
+const clothingCustomerReturnRoutes = require("./routes/clothingCustomerReturnRoutes");
+const clothingSupplierReturnRoutes = require("./routes/clothingSupplierReturnRoutes");
 const app = express();
 
 // Middlewares
@@ -70,8 +73,11 @@ app.use("/api/clothing/suppliers", clothingSupplierRoutes);
 app.use("/api/clothing/categories", clothingCategoryRoutes);
 app.use("/api/clothing/sizes", clothingSizeRoutes);
 app.use("/api/clothing/colors", clothingColorRoutes);
-
-
+app.use("/api/clothing/products", clothingProductRoutes);
+app.use("/api/clothing/stock-lots", clothingStockLotRoutes);
+app.use("/api/clothing/sales", clothingSalesRoutes);
+app.use("/api/clothing/returns/customer", clothingCustomerReturnRoutes);
+app.use("/api/clothing/returns/supplier", clothingSupplierReturnRoutes);
 /* ==========================
    SERVER START
 ========================== */

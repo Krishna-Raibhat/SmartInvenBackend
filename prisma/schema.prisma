@@ -417,6 +417,26 @@ model ClothingSalesItem {
   @@index([lot_id])
   @@map("clothing_sales_items")
 }
+model Customer {
+  customer_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  full_name String
+  phone     String?
+  email     String?
+  address   String?
+
+  sales ClothingSales[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([owner_id, phone])
+  @@index([owner_id])
+  @@map("customers")
+}
 
 model ClothingCustomerReturn {
   return_id String @id @default(uuid())
