@@ -1,5 +1,5 @@
 // src/services/hardwareStockOutService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class HardwareStockOutService {
   async createStockOut({

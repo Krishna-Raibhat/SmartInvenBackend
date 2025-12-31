@@ -1,4 +1,4 @@
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class HardwareTopSellingService {
   async getTopSellingProducts(owner_id, start_date) {

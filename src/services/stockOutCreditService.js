@@ -1,4 +1,4 @@
-const prisma = require("../prisma/client");
+const {prisma} = require("../prisma/client");
 
 class StockOutCreditService {
   async getStockOutWithCreditLeft(owner_id) {

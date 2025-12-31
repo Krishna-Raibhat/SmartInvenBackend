@@ -1,5 +1,5 @@
 // src/services/clothingSizeService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class ClothingSizeService {
   async create({ size_name }) {

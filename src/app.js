@@ -30,6 +30,7 @@ const clothingStockLotRoutes = require("./routes/clothingStockLotRoutes");
 const clothingSalesRoutes = require("./routes/clothingSalesRoutes");
 const clothingCustomerReturnRoutes = require("./routes/clothingCustomerReturnRoutes");
 const clothingSupplierReturnRoutes = require("./routes/clothingSupplierReturnRoutes");
+
 const app = express();
 
 // Middlewares
@@ -78,6 +79,12 @@ app.use("/api/clothing/stock-lots", clothingStockLotRoutes);
 app.use("/api/clothing/sales", clothingSalesRoutes);
 app.use("/api/clothing/returns/customer", clothingCustomerReturnRoutes);
 app.use("/api/clothing/returns/supplier", clothingSupplierReturnRoutes);
+app.use("/api/clothing/low-stock", require("./routes/clothingLowStockRoutes"));
+
+app.use("/api/clothing/notifications", require("./routes/clothingNotificationRoutes"));
+app.use("/api/clothing/reports", require("./routes/clothingReportRoutes"));
+app.use("/api/clothing/dashboard", require("./routes/clothingDashboardRoutes"));
+
 /* ==========================
    SERVER START
 ========================== */

@@ -1,5 +1,5 @@
 // src/services/hardwareCategoryService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class HardwareCategoryService {
   async createCategory({ package_id, category_name}) {

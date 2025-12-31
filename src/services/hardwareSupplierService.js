@@ -1,5 +1,5 @@
 // src/services/hardwareSupplierService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class HardwareSupplierService {
   async createSupplier({ owner_id, supplier_name, phone, email, address }) {

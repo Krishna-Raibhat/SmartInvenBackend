@@ -6,11 +6,10 @@ const ctrl = require("../controllers/clothingSalesController");
 
 router.post("/", auth, ctrl.create);
 router.get("/", auth, ctrl.list);
-router.get("/credits", auth, ctrl.creditList);
-router.post("/:sales_id/pay", auth, ctrl.addPayment);
+router.get("/credit", auth, ctrl.creditList);
 router.get("/:sales_id", auth, ctrl.getById);
-
-// ✅ BILL
+router.post("/:sales_id/payments", auth, ctrl.addPayment);
 router.get("/:sales_id/bill", auth, ctrl.bill);
+router.get("/:sales_id/bill/pdf", auth, ctrl.billPdf);
 
 module.exports = router;

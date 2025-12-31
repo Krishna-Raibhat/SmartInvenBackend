@@ -1,4 +1,4 @@
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class HardwareProductService {
   async createProductMaster({ owner_id,  product_name, category_id }) {

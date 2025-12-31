@@ -1,5 +1,5 @@
 // src/services/clothingColorService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class ClothingColorService {
   async create({ color_name }) {

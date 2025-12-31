@@ -1,5 +1,5 @@
 // Import Prisma client to interact with the database
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 /* Helper function to calculate date range based on type
 function getDateRange(type) {

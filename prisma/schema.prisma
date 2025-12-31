@@ -44,6 +44,7 @@ model Owner {
   clothingSales           ClothingSales[]
   clothingCustomerReturns ClothingCustomerReturn[]
   clothingSupplierReturns ClothingSupplierReturn[]
+  clothingNotifications ClothingNotification[]
   created_at              DateTime                 @default(now())
   updated_at              DateTime                 @updatedAt
 
@@ -235,26 +236,7 @@ model HardwareNotification {
   @@map("hardware_notifications")
 }
 
-model Customer {
-  customer_id String @id @default(uuid())
 
-  owner_id String
-  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-
-  full_name String
-  phone     String?
-  email     String?
-  address   String?
-
-  sales ClothingSales[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  @@unique([owner_id, phone])
-  @@index([owner_id])
-  @@map("customers")
-}
 
 model ClothingCategory {
   category_id   String @id @default(uuid())
@@ -301,6 +283,10 @@ model ClothingProduct {
 
   stockLots  ClothingStockLot[]
   salesItems ClothingSalesItem[]
+
+  clothingNotifications ClothingNotification[]
+  last_low_stock_notified_at DateTime?
+
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -417,6 +403,8 @@ model ClothingSalesItem {
   @@index([lot_id])
   @@map("clothing_sales_items")
 }
+
+
 model Customer {
   customer_id String @id @default(uuid())
 
@@ -520,4 +508,24 @@ model ClothingSupplierReturnItem {
   @@index([return_id])
   @@index([lot_id])
   @@map("clothing_supplier_return_items")
+}
+model ClothingNotification {
+  notification_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  type    String // e.g. LOW_STOCK
+  title   String
+  message String
+
+  product_id String?
+  product    ClothingProduct? @relation(fields: [product_id], references: [product_id], onDelete: SetNull)
+
+  read_at    DateTime?
+  created_at DateTime @default(now())
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, read_at])
+  @@map("clothing_notifications")
 }

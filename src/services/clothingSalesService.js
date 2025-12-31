@@ -1,6 +1,6 @@
 // src/services/clothingSalesService.js
-const prisma = require("../prisma/client");
-
+const {prisma}  = require("../prisma/client");
+const PDFDocument = require("pdfkit");
 class ClothingSalesService {
   // ✅ CREATE SALE (can auto create customer)
   async createSale(owner_id, payload) {
@@ -298,6 +298,119 @@ class ClothingSalesService {
       note: sale.note,
     };
   }
+
+ 
+
+    async buildBillPdf(owner_id, sales_id) {
+    // Reuse existing bill JSON (you already have getBill)
+    const bill = await this.getBill(owner_id, sales_id);
+
+    // Create PDF in memory buffers
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
+
+    // Helper formatting
+    const money = (n) => Number(n || 0).toFixed(2);
+
+    // Header
+    doc.fontSize(18).text("INVOICE / BILL", { align: "center" });
+    doc.moveDown(0.5);
+
+    doc.fontSize(11);
+    doc.text(`Bill No: ${bill.sale_id}`);
+    doc.text(`Date: ${new Date(bill.created_at).toLocaleString()}`);
+    doc.moveDown(0.5);
+
+    // Owner
+    doc.fontSize(12).text("Shop / Owner", { underline: true });
+    doc.fontSize(11);
+    doc.text(`Name: ${bill.owner?.full_name || ""}`);
+    if (bill.owner?.phone) doc.text(`Phone: ${bill.owner.phone}`);
+    if (bill.owner?.email) doc.text(`Email: ${bill.owner.email}`);
+    doc.moveDown(0.5);
+
+    // Customer
+    doc.fontSize(12).text("Customer", { underline: true });
+    doc.fontSize(11);
+    if (bill.customer) {
+        doc.text(`Name: ${bill.customer.full_name || ""}`);
+        if (bill.customer.phone) doc.text(`Phone: ${bill.customer.phone}`);
+        if (bill.customer.email) doc.text(`Email: ${bill.customer.email}`);
+        if (bill.customer.address) doc.text(`Address: ${bill.customer.address}`);
+    } else {
+        doc.text("Walk-in Customer");
+    }
+    doc.moveDown(0.5);
+
+    // Status
+    doc.fontSize(12).text("Payment", { underline: true });
+    doc.fontSize(11);
+    doc.text(`Status: ${String(bill.payment_status || "").toUpperCase()}`);
+    doc.text(`Total: ${money(bill.totals.total_amount)}`);
+    doc.text(`Paid: ${money(bill.totals.paid_amount)}`);
+    doc.text(`Remaining: ${money(bill.totals.remaining_amount)}`);
+    doc.moveDown(0.8);
+
+    // Items Table
+    doc.fontSize(12).text("Items", { underline: true });
+    doc.moveDown(0.3);
+
+    const startX = doc.x;
+    let y = doc.y;
+
+    // Table headers
+    doc.fontSize(10)
+        .text("S.N.", startX, y, { width: 30 })
+        .text("Product", startX + 35, y, { width: 210 })
+        .text("Variant", startX + 250, y, { width: 140 })
+        .text("Qty", startX + 395, y, { width: 40, align: "right" })
+        .text("Rate", startX + 440, y, { width: 60, align: "right" })
+        .text("Total", startX + 505, y, { width: 70, align: "right" });
+
+    y += 18;
+    doc.moveTo(startX, y).lineTo(startX + 535, y).stroke();
+    y += 8;
+
+    doc.fontSize(10);
+    bill.items.forEach((it, idx) => {
+        const variant = `${it.size || ""}${it.color ? " / " + it.color : ""}`.trim();
+
+        const rowHeight = 18;
+        doc
+        .text(String(idx + 1), startX, y, { width: 30 })
+        .text(it.product_name || "", startX + 35, y, { width: 210 })
+        .text(variant, startX + 250, y, { width: 140 })
+        .text(String(it.qty || 0), startX + 395, y, { width: 40, align: "right" })
+        .text(money(it.sp), startX + 440, y, { width: 60, align: "right" })
+        .text(money(it.line_total), startX + 505, y, { width: 70, align: "right" });
+
+        y += rowHeight;
+
+        // Page break
+        if (y > 760) {
+        doc.addPage();
+        y = doc.y;
+        }
+    });
+
+    doc.moveDown(1);
+    doc.fontSize(11).text(`Note: ${bill.note || "-"}`);
+
+    doc.moveDown(1.5);
+    doc.fontSize(10).text("Thank you!", { align: "center" });
+
+    // Collect buffer
+    const chunks = [];
+    doc.on("data", (c) => chunks.push(c));
+
+    const pdfBuffer = await new Promise((resolve, reject) => {
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        doc.on("error", reject);
+        doc.end();
+    });
+
+    return { bill, pdfBuffer };
+    }
+
 }
 
 module.exports = new ClothingSalesService();

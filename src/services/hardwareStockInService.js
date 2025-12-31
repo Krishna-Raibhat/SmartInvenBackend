@@ -1,4 +1,4 @@
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class HardwareStockInService {
   async stockIn({ owner_id, product_id, supplier_id, cp, sp, qty, notes}) {

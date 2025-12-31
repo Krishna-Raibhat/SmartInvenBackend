@@ -69,3 +69,23 @@ exports.bill = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", e.message);
   }
 };
+
+exports.billPdf = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { pdfBuffer, bill } = await service.buildBillPdf(
+      owner_id,
+      req.params.sales_id
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="bill_${bill.sale_id}.pdf"`
+    );
+    return res.status(200).send(pdfBuffer);
+  } catch (e) {
+    if (e.status) return fail(res, e.status, e.code || "ERROR", e.message);
+    return fail(res, 500, "SERVER_ERROR", e.message);
+  }
+};

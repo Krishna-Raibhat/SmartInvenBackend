@@ -1,5 +1,5 @@
 // src/services/clothingProductService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class ClothingProductService {
   async create({ owner_id, category_id, product_name }) {

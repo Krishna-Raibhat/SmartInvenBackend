@@ -1,5 +1,5 @@
 // src/services/clothingSupplierReturnService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 const allowedStatus = new Set(["pending", "approved", "completed", "cancelled"]);
 
@@ -67,7 +67,7 @@ class ClothingSupplierReturnService {
 
         // lot must exist and be linked to supplier? (optional)
         const lot = await tx.clothingStockLot.findFirst({
-          where: { lot_id },
+          where: { lot_id, supplier_id, product: { owner_id } },
           select: { lot_id: true, qty_remaining: true },
         });
 

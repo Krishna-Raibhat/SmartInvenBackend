@@ -1,5 +1,5 @@
 const jwt = require("jsonwebtoken");
-const prisma = require("../prisma/client"); // adjust path if different
+const { prisma }= require("../prisma/client"); // adjust path if different
 
 module.exports = async (req, res, next) => {
   try {

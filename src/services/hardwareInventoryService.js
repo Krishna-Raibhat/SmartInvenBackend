@@ -1,5 +1,5 @@
 // src/services/hardwareInventoryService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class HardwareInventoryService {
   async listInventory(owner_id) {

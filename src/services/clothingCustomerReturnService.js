@@ -1,5 +1,5 @@
 // src/services/clothingCustomerReturnService.js
-const prisma = require("../prisma/client");
+const {prisma}  = require("../prisma/client");
 
 class ClothingCustomerReturnService {
   async createReturn(owner_id, payload) {
@@ -23,7 +23,12 @@ class ClothingCustomerReturnService {
       // 1) Load sale (must belong to owner)
       const sale = await tx.clothingSales.findFirst({
         where: { sales_id, owner_id },
-        select: { sales_id: true, total_amount: true, paid_amount: true, payment_status: true },
+        select: {
+          sales_id: true,
+          total_amount: true,
+          paid_amount: true,
+          payment_status: true,
+        },
       });
 
       if (!sale) {
@@ -33,7 +38,7 @@ class ClothingCustomerReturnService {
         throw e;
       }
 
-      // 2) Create return header (refund computed later)
+      // 2) Create return header
       const ret = await tx.clothingCustomerReturn.create({
         data: {
           owner_id,
@@ -47,9 +52,9 @@ class ClothingCustomerReturnService {
 
       // 3) Process each return line
       for (const it of items) {
-        const sales_item_id = it.sales_item_id;
+        const sales_item_id = String(it.sales_item_id || "").trim();
         const qty = Number(it.qty);
-        const condition = String(it.condition || "good").toLowerCase();
+        const condition = String(it.condition || "good").trim().toLowerCase();
 
         if (!sales_item_id) {
           const e = new Error("sales_item_id is required for each return item");
@@ -72,7 +77,7 @@ class ClothingCustomerReturnService {
           throw e;
         }
 
-        // Load the sales item (must belong to this sale)
+        // 3.1) Load sales item (must belong to THIS sale)
         const salesItem = await tx.clothingSalesItem.findFirst({
           where: { sales_item_id, sales_id },
           select: {
@@ -90,7 +95,7 @@ class ClothingCustomerReturnService {
           throw e;
         }
 
-        // ✅ Prevent returning more than sold (consider previous returns)
+        // 3.2) Prevent returning more than sold (consider previous returns)
         const alreadyReturned = await tx.clothingCustomerReturnItem.aggregate({
           where: { sales_item_id },
           _sum: { qty: true },
@@ -108,7 +113,23 @@ class ClothingCustomerReturnService {
           throw e;
         }
 
-        // Create return item
+        // 3.3) Ensure lot belongs to THIS owner (via product.owner_id)
+        const lotOwnerCheck = await tx.clothingStockLot.findFirst({
+          where: {
+            lot_id: salesItem.lot_id,
+            product: { owner_id },
+          },
+          select: { lot_id: true },
+        });
+
+        if (!lotOwnerCheck) {
+          const e = new Error("Invalid lot for this owner");
+          e.status = 403;
+          e.code = "LOT_OWNER_MISMATCH";
+          throw e;
+        }
+
+        // 3.4) Create return item
         await tx.clothingCustomerReturnItem.create({
           data: {
             return_id: ret.return_id,
@@ -120,7 +141,7 @@ class ClothingCustomerReturnService {
           },
         });
 
-        // ✅ Restock only if condition is good
+        // 3.5) Restock only if condition is good
         if (condition === "good") {
           await tx.clothingStockLot.update({
             where: { lot_id: salesItem.lot_id },
@@ -128,26 +149,29 @@ class ClothingCustomerReturnService {
           });
         }
 
-        // return value uses sell-time price from sales item (important!)
+        // return value = sold price at sale time
         returnValue += Number(salesItem.sp) * qty;
       }
 
-      // 4) Update sale totals & handle refund if needed
+      // 4) Update sale totals
       const oldTotal = Number(sale.total_amount);
       const oldPaid = Number(sale.paid_amount);
 
       const newTotal = Math.max(0, oldTotal - returnValue);
 
+      // If customer paid more than newTotal => refund difference
       let refund = 0;
       let newPaid = oldPaid;
 
       if (oldPaid > newTotal) {
         refund = oldPaid - newTotal;
-        newPaid = newTotal; // net paid after refund
+        newPaid = newTotal;
       }
 
+      // Status rules
       let status = "pending";
-      if (newPaid >= newTotal && newTotal > 0) status = "paid";
+      if (newTotal === 0) status = "paid"; // everything returned
+      else if (newPaid >= newTotal) status = "paid";
       else if (newPaid > 0) status = "partial";
 
       await tx.clothingSales.update({
@@ -163,9 +187,7 @@ class ClothingCustomerReturnService {
       const updatedReturn = await tx.clothingCustomerReturn.update({
         where: { return_id: ret.return_id },
         data: { refund_amount: refund },
-        include: {
-          items: true,
-        },
+        include: { items: true },
       });
 
       return {
@@ -177,6 +199,7 @@ class ClothingCustomerReturnService {
           return_value: returnValue,
           new_total: newTotal,
           new_paid: newPaid,
+          remaining_amount: Math.max(0, newTotal - newPaid),
           refund_amount: refund,
           payment_status: status,
         },
@@ -188,10 +211,7 @@ class ClothingCustomerReturnService {
     return prisma.clothingCustomerReturn.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
-      include: {
-        sales: { select: { sales_id: true } },
-        items: true,
-      },
+      include: { sales: { select: { sales_id: true } }, items: true },
       take: 200,
     });
   }
