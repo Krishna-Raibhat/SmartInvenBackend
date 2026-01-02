@@ -59,13 +59,25 @@ module.exports = async (req, res, next) => {
     req.owner = owner;
 
     next();
-  } catch (err) {
-    console.error("Auth middleware error:", err);
+  }    catch (err) {
+      console.error("Auth middleware error:", err.name, err.message);
 
-    return res.status(401).json({
-      success: false,
-      error_code: "TOKEN_INVALID_OR_EXPIRED",
-      message: "Invalid or expired token.",
-    });
-  }
+      if (err.name === "TokenExpiredError") {
+        return res.status(401).json({
+          success: false,
+          error_code: "TOKEN_EXPIRED",
+          message: "Token expired. Please login again.",
+        });
+      }
+
+      return res.status(401).json({
+        success: false,
+        error_code: "TOKEN_INVALID",
+        message: "Invalid token.",
+      });
+    }
+
 };
+
+
+

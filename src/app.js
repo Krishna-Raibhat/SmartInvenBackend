@@ -84,6 +84,7 @@ app.use("/api/clothing/low-stock", require("./routes/clothingLowStockRoutes"));
 app.use("/api/clothing/notifications", require("./routes/clothingNotificationRoutes"));
 app.use("/api/clothing/reports", require("./routes/clothingReportRoutes"));
 app.use("/api/clothing/dashboard", require("./routes/clothingDashboardRoutes"));
+app.use("/api/clothing/inventory", require("./routes/clothingInventoryRoutes"));
 
 /* ==========================
    SERVER START
