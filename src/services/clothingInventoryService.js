@@ -60,7 +60,7 @@ class ClothingInventoryService {
     }
 
     const lots = await prisma.clothingStockLot.findMany({
-      where: { product_id },
+      where: { product_id ,product: { owner_id },},
       orderBy: [{ created_at: "desc" }],
       include: {
         supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
@@ -94,87 +94,152 @@ class ClothingInventoryService {
   // - notes change
   // - set cp/sp optional
   // - change qty_remaining safely (delta or set)
-  async updateLot(owner_id, lot_id, payload) {
-    const { notes, cp, sp, qty_remaining, qty_in } = payload;
+  // src/services/clothingInventoryService.js
 
-    // must be owner-safe: check via lot.product.owner_id
-    const lot = await prisma.clothingStockLot.findFirst({
-      where: { lot_id, product: { owner_id } },
-      select: {
-        lot_id: true,
-        qty_remaining: true,
-        qty_in: true,
-      },
-    });
 
-    if (!lot) {
-      const e = new Error("Stock lot not found");
-      e.status = 404;
-      e.code = "LOT_NOT_FOUND";
+async updateLot(owner_id, lot_id, payload) {
+  const { notes, cp, sp, qty_remaining, qty_in } = payload;
+
+  const lot = await prisma.clothingStockLot.findFirst({
+    where: { lot_id, product: { owner_id } },
+    select: {
+      lot_id: true,
+      qty_remaining: true,
+      qty_in: true,
+    },
+  });
+
+  if (!lot) {
+    const e = new Error("Stock lot not found");
+    e.status = 404;
+    e.code = "LOT_NOT_FOUND";
+    throw e;
+  }
+
+  const data = {};
+
+  // notes
+  if (notes !== undefined) data.notes = notes ? String(notes) : null;
+
+  // cp
+  if (cp !== undefined) {
+    const n = Number(cp);
+    if (!Number.isFinite(n) || n < 0) {
+      const e = new Error("cp must be a valid number");
+      e.status = 400;
+      e.code = "VALIDATION_CP_INVALID";
       throw e;
     }
-
-    const data = {};
-
-    if (notes !== undefined) data.notes = notes ? String(notes) : null;
-
-    if (cp !== undefined) {
-      const n = Number(cp);
-      if (!Number.isFinite(n) || n < 0) {
-        const e = new Error("cp must be a valid number");
-        e.status = 400;
-        e.code = "VALIDATION_CP_INVALID";
-        throw e;
-      }
-      data.cp = n;
-    }
-
-    if (sp !== undefined) {
-      const n = Number(sp);
-      if (!Number.isFinite(n) || n < 0) {
-        const e = new Error("sp must be a valid number");
-        e.status = 400;
-        e.code = "VALIDATION_SP_INVALID";
-        throw e;
-      }
-      data.sp = n;
-    }
-
-    // Allow set qty_remaining directly
-    if (qty_remaining !== undefined) {
-      const q = Number(qty_remaining);
-      if (!Number.isInteger(q) || q < 0) {
-        const e = new Error("qty_remaining must be an integer >= 0");
-        e.status = 400;
-        e.code = "VALIDATION_QTY_REMAINING_INVALID";
-        throw e;
-      }
-      data.qty_remaining = q;
-    }
-
-    // optional: allow changing qty_in too
-    if (qty_in !== undefined) {
-      const q = Number(qty_in);
-      if (!Number.isInteger(q) || q < 0) {
-        const e = new Error("qty_in must be an integer >= 0");
-        e.status = 400;
-        e.code = "VALIDATION_QTY_IN_INVALID";
-        throw e;
-      }
-      data.qty_in = q;
-    }
-
-    return prisma.clothingStockLot.update({
-      where: { lot_id },
-      data,
-      include: {
-        product: { select: { product_name: true } },
-        supplier: { select: { supplier_name: true } },
-        color: { select: { color_name: true } },
-        size: { select: { size_name: true } },
-      },
-    });
+    data.cp = n;
   }
+
+  // sp
+  if (sp !== undefined) {
+    const n = Number(sp);
+    if (!Number.isFinite(n) || n < 0) {
+      const e = new Error("sp must be a valid number");
+      e.status = 400;
+      e.code = "VALIDATION_SP_INVALID";
+      throw e;
+    }
+    data.sp = n;
+  }
+
+  const oldIn = Number(lot.qty_in);
+  const oldRem = Number(lot.qty_remaining);
+  const sold = oldIn - oldRem; // already sold qty from this lot (cannot reduce below this)
+
+  const hasQtyIn = qty_in !== undefined;
+  const hasQtyRem = qty_remaining !== undefined;
+
+  let newIn = oldIn;
+  let newRem = oldRem;
+
+  // validate qty_in if provided
+  if (hasQtyIn) {
+    const q = Number(qty_in);
+    if (!Number.isInteger(q) || q < 0) {
+      const e = new Error("qty_in must be an integer >= 0");
+      e.status = 400;
+      e.code = "VALIDATION_QTY_IN_INVALID";
+      throw e;
+    }
+    // qty_in cannot be less than already sold
+    if (q < sold) {
+      const e = new Error(
+        `qty_in cannot be less than already sold qty (${sold}).`
+      );
+      e.status = 400;
+      e.code = "QTY_IN_LT_SOLD";
+      throw e;
+    }
+    newIn = q;
+  }
+
+  // validate qty_remaining if provided
+  if (hasQtyRem) {
+    const q = Number(qty_remaining);
+    if (!Number.isInteger(q) || q < 0) {
+      const e = new Error("qty_remaining must be an integer >= 0");
+      e.status = 400;
+      e.code = "VALIDATION_QTY_REMAINING_INVALID";
+      throw e;
+    }
+    newRem = q;
+  }
+
+  // if only qty_remaining is provided, keep qty_in same BUT ensure remaining <= qty_in
+  // if remaining is bigger, either error or auto-raise qty_in. (I recommend ERROR for correctness)
+  if (hasQtyRem && !hasQtyIn) {
+    if (newRem > newIn) {
+      const e = new Error("qty_remaining cannot be greater than qty_in");
+      e.status = 400;
+      e.code = "QTY_REMAINING_GT_QTY_IN";
+      throw e;
+    }
+  }
+
+  // if qty_in was changed but qty_remaining not provided,
+  // keep sold qty same by recomputing remaining:
+  if (hasQtyIn && !hasQtyRem) {
+    newRem = newIn - sold;
+  }
+
+  // if both provided, final consistency checks:
+  if (hasQtyIn && hasQtyRem) {
+    if (newRem > newIn) {
+      const e = new Error("qty_remaining cannot be greater than qty_in");
+      e.status = 400;
+      e.code = "QTY_REMAINING_GT_QTY_IN";
+      throw e;
+    }
+    // also ensure sold qty is not changed to negative
+    const newSold = newIn - newRem;
+    if (newSold < sold) {
+      const e = new Error(
+        `You cannot reduce sold history. Already sold=${sold}, but new sold would be ${newSold}.`
+      );
+      e.status = 400;
+      e.code = "SOLD_HISTORY_INVALID";
+      throw e;
+    }
+  }
+
+  // apply if qty fields changed
+  if (hasQtyIn) data.qty_in = newIn;
+  if (hasQtyRem || hasQtyIn) data.qty_remaining = newRem;
+
+  return prisma.clothingStockLot.update({
+    where: { lot_id },
+    data,
+    include: {
+      product: { select: { product_name: true } },
+      supplier: { select: { supplier_name: true } },
+      color: { select: { color_name: true } },
+      size: { select: { size_name: true } },
+    },
+  });
+}
 
   // 4) Bulk upsert variants for product:
   // Payload example:
