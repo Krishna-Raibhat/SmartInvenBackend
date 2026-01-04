@@ -390,6 +390,7 @@ model ClothingSalesItem {
   color    ClothingColor @relation(fields: [color_id], references: [color_id], onDelete: Restrict)
 
   qty        Int
+  returned_qty  Int @default(0) 
   cp         Decimal @db.Decimal(10, 2)
   sp         Decimal @db.Decimal(10, 2)
   line_total Decimal @db.Decimal(10, 2)

@@ -290,7 +290,9 @@ class ClothingSalesService {
         product_name: it.product?.product_name,
         size: it.size?.size_name,
         color: it.color?.color_name,
-        qty: it.qty,
+        qty: it.qty - (it.returned_qty || 0),
+        returned_qty: it.returned_qty,
+
         sp: Number(it.sp),
         line_total: Number(it.line_total),
         note: it.note,

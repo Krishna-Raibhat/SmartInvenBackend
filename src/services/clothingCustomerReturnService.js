@@ -1,5 +1,5 @@
 // src/services/clothingCustomerReturnService.js
-const {prisma}  = require("../prisma/client");
+const { prisma } = require("../prisma/client");
 
 class ClothingCustomerReturnService {
   async createReturn(owner_id, payload) {
@@ -20,14 +20,15 @@ class ClothingCustomerReturnService {
     }
 
     return prisma.$transaction(async (tx) => {
-      // 1) Load sale (must belong to owner)
+      /* =========================
+         1️⃣ Load Sale
+      ========================= */
       const sale = await tx.clothingSales.findFirst({
         where: { sales_id, owner_id },
         select: {
           sales_id: true,
           total_amount: true,
           paid_amount: true,
-          payment_status: true,
         },
       });
 
@@ -38,7 +39,9 @@ class ClothingCustomerReturnService {
         throw e;
       }
 
-      // 2) Create return header
+      /* =========================
+         2️⃣ Create Return Header
+      ========================= */
       const ret = await tx.clothingCustomerReturn.create({
         data: {
           owner_id,
@@ -50,71 +53,72 @@ class ClothingCustomerReturnService {
 
       let returnValue = 0;
 
-      // 3) Process each return line
+      /* =========================
+         3️⃣ Process Items
+      ========================= */
       for (const it of items) {
         const sales_item_id = String(it.sales_item_id || "").trim();
         const qty = Number(it.qty);
-        const condition = String(it.condition || "good").trim().toLowerCase();
+        const condition = String(it.condition || "good").toLowerCase();
 
         if (!sales_item_id) {
-          const e = new Error("sales_item_id is required for each return item");
-          e.status = 400;
-          e.code = "VALIDATION_SALES_ITEM_ID_REQUIRED";
-          throw e;
+          throw Object.assign(new Error("sales_item_id required"), {
+            status: 400,
+            code: "VALIDATION_SALES_ITEM_ID_REQUIRED",
+          });
         }
 
         if (!Number.isInteger(qty) || qty <= 0) {
-          const e = new Error("qty must be a positive integer");
-          e.status = 400;
-          e.code = "VALIDATION_QTY_INVALID";
-          throw e;
+          throw Object.assign(new Error("qty must be positive integer"), {
+            status: 400,
+            code: "VALIDATION_QTY_INVALID",
+          });
         }
 
-        if (condition !== "good" && condition !== "damaged") {
-          const e = new Error("condition must be 'good' or 'damaged'");
-          e.status = 400;
-          e.code = "VALIDATION_CONDITION_INVALID";
-          throw e;
+        if (!["good", "damaged"].includes(condition)) {
+          throw Object.assign(new Error("condition must be good or damaged"), {
+            status: 400,
+            code: "VALIDATION_CONDITION_INVALID",
+          });
         }
 
-        // 3.1) Load sales item (must belong to THIS sale)
+        /* =========================
+           3.1 Load Sales Item
+        ========================= */
         const salesItem = await tx.clothingSalesItem.findFirst({
           where: { sales_item_id, sales_id },
           select: {
             sales_item_id: true,
             lot_id: true,
             qty: true,
+            returned_qty: true,
             sp: true,
           },
         });
 
         if (!salesItem) {
-          const e = new Error("Sales item not found in this sale");
-          e.status = 404;
-          e.code = "SALES_ITEM_NOT_FOUND";
-          throw e;
+          throw Object.assign(new Error("Sales item not found"), {
+            status: 404,
+            code: "SALES_ITEM_NOT_FOUND",
+          });
         }
 
-        // 3.2) Prevent returning more than sold (consider previous returns)
-        const alreadyReturned = await tx.clothingCustomerReturnItem.aggregate({
-          where: { sales_item_id },
-          _sum: { qty: true },
-        });
-
-        const returnedQty = Number(alreadyReturned._sum.qty || 0);
-        const availableToReturn = Number(salesItem.qty) - returnedQty;
+        const availableToReturn =
+          Number(salesItem.qty) - Number(salesItem.returned_qty || 0);
 
         if (qty > availableToReturn) {
-          const e = new Error(
-            `Return qty exceeds remaining. Sold=${salesItem.qty}, AlreadyReturned=${returnedQty}, Remaining=${availableToReturn}`
+          throw Object.assign(
+            new Error(
+              `Return exceeds available qty. Remaining=${availableToReturn}`
+            ),
+            { status: 400, code: "RETURN_EXCEEDS_SOLD" }
           );
-          e.status = 400;
-          e.code = "RETURN_EXCEEDS_SOLD";
-          throw e;
         }
 
-        // 3.3) Ensure lot belongs to THIS owner (via product.owner_id)
-        const lotOwnerCheck = await tx.clothingStockLot.findFirst({
+        /* =========================
+           3.2 Validate Lot Ownership
+        ========================= */
+        const lotCheck = await tx.clothingStockLot.findFirst({
           where: {
             lot_id: salesItem.lot_id,
             product: { owner_id },
@@ -122,14 +126,16 @@ class ClothingCustomerReturnService {
           select: { lot_id: true },
         });
 
-        if (!lotOwnerCheck) {
-          const e = new Error("Invalid lot for this owner");
-          e.status = 403;
-          e.code = "LOT_OWNER_MISMATCH";
-          throw e;
+        if (!lotCheck) {
+          throw Object.assign(new Error("Invalid lot for owner"), {
+            status: 403,
+            code: "LOT_OWNER_MISMATCH",
+          });
         }
 
-        // 3.4) Create return item
+        /* =========================
+           3.3 Create Return Item
+        ========================= */
         await tx.clothingCustomerReturnItem.create({
           data: {
             return_id: ret.return_id,
@@ -141,25 +147,39 @@ class ClothingCustomerReturnService {
           },
         });
 
-        // 3.5) Restock only if condition is good
+        /* =========================
+           3.4 Update Sales Item (returned_qty)
+        ========================= */
+        await tx.clothingSalesItem.update({
+          where: { sales_item_id },
+          data: {
+            returned_qty: { increment: qty },
+          },
+        });
+
+        /* =========================
+           3.5 Restock if GOOD
+        ========================= */
         if (condition === "good") {
           await tx.clothingStockLot.update({
             where: { lot_id: salesItem.lot_id },
-            data: { qty_remaining: { increment: qty } },
+            data: {
+              qty_remaining: { increment: qty },
+            },
           });
         }
 
-        // return value = sold price at sale time
         returnValue += Number(salesItem.sp) * qty;
       }
 
-      // 4) Update sale totals
+      /* =========================
+         4️⃣ Update Sale Totals
+      ========================= */
       const oldTotal = Number(sale.total_amount);
       const oldPaid = Number(sale.paid_amount);
 
       const newTotal = Math.max(0, oldTotal - returnValue);
 
-      // If customer paid more than newTotal => refund difference
       let refund = 0;
       let newPaid = oldPaid;
 
@@ -168,10 +188,8 @@ class ClothingCustomerReturnService {
         newPaid = newTotal;
       }
 
-      // Status rules
       let status = "pending";
-      if (newTotal === 0) status = "paid"; // everything returned
-      else if (newPaid >= newTotal) status = "paid";
+      if (newTotal === 0 || newPaid >= newTotal) status = "paid";
       else if (newPaid > 0) status = "partial";
 
       await tx.clothingSales.update({
@@ -183,7 +201,9 @@ class ClothingCustomerReturnService {
         },
       });
 
-      // 5) Update return header refund_amount
+      /* =========================
+         5️⃣ Update Return Header
+      ========================= */
       const updatedReturn = await tx.clothingCustomerReturn.update({
         where: { return_id: ret.return_id },
         data: { refund_amount: refund },
@@ -199,28 +219,41 @@ class ClothingCustomerReturnService {
           return_value: returnValue,
           new_total: newTotal,
           new_paid: newPaid,
-          remaining_amount: Math.max(0, newTotal - newPaid),
           refund_amount: refund,
+          remaining_amount: Math.max(0, newTotal - newPaid),
           payment_status: status,
         },
       };
     });
   }
 
+  /* =========================
+     LIST RETURNS
+  ========================= */
   async list(owner_id) {
     return prisma.clothingCustomerReturn.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
-      include: { sales: { select: { sales_id: true } }, items: true },
+      include: { items: true },
       take: 200,
     });
   }
 
+  /* =========================
+     GET RETURN DETAILS
+  ========================= */
   async getById(owner_id, return_id) {
     return prisma.clothingCustomerReturn.findFirst({
       where: { owner_id, return_id },
       include: {
-        sales: { select: { sales_id: true, total_amount: true, paid_amount: true, payment_status: true } },
+        sales: {
+          select: {
+            sales_id: true,
+            total_amount: true,
+            paid_amount: true,
+            payment_status: true,
+          },
+        },
         items: {
           include: {
             salesItem: {
