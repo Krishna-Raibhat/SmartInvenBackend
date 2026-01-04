@@ -7,7 +7,7 @@ const fail = (res, status, error_code, message) =>
 exports.create = async (req, res) => {
   try {
     let { category_name } = req.body;
-    category_name = String(category_name || "").trim();
+    category_name = String(category_name || "").trim() .toLowerCase();
 
     if (!category_name) {
       return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "category_name is required.");
@@ -45,7 +45,7 @@ exports.update = async (req, res) => {
   try {
     const { category_id } = req.params;
     let { category_name } = req.body;
-    category_name = String(category_name || "").trim();
+    category_name = String(category_name || "").trim() .toLowerCase(); //;
 
     if (!category_name) {
       return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "category_name is required.");
