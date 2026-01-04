@@ -3,6 +3,7 @@ const {prisma}  = require("../prisma/client");
 
 class ClothingColorService {
   async create({ color_name }) {
+    color_name = String(color_name).trim().toLowerCase(); // ✅ normalize
     try {
       return await prisma.clothingColor.create({
         data: { color_name },
@@ -31,6 +32,7 @@ class ClothingColorService {
   }
 
   async update(color_id, { color_name }) {
+    color_name = String(color_name).trim().toLowerCase(); 
     const existing = await prisma.clothingColor.findUnique({
       where: { color_id },
       select: { color_id: true },
