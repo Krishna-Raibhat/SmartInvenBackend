@@ -58,3 +58,26 @@ exports.markAllRead = async (req, res) => {
     fail(res, 500, "SERVER_ERROR", e.message);
   }
 };
+// DELETE /api/clothing/notifications/:id
+exports.deleteOne = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { id } = req.params;
+
+    const n = await prisma.clothingNotification.findFirst({
+      where: { notification_id: id, owner_id },
+      select: { notification_id: true },
+    });
+
+    if (!n)
+      return fail(res, 404, "NOT_FOUND", "Notification not found");
+
+    await prisma.clothingNotification.delete({
+      where: { notification_id: id },
+    });
+
+    return res.json({ success: true, message: "Deleted" });
+  } catch (e) {
+    return fail(res, 500, "SERVER_ERROR", e.message);
+  }
+};

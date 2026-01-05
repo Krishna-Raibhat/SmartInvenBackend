@@ -1,9 +1,13 @@
 // src/services/clothingSupplierReturnService.js
-const {prisma}  = require("../prisma/client");
+const { prisma } = require("../prisma/client");
 
 const allowedStatus = new Set(["pending", "approved", "completed", "cancelled"]);
 
 class ClothingSupplierReturnService {
+
+  // ======================================================
+  // CREATE RETURN (NO STOCK CHANGE HERE)
+  // ======================================================
   async createReturn(owner_id, payload) {
     const { supplier_id, note, items } = payload;
 
@@ -21,7 +25,6 @@ class ClothingSupplierReturnService {
       throw e;
     }
 
-    // supplier must belong to owner
     const supplier = await prisma.clothingSupplier.findFirst({
       where: { supplier_id, owner_id },
       select: { supplier_id: true },
@@ -43,13 +46,9 @@ class ClothingSupplierReturnService {
         },
       });
 
-      const createdItems = [];
-
       for (const it of items) {
         const lot_id = String(it.lot_id || "").trim();
         const qty = Number(it.qty);
-        const reason = it.reason ? String(it.reason) : null;
-        const lineNote = it.note ? String(it.note) : null;
 
         if (!lot_id) {
           const e = new Error("lot_id is required");
@@ -65,10 +64,10 @@ class ClothingSupplierReturnService {
           throw e;
         }
 
-        // lot must exist and be linked to supplier? (optional)
+        // owner-safe lot check
         const lot = await tx.clothingStockLot.findFirst({
-          where: { lot_id, supplier_id, product: { owner_id } },
-          select: { lot_id: true, qty_remaining: true },
+          where: { lot_id, product: { owner_id } },
+          select: { lot_id: true },
         });
 
         if (!lot) {
@@ -78,39 +77,30 @@ class ClothingSupplierReturnService {
           throw e;
         }
 
-        if (Number(lot.qty_remaining) < qty) {
-          const e = new Error("Not enough stock to return from this lot");
-          e.status = 400;
-          e.code = "STOCK_NOT_ENOUGH";
-          throw e;
-        }
-
-        // ✅ decrement stock immediately
-        await tx.clothingStockLot.update({
-          where: { lot_id },
-          data: { qty_remaining: { decrement: qty } },
-        });
-
-        const created = await tx.clothingSupplierReturnItem.create({
+        await tx.clothingSupplierReturnItem.create({
           data: {
             return_id: header.return_id,
             lot_id,
             qty,
-            reason,
-            note: lineNote,
+            reason: it.reason ? String(it.reason) : null,
+            note: it.note ? String(it.note) : null,
           },
         });
-
-        createdItems.push(created);
       }
 
       return tx.clothingSupplierReturn.findUnique({
         where: { return_id: header.return_id },
-        include: { items: true, supplier: { select: { supplier_id: true, supplier_name: true } } },
+        include: {
+          supplier: { select: { supplier_id: true, supplier_name: true } },
+          items: true,
+        },
       });
     });
   }
 
+  // ======================================================
+  // LIST
+  // ======================================================
   async list(owner_id) {
     return prisma.clothingSupplierReturn.findMany({
       where: { owner_id },
@@ -123,6 +113,9 @@ class ClothingSupplierReturnService {
     });
   }
 
+  // ======================================================
+  // GET BY ID
+  // ======================================================
   async getById(owner_id, return_id) {
     return prisma.clothingSupplierReturn.findFirst({
       where: { owner_id, return_id },
@@ -143,6 +136,9 @@ class ClothingSupplierReturnService {
     });
   }
 
+  // ======================================================
+  // UPDATE STATUS (STOCK CHANGES ONLY ON COMPLETED)
+  // ======================================================
   async updateStatus(owner_id, return_id, status) {
     status = String(status || "").trim().toLowerCase();
     if (!allowedStatus.has(status)) {
@@ -152,25 +148,6 @@ class ClothingSupplierReturnService {
       throw e;
     }
 
-    const existing = await prisma.clothingSupplierReturn.findFirst({
-      where: { owner_id, return_id },
-      select: { return_id: true, status: true },
-    });
-    if (!existing) {
-      const e = new Error("Return not found");
-      e.status = 404;
-      e.code = "RETURN_NOT_FOUND";
-      throw e;
-    }
-
-    return prisma.clothingSupplierReturn.update({
-      where: { return_id },
-      data: { status },
-    });
-  }
-
-  // Optional but VERY useful: Cancel return and put stock back
-  async cancel(owner_id, return_id) {
     return prisma.$transaction(async (tx) => {
       const ret = await tx.clothingSupplierReturn.findFirst({
         where: { owner_id, return_id },
@@ -184,34 +161,79 @@ class ClothingSupplierReturnService {
         throw e;
       }
 
+      // ❌ cannot change after completed
       if (ret.status === "completed") {
-        const e = new Error("Completed return cannot be cancelled");
+        const e = new Error("Completed return cannot be modified");
         e.status = 400;
-        e.code = "RETURN_CANNOT_CANCEL";
+        e.code = "RETURN_ALREADY_COMPLETED";
         throw e;
       }
 
-      // ✅ add stock back
-      for (const item of ret.items) {
-        await tx.clothingStockLot.update({
-          where: { lot_id: item.lot_id },
-          data: { qty_remaining: { increment: item.qty } },
-        });
+      // ✅ deduct stock ONLY when completing
+      if (status === "completed") {
+        for (const item of ret.items) {
+          const lot = await tx.clothingStockLot.findFirst({
+            where: { lot_id: item.lot_id, product: { owner_id } },
+            select: { lot_id: true, qty_remaining: true },
+          });
+
+          if (!lot || Number(lot.qty_remaining) < item.qty) {
+            const e = new Error("Not enough stock to complete supplier return");
+            e.status = 400;
+            e.code = "STOCK_NOT_ENOUGH";
+            throw e;
+          }
+
+          await tx.clothingStockLot.update({
+            where: { lot_id: item.lot_id },
+            data: { qty_remaining: { decrement: item.qty } },
+          });
+        }
       }
 
-      // mark cancelled
       return tx.clothingSupplierReturn.update({
         where: { return_id },
-        data: { status: "cancelled" },
+        data: { status },
       });
     });
   }
 
-  async delete(owner_id, return_id) {
-    // safer: only allow delete if cancelled/pending
+  // ======================================================
+  // CANCEL (NO STOCK CHANGE)
+  // ======================================================
+  async cancel(owner_id, return_id) {
     const ret = await prisma.clothingSupplierReturn.findFirst({
       where: { owner_id, return_id },
-      select: { return_id: true, status: true },
+      select: { status: true },
+    });
+
+    if (!ret) {
+      const e = new Error("Return not found");
+      e.status = 404;
+      e.code = "RETURN_NOT_FOUND";
+      throw e;
+    }
+
+    if (ret.status === "completed") {
+      const e = new Error("Completed return cannot be cancelled");
+      e.status = 400;
+      e.code = "RETURN_CANNOT_CANCEL";
+      throw e;
+    }
+
+    return prisma.clothingSupplierReturn.update({
+      where: { return_id },
+      data: { status: "cancelled" },
+    });
+  }
+
+  // ======================================================
+  // DELETE (SAFE)
+  // ======================================================
+  async delete(owner_id, return_id) {
+    const ret = await prisma.clothingSupplierReturn.findFirst({
+      where: { owner_id, return_id },
+      select: { status: true },
     });
 
     if (!ret) return null;
@@ -223,8 +245,9 @@ class ClothingSupplierReturnService {
       throw e;
     }
 
-    // If you delete, you probably want stock back → call cancel first in UI.
-    await prisma.clothingSupplierReturn.delete({ where: { return_id } });
+    await prisma.clothingSupplierReturn.delete({
+      where: { return_id },
+    });
     return true;
   }
 }

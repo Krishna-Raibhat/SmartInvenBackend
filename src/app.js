@@ -23,7 +23,8 @@ const stockOutCreditRoutes = require("./routes/stockOutCreditRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 
 const clothingSupplierRoutes = require("./routes/clothingSupplierRoutes");
-const clothingCategoryRoutes = require("./routes/clothingCategoryRoutes");const clothingSizeRoutes = require("./routes/clothingSizeRoutes");
+const clothingCategoryRoutes = require("./routes/clothingCategoryRoutes");
+const clothingSizeRoutes = require("./routes/clothingSizeRoutes");
 const clothingColorRoutes = require("./routes/clothingColorRoutes");
 const clothingProductRoutes = require("./routes/clothingProductRoutes");
 const clothingStockLotRoutes = require("./routes/clothingStockLotRoutes");
@@ -67,7 +68,10 @@ app.use("/api/hardware/top-selling-products", hardwareTopSelligRoutes);
 
 app.use("/api/notifications", notificationRoutes);
 
-require("./cron/lowStockCron");
+require("./cron/lowStockCronAll");
+
+
+
 // 404
 
 app.use("/api/clothing/suppliers", clothingSupplierRoutes);
@@ -85,6 +89,7 @@ app.use("/api/clothing/notifications", require("./routes/clothingNotificationRou
 app.use("/api/clothing/reports", require("./routes/clothingReportRoutes"));
 app.use("/api/clothing/dashboard", require("./routes/clothingDashboardRoutes"));
 app.use("/api/clothing/inventory", require("./routes/clothingInventoryRoutes"));
+app.use("/api/clothing/activities", require("./routes/clothingActivityRoutes"));
 
 /* ==========================
    SERVER START
