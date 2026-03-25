@@ -6,4 +6,7 @@ const ctrl = require("../controllers/clothingStockLotController");
 // bulk stock-in
 router.post("/bulk", auth, ctrl.bulkCreate);
 
+// get all lots for authenticated owner
+router.get("/", auth, ctrl.getAll);
+
 module.exports = router;

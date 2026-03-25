@@ -4,6 +4,16 @@ const service = require("../services/clothingStockLotService");
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
+exports.getAll = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const data = await service.getAll(owner_id);
+    return res.status(200).json({ success: true, data, count: data.length });
+  } catch (err) {
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
 exports.bulkCreate = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;

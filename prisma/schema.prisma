@@ -337,6 +337,9 @@ model ClothingStockLot {
   qty_remaining Int
   notes         String?
 
+  barcode           String?  @unique
+  barcode_image_url String?
+
   salesItems          ClothingSalesItem[]
   customerReturnItems ClothingCustomerReturnItem[]
   supplierReturnItems ClothingSupplierReturnItem[]

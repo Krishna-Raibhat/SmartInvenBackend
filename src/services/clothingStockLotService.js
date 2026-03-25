@@ -1,7 +1,37 @@
 // src/services/clothingStockLotService.js
 const { prisma } = require("../prisma/client");
+const { generateAndUploadBarcode } = require("../utils/barcode");
+const { v4: uuidv4 } = require("uuid");
 
 class ClothingStockLotService {
+  async getAll(owner_id) {
+    const lots = await prisma.clothingStockLot.findMany({
+      where: { product: { owner_id } },
+      include: {
+        product: {
+          select: {
+            product_id: true,
+            product_name: true,
+            category: { select: { category_id: true, category_name: true } },
+          },
+        },
+        supplier: {
+          select: { supplier_id: true, supplier_name: true, phone: true },
+        },
+        color: { select: { color_id: true, color_name: true } },
+        size: { select: { size_id: true, size_name: true } },
+      },
+      orderBy: { created_at: "desc" },
+    });
+
+    return lots.map((l) => ({
+      ...l,
+      barcode_image_url: l.barcode_image_url
+        ? `https://s3-np1.datahub.com.np/${process.env.AWS_S3_BUCKET}/${l.barcode_image_url}`
+        : null,
+    }));
+  }
+
   async bulkCreate(owner_id, payload) {
     const { product_id, supplier_id, cp, sp, notes, variants } = payload;
 
@@ -171,23 +201,33 @@ class ClothingStockLotService {
     }
 
     // -------------------------
-    // 4) Fast insert (transaction optional, but keep it safe)
+    // 4) Generate barcodes + upload to S3 per lot
+    // -------------------------
+    console.log(`[SERVICE] Generating barcodes for ${rows.length} lots...`);
+    const rowsWithBarcodes = await Promise.all(
+      rows.map(async (row) => {
+        const lot_id = uuidv4();
+        const { barcode, barcode_image_url } = await generateAndUploadBarcode(lot_id);
+        return { lot_id, ...row, barcode, barcode_image_url };
+      })
+    );
+    console.log(`[SERVICE] All barcodes generated successfully`);
+
+    // -------------------------
+    // 5) Insert (transaction)
     // -------------------------
     await prisma.$transaction(async (tx) => {
       await tx.clothingStockLot.createMany({
-        data: rows,
+        data: rowsWithBarcodes,
       });
     });
 
     // -------------------------
-    // 5) Return created lots (fetch after insert)
+    // 6) Return created lots
     // -------------------------
+    const lotIds = rowsWithBarcodes.map(r => r.lot_id);
     const createdLots = await prisma.clothingStockLot.findMany({
-      where: {
-        product_id,
-        supplier_id,
-        OR: rows.map(r => ({ color_id: r.color_id, size_id: r.size_id })),
-      },
+      where: { lot_id: { in: lotIds } },
       include: {
         product: { select: { product_name: true, category: { select: { category_name: true } } } },
         supplier: { select: { supplier_name: true, phone: true } },
