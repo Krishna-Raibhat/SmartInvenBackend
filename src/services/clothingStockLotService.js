@@ -4,6 +4,38 @@ const { generateAndUploadBarcode } = require("../utils/barcode");
 const { v4: uuidv4 } = require("uuid");
 
 class ClothingStockLotService {
+  async getByBarcode(owner_id, barcode) {
+    const lot = await prisma.clothingStockLot.findFirst({
+      where: { barcode, product: { owner_id } },
+      include: {
+        product: {
+          select: {
+            product_id: true,
+            product_name: true,
+            category: { select: { category_id: true, category_name: true } },
+          },
+        },
+        supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
+        color: { select: { color_id: true, color_name: true } },
+        size: { select: { size_id: true, size_name: true } },
+      },
+    });
+
+    if (!lot) {
+      const e = new Error("Lot not found for this barcode");
+      e.status = 404;
+      e.code = "LOT_NOT_FOUND";
+      throw e;
+    }
+
+    return {
+      ...lot,
+      barcode_image_url: lot.barcode_image_url
+        ? `https://s3-np1.datahub.com.np/${process.env.AWS_S3_BUCKET}/${lot.barcode_image_url}`
+        : null,
+    };
+  }
+
   async getAll(owner_id) {
     const lots = await prisma.clothingStockLot.findMany({
       where: { product: { owner_id } },

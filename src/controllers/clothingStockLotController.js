@@ -14,6 +14,18 @@ exports.getAll = async (req, res) => {
   }
 };
 
+exports.getByBarcode = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { barcode } = req.params;
+    const data = await service.getByBarcode(owner_id, barcode);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
 exports.bulkCreate = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
