@@ -39,4 +39,13 @@ function getS3Url(key) {
   return `https://s3-np1.datahub.com.np/${BUCKET}/${key}`;
 }
 
-module.exports = { uploadToS3, getS3Url };
+/**
+ * Stream an object from S3 by key.
+ * @param {string} key
+ * @returns {Promise<stream.Readable>}
+ */
+async function getObject(key) {
+  return client.getObject(BUCKET, key);
+}
+
+module.exports = { uploadToS3, getS3Url, getObject };

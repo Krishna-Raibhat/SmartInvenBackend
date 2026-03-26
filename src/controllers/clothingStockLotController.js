@@ -14,6 +14,30 @@ exports.getAll = async (req, res) => {
   }
 };
 
+exports.getBarcodeImage = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { lot_id } = req.params;
+
+    const lot = await require("../prisma/client").prisma.clothingStockLot.findFirst({
+      where: { lot_id, product: { owner_id } },
+      select: { barcode_image_url: true },
+    });
+
+    if (!lot || !lot.barcode_image_url) {
+      return fail(res, 404, "NOT_FOUND", "Barcode image not found");
+    }
+
+    const { getObject } = require("../utils/s3");
+    const stream = await getObject(lot.barcode_image_url);
+
+    res.setHeader("Content-Type", "image/png");
+    stream.pipe(res);
+  } catch (err) {
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
 exports.getByBarcode = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;

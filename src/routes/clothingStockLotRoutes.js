@@ -12,4 +12,7 @@ router.get("/", auth, ctrl.getAll);
 // get lot by barcode scan
 router.get("/scan/:barcode", auth, ctrl.getByBarcode);
 
+// preview barcode image
+router.get("/:lot_id/barcode-image", auth, ctrl.getBarcodeImage);
+
 module.exports = router;
