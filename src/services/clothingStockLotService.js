@@ -212,27 +212,6 @@ class ClothingStockLotService {
     }
 
     // -------------------------
-    // 3) Check duplicates in DB in ONE query (owner-safe)
-    // -------------------------
-    const existingLots = await prisma.clothingStockLot.findMany({
-      where: {
-        product_id,
-        supplier_id,
-        OR: rows.map(r => ({ color_id: r.color_id, size_id: r.size_id })),
-      },
-      select: { color_id: true, size_id: true, lot_id: true },
-    });
-
-    if (existingLots.length) {
-      const first = existingLots[0];
-      const e = new Error("Stock lot already exists for this product/color/size/supplier");
-      e.status = 409;
-      e.code = "LOT_ALREADY_EXISTS";
-      e.meta = { example: first };
-      throw e;
-    }
-
-    // -------------------------
     // 4) Generate barcodes + upload to S3 per lot
     // -------------------------
     console.log(`[SERVICE] Generating barcodes for ${rows.length} lots...`);
@@ -267,9 +246,7 @@ class ClothingStockLotService {
         size: { select: { size_name: true } },
       },
       orderBy: { created_at: "desc" },
-    });
-
-    return {
+    });    return {
       product: {
         product_id: product.product_id,
         product_name: product.product_name,
