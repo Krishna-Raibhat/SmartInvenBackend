@@ -7,7 +7,12 @@ class ClothingInventoryService {
       owner_id,
       ...(category_id ? { category_id } : {}),
       ...(search
-        ? { product_name: { contains: String(search).trim(), mode: "insensitive" } }
+        ? {
+            product_name: {
+              contains: String(search).trim(),
+              mode: "insensitive",
+            },
+          }
         : {}),
     };
 
@@ -32,22 +37,77 @@ class ClothingInventoryService {
       _sum: { qty_remaining: true },
     });
 
-    const mapQty = new Map(sums.map(s => [s.product_id, Number(s._sum.qty_remaining || 0)]));
+    const mapQty = new Map(
+      sums.map((s) => [s.product_id, Number(s._sum.qty_remaining || 0)]),
+    );
 
-    return products.map(p => ({
+    return products.map((p) => ({
       ...p,
       total_qty_remaining: mapQty.get(p.product_id) ?? 0,
     }));
   }
 
   // 2) Product details with all lots (variants)
+  // async getProductDetails(owner_id, product_id) {
+  //   const product = await prisma.clothingProduct.findFirst({
+  //     where: { product_id, owner_id },
+  //     select: {
+  //       product_id: true,
+  //       product_name: true,
+  //       category: { select: { category_id: true, category_name: true } },
+  //       created_at: true,
+  //     },
+  //   });
+
+  //   if (!product) {
+  //     const e = new Error("Product not found for this owner");
+  //     e.status = 404;
+  //     e.code = "PRODUCT_NOT_FOUND";
+  //     throw e;
+  //   }
+
+  //   const lots = await prisma.clothingStockLot.findMany({
+  //     where: { product_id ,product: { owner_id },},
+  //     orderBy: [{ created_at: "desc" }],
+  //     include: {
+  //       supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
+  //       size: { select: { size_id: true, size_name: true } },
+  //       color: { select: { color_id: true, color_name: true } },
+  //     },
+  //   });
+
+  //   const total_qty_remaining = lots.reduce((a, l) => a + Number(l.qty_remaining || 0), 0);
+
+  //   return {
+  //     product,
+  //     total_qty_remaining,
+  //     lots: lots.map(l => ({
+  //       lot_id: l.lot_id,
+  //       supplier: l.supplier,
+  //       color: l.color,
+  //       size: l.size,
+  //       cp: Number(l.cp),
+  //       sp: Number(l.sp),
+  //       qty_in: l.qty_in,
+  //       qty_remaining: l.qty_remaining,
+  //       notes: l.notes,
+  //       created_at: l.created_at,
+  //     })),
+  //   };
+  // }
+
   async getProductDetails(owner_id, product_id) {
     const product = await prisma.clothingProduct.findFirst({
       where: { product_id, owner_id },
       select: {
         product_id: true,
         product_name: true,
-        category: { select: { category_id: true, category_name: true } },
+        category: {
+          select: {
+            category_id: true,
+            category_name: true,
+          },
+        },
         created_at: true,
       },
     });
@@ -60,21 +120,43 @@ class ClothingInventoryService {
     }
 
     const lots = await prisma.clothingStockLot.findMany({
-      where: { product_id ,product: { owner_id },},
+      where: {
+        product_id,
+        product: { owner_id },
+      },
       orderBy: [{ created_at: "desc" }],
       include: {
-        supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
-        size: { select: { size_id: true, size_name: true } },
-        color: { select: { color_id: true, color_name: true } },
+        supplier: {
+          select: {
+            supplier_id: true,
+            supplier_name: true,
+            phone: true,
+          },
+        },
+        size: {
+          select: {
+            size_id: true,
+            size_name: true,
+          },
+        },
+        color: {
+          select: {
+            color_id: true,
+            color_name: true,
+          },
+        },
       },
     });
 
-    const total_qty_remaining = lots.reduce((a, l) => a + Number(l.qty_remaining || 0), 0);
+    const total_qty_remaining = lots.reduce(
+      (a, l) => a + Number(l.qty_remaining || 0),
+      0,
+    );
 
     return {
       product,
       total_qty_remaining,
-      lots: lots.map(l => ({
+      lots: lots.map((l) => ({
         lot_id: l.lot_id,
         supplier: l.supplier,
         color: l.color,
@@ -84,6 +166,8 @@ class ClothingInventoryService {
         qty_in: l.qty_in,
         qty_remaining: l.qty_remaining,
         notes: l.notes,
+        barcode: l.barcode ?? null,
+        barcode_image_url: l.barcode_image_url ?? null,
         created_at: l.created_at,
       })),
     };
@@ -96,150 +180,149 @@ class ClothingInventoryService {
   // - change qty_remaining safely (delta or set)
   // src/services/clothingInventoryService.js
 
+  async updateLot(owner_id, lot_id, payload) {
+    const { notes, cp, sp, qty_remaining, qty_in } = payload;
 
-async updateLot(owner_id, lot_id, payload) {
-  const { notes, cp, sp, qty_remaining, qty_in } = payload;
+    const lot = await prisma.clothingStockLot.findFirst({
+      where: { lot_id, product: { owner_id } },
+      select: {
+        lot_id: true,
+        qty_remaining: true,
+        qty_in: true,
+      },
+    });
 
-  const lot = await prisma.clothingStockLot.findFirst({
-    where: { lot_id, product: { owner_id } },
-    select: {
-      lot_id: true,
-      qty_remaining: true,
-      qty_in: true,
-    },
-  });
-
-  if (!lot) {
-    const e = new Error("Stock lot not found");
-    e.status = 404;
-    e.code = "LOT_NOT_FOUND";
-    throw e;
-  }
-
-  const data = {};
-
-  // notes
-  if (notes !== undefined) data.notes = notes ? String(notes) : null;
-
-  // cp
-  if (cp !== undefined) {
-    const n = Number(cp);
-    if (!Number.isFinite(n) || n < 0) {
-      const e = new Error("cp must be a valid number");
-      e.status = 400;
-      e.code = "VALIDATION_CP_INVALID";
+    if (!lot) {
+      const e = new Error("Stock lot not found");
+      e.status = 404;
+      e.code = "LOT_NOT_FOUND";
       throw e;
     }
-    data.cp = n;
-  }
 
-  // sp
-  if (sp !== undefined) {
-    const n = Number(sp);
-    if (!Number.isFinite(n) || n < 0) {
-      const e = new Error("sp must be a valid number");
-      e.status = 400;
-      e.code = "VALIDATION_SP_INVALID";
-      throw e;
+    const data = {};
+
+    // notes
+    if (notes !== undefined) data.notes = notes ? String(notes) : null;
+
+    // cp
+    if (cp !== undefined) {
+      const n = Number(cp);
+      if (!Number.isFinite(n) || n < 0) {
+        const e = new Error("cp must be a valid number");
+        e.status = 400;
+        e.code = "VALIDATION_CP_INVALID";
+        throw e;
+      }
+      data.cp = n;
     }
-    data.sp = n;
-  }
 
-  const oldIn = Number(lot.qty_in);
-  const oldRem = Number(lot.qty_remaining);
-  const sold = oldIn - oldRem; // already sold qty from this lot (cannot reduce below this)
-
-  const hasQtyIn = qty_in !== undefined;
-  const hasQtyRem = qty_remaining !== undefined;
-
-  let newIn = oldIn;
-  let newRem = oldRem;
-
-  // validate qty_in if provided
-  if (hasQtyIn) {
-    const q = Number(qty_in);
-    if (!Number.isInteger(q) || q < 0) {
-      const e = new Error("qty_in must be an integer >= 0");
-      e.status = 400;
-      e.code = "VALIDATION_QTY_IN_INVALID";
-      throw e;
+    // sp
+    if (sp !== undefined) {
+      const n = Number(sp);
+      if (!Number.isFinite(n) || n < 0) {
+        const e = new Error("sp must be a valid number");
+        e.status = 400;
+        e.code = "VALIDATION_SP_INVALID";
+        throw e;
+      }
+      data.sp = n;
     }
-    // qty_in cannot be less than already sold
-    if (q < sold) {
-      const e = new Error(
-        `qty_in cannot be less than already sold qty (${sold}).`
-      );
-      e.status = 400;
-      e.code = "QTY_IN_LT_SOLD";
-      throw e;
+
+    const oldIn = Number(lot.qty_in);
+    const oldRem = Number(lot.qty_remaining);
+    const sold = oldIn - oldRem; // already sold qty from this lot (cannot reduce below this)
+
+    const hasQtyIn = qty_in !== undefined;
+    const hasQtyRem = qty_remaining !== undefined;
+
+    let newIn = oldIn;
+    let newRem = oldRem;
+
+    // validate qty_in if provided
+    if (hasQtyIn) {
+      const q = Number(qty_in);
+      if (!Number.isInteger(q) || q < 0) {
+        const e = new Error("qty_in must be an integer >= 0");
+        e.status = 400;
+        e.code = "VALIDATION_QTY_IN_INVALID";
+        throw e;
+      }
+      // qty_in cannot be less than already sold
+      if (q < sold) {
+        const e = new Error(
+          `qty_in cannot be less than already sold qty (${sold}).`,
+        );
+        e.status = 400;
+        e.code = "QTY_IN_LT_SOLD";
+        throw e;
+      }
+      newIn = q;
     }
-    newIn = q;
-  }
 
-  // validate qty_remaining if provided
-  if (hasQtyRem) {
-    const q = Number(qty_remaining);
-    if (!Number.isInteger(q) || q < 0) {
-      const e = new Error("qty_remaining must be an integer >= 0");
-      e.status = 400;
-      e.code = "VALIDATION_QTY_REMAINING_INVALID";
-      throw e;
+    // validate qty_remaining if provided
+    if (hasQtyRem) {
+      const q = Number(qty_remaining);
+      if (!Number.isInteger(q) || q < 0) {
+        const e = new Error("qty_remaining must be an integer >= 0");
+        e.status = 400;
+        e.code = "VALIDATION_QTY_REMAINING_INVALID";
+        throw e;
+      }
+      newRem = q;
     }
-    newRem = q;
-  }
 
-  // if only qty_remaining is provided, keep qty_in same BUT ensure remaining <= qty_in
-  // if remaining is bigger, either error or auto-raise qty_in. (I recommend ERROR for correctness)
-  if (hasQtyRem && !hasQtyIn) {
-    if (newRem > newIn) {
-      const e = new Error("qty_remaining cannot be greater than qty_in");
-      e.status = 400;
-      e.code = "QTY_REMAINING_GT_QTY_IN";
-      throw e;
+    // if only qty_remaining is provided, keep qty_in same BUT ensure remaining <= qty_in
+    // if remaining is bigger, either error or auto-raise qty_in. (I recommend ERROR for correctness)
+    if (hasQtyRem && !hasQtyIn) {
+      if (newRem > newIn) {
+        const e = new Error("qty_remaining cannot be greater than qty_in");
+        e.status = 400;
+        e.code = "QTY_REMAINING_GT_QTY_IN";
+        throw e;
+      }
     }
-  }
 
-  // if qty_in was changed but qty_remaining not provided,
-  // keep sold qty same by recomputing remaining:
-  if (hasQtyIn && !hasQtyRem) {
-    newRem = newIn - sold;
-  }
-
-  // if both provided, final consistency checks:
-  if (hasQtyIn && hasQtyRem) {
-    if (newRem > newIn) {
-      const e = new Error("qty_remaining cannot be greater than qty_in");
-      e.status = 400;
-      e.code = "QTY_REMAINING_GT_QTY_IN";
-      throw e;
+    // if qty_in was changed but qty_remaining not provided,
+    // keep sold qty same by recomputing remaining:
+    if (hasQtyIn && !hasQtyRem) {
+      newRem = newIn - sold;
     }
-    // also ensure sold qty is not changed to negative
-    const newSold = newIn - newRem;
-    if (newSold < sold) {
-      const e = new Error(
-        `You cannot reduce sold history. Already sold=${sold}, but new sold would be ${newSold}.`
-      );
-      e.status = 400;
-      e.code = "SOLD_HISTORY_INVALID";
-      throw e;
+
+    // if both provided, final consistency checks:
+    if (hasQtyIn && hasQtyRem) {
+      if (newRem > newIn) {
+        const e = new Error("qty_remaining cannot be greater than qty_in");
+        e.status = 400;
+        e.code = "QTY_REMAINING_GT_QTY_IN";
+        throw e;
+      }
+      // also ensure sold qty is not changed to negative
+      const newSold = newIn - newRem;
+      if (newSold < sold) {
+        const e = new Error(
+          `You cannot reduce sold history. Already sold=${sold}, but new sold would be ${newSold}.`,
+        );
+        e.status = 400;
+        e.code = "SOLD_HISTORY_INVALID";
+        throw e;
+      }
     }
+
+    // apply if qty fields changed
+    if (hasQtyIn) data.qty_in = newIn;
+    if (hasQtyRem || hasQtyIn) data.qty_remaining = newRem;
+
+    return prisma.clothingStockLot.update({
+      where: { lot_id },
+      data,
+      include: {
+        product: { select: { product_name: true } },
+        supplier: { select: { supplier_name: true } },
+        color: { select: { color_name: true } },
+        size: { select: { size_name: true } },
+      },
+    });
   }
-
-  // apply if qty fields changed
-  if (hasQtyIn) data.qty_in = newIn;
-  if (hasQtyRem || hasQtyIn) data.qty_remaining = newRem;
-
-  return prisma.clothingStockLot.update({
-    where: { lot_id },
-    data,
-    include: {
-      product: { select: { product_name: true } },
-      supplier: { select: { supplier_name: true } },
-      color: { select: { color_name: true } },
-      size: { select: { size_name: true } },
-    },
-  });
-}
 
   // 4) Bulk upsert variants for product:
   // Payload example:
@@ -307,7 +390,12 @@ async updateLot(owner_id, lot_id, payload) {
     const cpNum = Number(cp);
     const spNum = Number(sp);
 
-    if (!Number.isFinite(cpNum) || cpNum < 0 || !Number.isFinite(spNum) || spNum < 0) {
+    if (
+      !Number.isFinite(cpNum) ||
+      cpNum < 0 ||
+      !Number.isFinite(spNum) ||
+      spNum < 0
+    ) {
       const e = new Error("cp and sp must be valid numbers");
       e.status = 400;
       e.code = "VALIDATION_PRICE_INVALID";
@@ -315,21 +403,31 @@ async updateLot(owner_id, lot_id, payload) {
     }
 
     // ✅ SPEED FIX: prefetch all colors + sizes BEFORE transaction (avoid tx timeout)
-    const colorIds = [...new Set(variants.map(v => v.color_id).filter(Boolean))];
+    const colorIds = [
+      ...new Set(variants.map((v) => v.color_id).filter(Boolean)),
+    ];
 
     const sizeIds = [
       ...new Set(
-        variants.flatMap(v => (v.sizes || []).map(s => s.size_id).filter(Boolean))
+        variants.flatMap((v) =>
+          (v.sizes || []).map((s) => s.size_id).filter(Boolean),
+        ),
       ),
     ];
 
     const [colors, sizes] = await Promise.all([
-      prisma.clothingColor.findMany({ where: { color_id: { in: colorIds } }, select: { color_id: true } }),
-      prisma.clothingSize.findMany({ where: { size_id: { in: sizeIds } }, select: { size_id: true } }),
+      prisma.clothingColor.findMany({
+        where: { color_id: { in: colorIds } },
+        select: { color_id: true },
+      }),
+      prisma.clothingSize.findMany({
+        where: { size_id: { in: sizeIds } },
+        select: { size_id: true },
+      }),
     ]);
 
-    const colorSet = new Set(colors.map(c => c.color_id));
-    const sizeSet = new Set(sizes.map(s => s.size_id));
+    const colorSet = new Set(colors.map((c) => c.color_id));
+    const sizeSet = new Set(sizes.map((s) => s.size_id));
 
     for (const cid of colorIds) {
       if (!colorSet.has(cid)) {
@@ -437,7 +535,7 @@ async updateLot(owner_id, lot_id, payload) {
           updated,
         };
       },
-      { timeout: 20000 } // avoids the 5s interactive tx timeout for bigger payloads
+      { timeout: 20000 }, // avoids the 5s interactive tx timeout for bigger payloads
     );
   }
 }
