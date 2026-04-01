@@ -1,5 +1,5 @@
 // src/services/clothingSalesService.js
-const {prisma}  = require("../prisma/client");
+const { prisma } = require("../prisma/client");
 const PDFDocument = require("pdfkit");
 class ClothingSalesService {
   // ✅ CREATE SALE (can auto create customer)
@@ -112,7 +112,9 @@ class ClothingSalesService {
         });
 
         if (!lot) {
-          const e = new Error("Stock lot not found for given product/size/color");
+          const e = new Error(
+            "Stock lot not found for given product/size/color",
+          );
           e.status = 404;
           e.code = "LOT_NOT_FOUND";
           throw e;
@@ -172,7 +174,11 @@ class ClothingSalesService {
 
       const updatedHeader = await tx.clothingSales.update({
         where: { sales_id: header.sales_id },
-        data: { total_amount: totalAmount, paid_amount: paid, payment_status: finalStatus },
+        data: {
+          total_amount: totalAmount,
+          paid_amount: paid,
+          payment_status: finalStatus,
+        },
       });
 
       return {
@@ -186,7 +192,15 @@ class ClothingSalesService {
     return prisma.clothingSales.findFirst({
       where: { sales_id, owner_id },
       include: {
-        customer: { select: { customer_id: true, full_name: true, phone: true, email: true, address: true } },
+        customer: {
+          select: {
+            customer_id: true,
+            full_name: true,
+            phone: true,
+            email: true,
+            address: true,
+          },
+        },
         items: {
           orderBy: { created_at: "asc" },
           include: {
@@ -203,16 +217,27 @@ class ClothingSalesService {
     return prisma.clothingSales.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
-      include: { customer: { select: { customer_id: true, full_name: true, phone: true } } },
+      include: {
+        customer: {
+          select: { customer_id: true, full_name: true, phone: true },
+        },
+      },
       take: 200,
     });
   }
 
   async listCredit(owner_id) {
     return prisma.clothingSales.findMany({
-      where: { owner_id, OR: [{ payment_status: "pending" }, { payment_status: "partial" }] },
+      where: {
+        owner_id,
+        OR: [{ payment_status: "pending" }, { payment_status: "partial" }],
+      },
       orderBy: { created_at: "desc" },
-      include: { customer: { select: { customer_id: true, full_name: true, phone: true } } },
+      include: {
+        customer: {
+          select: { customer_id: true, full_name: true, phone: true },
+        },
+      },
       take: 200,
     });
   }
@@ -283,27 +308,38 @@ class ClothingSalesService {
       sale_id: sale.sales_id,
       created_at: sale.created_at,
       payment_status: sale.payment_status,
-      totals: { total_amount: total, paid_amount: paid, remaining_amount: remaining },
+      totals: {
+        total_amount: total,
+        paid_amount: paid,
+        remaining_amount: remaining,
+      },
       owner,
       customer: sale.customer,
-      items: sale.items.map((it) => ({
-        product_name: it.product?.product_name,
-        size: it.size?.size_name,
-        color: it.color?.color_name,
-        qty: it.qty - (it.returned_qty || 0),
-        returned_qty: it.returned_qty,
+      items: sale.items.map((it) => {
+        const soldQty = Number(it.qty || 0);
+        const returnedQty = Number(it.returned_qty || 0);
+        const remainingQty = soldQty - returnedQty;
 
-        sp: Number(it.sp),
-        line_total: Number(it.line_total),
-        note: it.note,
-      })),
+        return {
+          sales_item_id: it.sales_item_id,
+          product_name: it.product?.product_name,
+          size: it.size?.size_name,
+          color: it.color?.color_name,
+
+          sold_qty: soldQty,
+          returned_qty: returnedQty,
+          remaining_qty: remainingQty,
+
+          sp: Number(it.sp),
+          line_total: Number(it.line_total),
+          note: it.note,
+        };
+      }),
       note: sale.note,
     };
   }
 
- 
-
-    async buildBillPdf(owner_id, sales_id) {
+  async buildBillPdf(owner_id, sales_id) {
     // Reuse existing bill JSON (you already have getBill)
     const bill = await this.getBill(owner_id, sales_id);
 
@@ -334,12 +370,12 @@ class ClothingSalesService {
     doc.fontSize(12).text("Customer", { underline: true });
     doc.fontSize(11);
     if (bill.customer) {
-        doc.text(`Name: ${bill.customer.full_name || ""}`);
-        if (bill.customer.phone) doc.text(`Phone: ${bill.customer.phone}`);
-        if (bill.customer.email) doc.text(`Email: ${bill.customer.email}`);
-        if (bill.customer.address) doc.text(`Address: ${bill.customer.address}`);
+      doc.text(`Name: ${bill.customer.full_name || ""}`);
+      if (bill.customer.phone) doc.text(`Phone: ${bill.customer.phone}`);
+      if (bill.customer.email) doc.text(`Email: ${bill.customer.email}`);
+      if (bill.customer.address) doc.text(`Address: ${bill.customer.address}`);
     } else {
-        doc.text("Walk-in Customer");
+      doc.text("Walk-in Customer");
     }
     doc.moveDown(0.5);
 
@@ -360,38 +396,49 @@ class ClothingSalesService {
     let y = doc.y;
 
     // Table headers
-    doc.fontSize(10)
-        .text("S.N.", startX, y, { width: 30 })
-        .text("Product", startX + 35, y, { width: 210 })
-        .text("Variant", startX + 250, y, { width: 140 })
-        .text("Qty", startX + 395, y, { width: 40, align: "right" })
-        .text("Rate", startX + 440, y, { width: 60, align: "right" })
-        .text("Total", startX + 505, y, { width: 70, align: "right" });
+    doc
+      .fontSize(10)
+      .text("S.N.", startX, y, { width: 30 })
+      .text("Product", startX + 35, y, { width: 210 })
+      .text("Variant", startX + 250, y, { width: 140 })
+      .text("Qty", startX + 395, y, { width: 40, align: "right" })
+      .text("Rate", startX + 440, y, { width: 60, align: "right" })
+      .text("Total", startX + 505, y, { width: 70, align: "right" });
 
     y += 18;
-    doc.moveTo(startX, y).lineTo(startX + 535, y).stroke();
+    doc
+      .moveTo(startX, y)
+      .lineTo(startX + 535, y)
+      .stroke();
     y += 8;
 
     doc.fontSize(10);
     bill.items.forEach((it, idx) => {
-        const variant = `${it.size || ""}${it.color ? " / " + it.color : ""}`.trim();
+      const variant =
+        `${it.size || ""}${it.color ? " / " + it.color : ""}`.trim();
 
-        const rowHeight = 18;
-        doc
+      const rowHeight = 18;
+      doc
         .text(String(idx + 1), startX, y, { width: 30 })
         .text(it.product_name || "", startX + 35, y, { width: 210 })
         .text(variant, startX + 250, y, { width: 140 })
-        .text(String(it.qty || 0), startX + 395, y, { width: 40, align: "right" })
+        .text(String(it.qty || 0), startX + 395, y, {
+          width: 40,
+          align: "right",
+        })
         .text(money(it.sp), startX + 440, y, { width: 60, align: "right" })
-        .text(money(it.line_total), startX + 505, y, { width: 70, align: "right" });
+        .text(money(it.line_total), startX + 505, y, {
+          width: 70,
+          align: "right",
+        });
 
-        y += rowHeight;
+      y += rowHeight;
 
-        // Page break
-        if (y > 760) {
+      // Page break
+      if (y > 760) {
         doc.addPage();
         y = doc.y;
-        }
+      }
     });
 
     doc.moveDown(1);
@@ -405,14 +452,13 @@ class ClothingSalesService {
     doc.on("data", (c) => chunks.push(c));
 
     const pdfBuffer = await new Promise((resolve, reject) => {
-        doc.on("end", () => resolve(Buffer.concat(chunks)));
-        doc.on("error", reject);
-        doc.end();
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.end();
     });
 
     return { bill, pdfBuffer };
-    }
-
+  }
 }
 
 module.exports = new ClothingSalesService();
