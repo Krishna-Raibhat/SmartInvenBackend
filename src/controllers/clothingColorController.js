@@ -10,13 +10,19 @@ exports.create = async (req, res) => {
     color_name = String(color_name || "").trim();
 
     if (!color_name) {
-      return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "color_name is required.");
+      return fail(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "color_name is required.",
+      );
     }
 
     const created = await service.create({ color_name });
     return res.status(201).json({ success: true, data: created });
   } catch (err) {
-    if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+    if (err.status)
+      return fail(res, err.status, err.code || "ERROR", err.message);
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
@@ -48,7 +54,12 @@ exports.update = async (req, res) => {
     color_name = String(color_name || "").trim();
 
     if (!color_name) {
-      return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "color_name is required.");
+      return fail(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "color_name is required.",
+      );
     }
 
     const updated = await service.update(color_id, { color_name });
@@ -56,7 +67,8 @@ exports.update = async (req, res) => {
 
     return res.json({ success: true, data: updated });
   } catch (err) {
-    if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+    if (err.status)
+      return fail(res, err.status, err.code || "ERROR", err.message);
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
@@ -68,7 +80,12 @@ exports.remove = async (req, res) => {
     const deleted = await service.remove(color_id);
     if (deleted === null) return fail(res, 404, "NOT_FOUND", "Color not found");
     if (deleted === false) {
-      return fail(res, 409, "DELETE_BLOCKED", "Cannot delete color because it is used in stock or sales.");
+      return fail(
+        res,
+        409,
+        "DELETE_BLOCKED",
+        "Cannot delete color because it is used in stock or sales.",
+      );
     }
 
     return res.json({ success: true, message: "Color deleted successfully" });
