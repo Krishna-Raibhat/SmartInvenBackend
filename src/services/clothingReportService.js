@@ -211,6 +211,7 @@ class ClothingReportService {
       FROM qty_in i
       FULL OUTER JOIN qty_out o ON o.period = i.period
       FULL OUTER JOIN returns r ON r.period = COALESCE(i.period, o.period)
+      WHERE (COALESCE(o.qty_out, 0) > 0 OR COALESCE(r.qty_returned, 0) > 0)
       ORDER BY period ASC;
     `;
 

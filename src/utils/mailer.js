@@ -21,3 +21,28 @@ exports.sendOtpEmail = async ({ to, otp }) => {
     text,
   });
 };
+
+exports.sendIssueReport = async ({ name, email, subject, description }) => {
+  const mailSubject = `Issue Report: ${subject}`;
+  const text = `
+Issue Report Received
+
+From: ${name}
+Email: ${email}
+Subject: ${subject}
+
+Description:
+${description}
+
+---
+Sent from SmartInven Issue Reporter
+  `.trim();
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: process.env.SUPPORT_EMAIL,
+    replyTo: email,
+    subject: mailSubject,
+    text,
+  });
+};

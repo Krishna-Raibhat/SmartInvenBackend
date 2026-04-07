@@ -21,6 +21,7 @@ const hardwareTopSelligRoutes = require("./routes/hardwareTopSellingRoutes");
 const hardwareReportRoutes = require("./routes/hardwareReportRoutes");
 const stockOutCreditRoutes = require("./routes/stockOutCreditRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const issueReportRoutes = require("./routes/issueReportRoutes");
 
 const clothingSupplierRoutes = require("./routes/clothingSupplierRoutes");
 const clothingCategoryRoutes = require("./routes/clothingCategoryRoutes");
@@ -67,6 +68,7 @@ app.use("/api/hardware/profit-loss", hardwareProfitLossRoutes);
 app.use("/api/hardware/top-selling-products", hardwareTopSelligRoutes);
 
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/issue-report", issueReportRoutes);
 
 require("./cron/lowStockCronAll");
 
