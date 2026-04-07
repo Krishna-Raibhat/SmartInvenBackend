@@ -174,3 +174,30 @@ POST /api/hardware/stock-out/:stockout_id/payments
 
 ### Result
 Customers can now make additional payments on hardware stock-out transactions. Payment status automatically updates to "partial" or "paid" based on the total paid amount.
+
+---
+
+## 7. Customer Phone Number Validation
+
+### Files Modified
+- `src/services/clothingSalesService.js` - Added phone validation in `createSale()`
+- `src/services/hardwareStockOutService.js` - Added phone validation in `createStockOut()`
+
+### Issue Fixed
+Customer phone numbers were not validated when creating clothing sales or hardware stock-out transactions.
+
+### Change
+Added phone number validation using existing utility functions.
+
+```javascript
+const normalizedPhone = normalizeNepalPhone(String(customer.phone).trim());
+if (!isValidNepalPhone(normalizedPhone)) {
+  const err = new Error("Invalid phone number. Please enter a valid 10-digit Nepali number.");
+  err.status = 400;
+  err.code = "VALIDATION_PHONE_INVALID";
+  throw err;
+}
+```
+
+### Result
+Customer phone numbers are now validated to be exactly 10 digits. The system normalizes the phone (removes spaces, dashes, +977 prefix) and validates the format before creating sales or stock-out records.

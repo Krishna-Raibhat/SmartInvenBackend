@@ -353,162 +353,232 @@ class ClothingSalesService {
   async buildBillPdf(owner_id, sales_id) {
     const bill = await this.getBill(owner_id, sales_id);
 
-    const doc = new PDFDocument({ size: "A4", margin: 40 });
+    const PDFDocument = require("pdfkit");
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 40,
+      bufferPages: true,
+    });
+
+    const chunks = [];
+    doc.on("data", (c) => chunks.push(c));
+
+    const pdfBufferPromise = new Promise((resolve, reject) => {
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+    });
 
     const money = (n) => `Rs. ${Number(n || 0).toFixed(2)}`;
+    const fmtDate = (d) =>
+      d ? new Date(d).toLocaleString("en-IN", { hour12: true }) : "-";
+
     const primary = "#FF6D1F";
+    const dark = "#111827";
     const gray = "#6B7280";
-    const light = "#F3F4F6";
+    const lightGray = "#E5E7EB";
+    const soft = "#F9FAFB";
+    const danger = "#DC2626";
+    const success = "#059669";
 
     const pageWidth =
       doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const left = doc.page.margins.left;
+
+    const drawText = (text, x, y, options = {}) => {
+      doc.text(String(text ?? "-"), x, y, options);
+    };
 
     // ================= HEADER =================
-    doc.rect(40, 40, pageWidth, 70).fill(primary);
+    doc.roundedRect(left, 40, pageWidth, 82, 10).fill(primary);
 
-    doc.fillColor("white").fontSize(22).text("INVOICE", 50, 60);
+    doc.fillColor("white").fontSize(24).font("Helvetica-Bold");
+    drawText("INVOICE", left + 18, 58);
 
-    doc
-      .fontSize(10)
-      .text(`Bill No: ${bill.sale_id}`, 400, 60, { align: "right" });
-
-    doc.text(`Date: ${new Date(bill.created_at).toLocaleString()}`, 400, 75, {
+    doc.fontSize(10).font("Helvetica");
+    drawText(`Bill No: ${bill.sale_id}`, left + pageWidth - 180, 56, {
+      width: 160,
+      align: "right",
+    });
+    drawText(`Date: ${fmtDate(bill.created_at)}`, left + pageWidth - 180, 74, {
+      width: 160,
       align: "right",
     });
 
-    doc.moveDown(3);
+    // ================= FROM / BILL TO =================
+    const boxY = 145;
+    const gap = 16;
+    const boxW = (pageWidth - gap) / 2;
+    const boxH = 110;
 
-    // ================= FROM / TO =================
-    const leftX = 40;
-    const rightX = 300;
-    const boxY = 120;
-    const boxW = 250;
-    const boxH = 100;
+    const drawInfoBox = (title, x, y, lines = []) => {
+      doc.roundedRect(x, y, boxW, boxH, 8).fillAndStroke("white", lightGray);
 
-    doc.rect(leftX, boxY, boxW, boxH).stroke();
-    doc.rect(rightX, boxY, boxW, boxH).stroke();
+      doc
+        .fillColor(primary)
+        .font("Helvetica-Bold")
+        .fontSize(11)
+        .text(title, x + 12, y + 10);
 
-    doc.fontSize(11).fillColor("black").text("From", leftX + 10, boxY + 8);
-    doc.fontSize(10).fillColor(gray);
+      let lineY = y + 32;
+      doc.fillColor(dark).font("Helvetica").fontSize(10);
 
-    doc.text(`Name: ${bill.owner?.full_name || "-"}`, leftX + 10, boxY + 28);
-    doc.text(`Phone: ${bill.owner?.phone || "-"}`, leftX + 10, boxY + 44);
-    doc.text(`Email: ${bill.owner?.email || "-"}`, leftX + 10, boxY + 60);
+      lines.forEach((line) => {
+        doc.text(line, x + 12, lineY, {
+          width: boxW - 24,
+        });
+        lineY += 16;
+      });
+    };
 
-    doc.fillColor("black").text("Bill To", rightX + 10, boxY + 8);
-    doc.fillColor(gray);
+    drawInfoBox("From", left, boxY, [
+      `Name: ${bill.owner?.full_name || "-"}`,
+      `Phone: ${bill.owner?.phone || "-"}`,
+      `Email: ${bill.owner?.email || "-"}`,
+    ]);
 
-    if (bill.customer) {
-      doc.text(`Name: ${bill.customer.full_name}`, rightX + 10, boxY + 28);
-      doc.text(`Phone: ${bill.customer.phone || "-"}`, rightX + 10, boxY + 44);
-      doc.text(
-        `Address: ${bill.customer.address || "-"}`,
-        rightX + 10,
-        boxY + 60,
-      );
-    } else {
-      doc.text("Walk-in Customer", rightX + 10, boxY + 28);
-    }
+    drawInfoBox(
+      "Bill To",
+      left + boxW + gap,
+      boxY,
+      bill.customer
+        ? [
+            `Name: ${bill.customer.full_name || "-"}`,
+            `Phone: ${bill.customer.phone || "-"}`,
+            `Address: ${bill.customer.address || "-"}`,
+          ]
+        : ["Walk-in Customer"],
+    );
 
-    doc.y = boxY + boxH + 20;
+    // ================= TABLE =================
+    let y = boxY + boxH + 24;
 
-    // ================= TABLE HEADER =================
-    const startX = 40;
-    let y = doc.y;
+    const col = {
+      sn: left,
+      product: left + 30,
+      variant: left + 220,
+      qty: left + 360,
+      rate: left + 410,
+      total: left + 490,
+    };
 
-    doc.rect(startX, y, pageWidth, 25).fill(primary);
+    doc.roundedRect(left, y, pageWidth, 26, 6).fill(primary);
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(10);
 
-    doc.fillColor("white").fontSize(10);
-    doc.text("SN", startX + 5, y + 8);
-    doc.text("Product", startX + 35, y + 8);
-    doc.text("Variant", startX + 200, y + 8);
-    doc.text("Qty", startX + 340, y + 8, { width: 40, align: "right" });
-    doc.text("Rate", startX + 390, y + 8, { width: 60, align: "right" });
-    doc.text("Total", startX + 460, y + 8, { width: 80, align: "right" });
+    drawText("SN", col.sn + 6, y + 8);
+    drawText("Product", col.product + 4, y + 8);
+    drawText("Variant", col.variant + 4, y + 8);
+    drawText("Qty", col.qty, y + 8, { width: 35, align: "right" });
+    drawText("Rate", col.rate, y + 8, { width: 55, align: "right" });
+    drawText("Total", col.total, y + 8, { width: 65, align: "right" });
 
-    y += 25;
+    y += 30;
 
-    // ================= TABLE BODY =================
-    doc.fillColor("black").fontSize(10);
+    doc.font("Helvetica").fontSize(10);
 
     bill.items.forEach((it, i) => {
-      const variant = `${it.size || "-"} / ${it.color || "-"}`;
+      const variant = `${it.color || "-"} / ${it.size || "-"}`;
 
-      doc.rect(startX, y, pageWidth, 22).stroke();
+      const rowHeight = 26;
 
-      doc.text(String(i + 1), startX + 5, y + 6);
-      doc.text(it.product_name || "-", startX + 35, y + 6);
-      doc.text(variant, startX + 200, y + 6);
-      doc.text(String(it.sold_qty || 0), startX + 340, y + 6, {
-        width: 40,
+      doc
+        .roundedRect(left, y, pageWidth, rowHeight, 4)
+        .fillAndStroke(i % 2 === 0 ? "white" : soft, lightGray);
+
+      doc.fillColor(dark);
+
+      drawText(i + 1, col.sn + 6, y + 8);
+      drawText(it.product_name || "-", col.product + 4, y + 8, {
+        width: 175,
+        ellipsis: true,
+      });
+      drawText(variant, col.variant + 4, y + 8, {
+        width: 120,
+        ellipsis: true,
+      });
+      drawText(it.sold_qty || 0, col.qty, y + 8, {
+        width: 35,
         align: "right",
       });
-      doc.text(money(it.sp), startX + 390, y + 6, {
-        width: 60,
+      drawText(money(it.sp), col.rate, y + 8, {
+        width: 55,
         align: "right",
       });
-      doc.text(money(it.line_total), startX + 460, y + 6, {
-        width: 80,
+      drawText(money(it.line_total), col.total, y + 8, {
+        width: 65,
         align: "right",
       });
 
-    y += 22;
-  });
-
-  // ================= TOTALS =================
-  y += 15;
-
-  const totalX = 350;
-
-  doc.fontSize(11).fillColor("black");
-
-  doc.text("Total:", totalX, y);
-  doc.text(money(bill.totals.total_amount), totalX + 120, y, {
-    align: "right",
-  });
-
-  y += 18;
-  doc.text("Paid:", totalX, y);
-  doc.text(money(bill.totals.paid_amount), totalX + 120, y, {
-    align: "right",
-  });
-
-  y += 18;
-  doc.text("Remaining:", totalX, y);
-  doc.fillColor("red").text(
-    money(bill.totals.remaining_amount),
-    totalX + 120,
-    y,
-    { align: "right" }
-  );
-
-  // ================= NOTE =================
-  y += 40;
-
-  doc.fillColor("black").fontSize(11).text("Note:");
-  doc.fillColor(gray).fontSize(10).text(bill.note || "-");
-
-  // ================= FOOTER =================
-  doc
-    .fontSize(10)
-    .fillColor(gray)
-    .text("Thank you for your business!", 40, doc.page.height - 50, {
-      align: "center",
-      width: pageWidth,
+      y += rowHeight + 6;
     });
 
-  // ================= BUFFER =================
-  const chunks = [];
-  doc.on("data", (c) => chunks.push(c));
+    // ================= TOTALS + NOTE =================
+    const sectionTop = y + 16;
+    const noteW = 300;
+    const totalsW = 190;
+    const sectionGap = 20;
 
-  const pdfBuffer = await new Promise((resolve, reject) => {
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
+    // Note card
+    doc
+      .roundedRect(left, sectionTop, noteW, 90, 8)
+      .fillAndStroke("white", lightGray);
+    doc.fillColor(primary).font("Helvetica-Bold").fontSize(11);
+    drawText("Note", left + 12, sectionTop + 10);
+
+    doc.fillColor(gray).font("Helvetica").fontSize(10);
+    drawText(
+      bill.note || "No additional note provided.",
+      left + 12,
+      sectionTop + 30,
+      {
+        width: noteW - 24,
+      },
+    );
+
+    // Totals card
+    const totalsX = left + noteW + sectionGap;
+    doc
+      .roundedRect(totalsX, sectionTop, totalsW, 90, 8)
+      .fillAndStroke("white", lightGray);
+
+    const row = (label, value, yy, color = dark, bold = false) => {
+      doc.fillColor(gray).font("Helvetica").fontSize(10);
+      drawText(label, totalsX + 12, yy);
+
+      doc
+        .fillColor(color)
+        .font(bold ? "Helvetica-Bold" : "Helvetica")
+        .fontSize(10)
+        .text(value, totalsX + 80, yy, {
+          width: totalsW - 92,
+          align: "right",
+        });
+    };
+
+    row("Total", money(bill.totals.total_amount), sectionTop + 12, dark, true);
+    row("Paid", money(bill.totals.paid_amount), sectionTop + 34, success, true);
+    row(
+      "Remaining",
+      money(bill.totals.remaining_amount),
+      sectionTop + 56,
+      Number(bill.totals.remaining_amount || 0) > 0 ? danger : success,
+      true,
+    );
+
+    // ================= FOOTER =================
+    doc
+      .fillColor(gray)
+      .font("Helvetica")
+      .fontSize(10)
+      .text("Thank you for your business!", left, doc.page.height - 45, {
+        width: pageWidth,
+        align: "center",
+      });
+
     doc.end();
-  });
 
-  return { bill, pdfBuffer };
-}
+    const pdfBuffer = await pdfBufferPromise;
+    return { bill, pdfBuffer };
+  }
 }
 
 module.exports = new ClothingSalesService();
