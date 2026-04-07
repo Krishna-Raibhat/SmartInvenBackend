@@ -56,3 +56,121 @@ SUPPORT_EMAIL=elevatetch@gmail.com
 
 ### Result
 Users can now submit issue reports from the app, which are sent via email to the support team.
+
+---
+
+## 3. Hardware Category Name Normalization
+
+### File Changed
+`src/services/hardwareCategoryService.js`
+
+### Methods Updated
+- `createCategory()`
+- `updateCategory()`
+
+### Issue Fixed
+Hardware categories "Nails" and "nails" were accepted as different categories, allowing duplicates.
+
+### Change
+Added `.toLowerCase()` to normalize category names before saving.
+
+```javascript
+const name = String(category_name || "").trim().toLowerCase();
+```
+
+### API Endpoint
+```
+POST /api/hardware/categories
+```
+
+### Request Body
+```json
+{
+  "category_name": "Nails"
+}
+```
+
+### Result
+Category names are now case-insensitive. "Nails", "NAILS", "nails" all become "nails" and duplicates are prevented.
+
+---
+
+## 4. Hardware Stock-In SP vs CP Validation
+
+### File Changed
+`src/services/hardwareStockInService.js`
+
+### Method
+`stockIn()`
+
+### Issue Fixed
+Selling price (sp) could be set lower than cost price (cp), resulting in automatic losses.
+
+### Change
+Added validation to ensure sp >= cp.
+
+```javascript
+if (spNum < cpNum) {
+  const err = new Error("sp cannot be less than cp (selling price should not be below cost price)");
+  err.status = 400;
+  err.code = "VALIDATION_SP_LESS_THAN_CP";
+  throw err;
+}
+```
+
+### Result
+Hardware stock-in now prevents setting a selling price below the cost price, protecting against unintended losses.
+
+---
+
+## 5. Hardware Stock-Out Payment Validation Removed
+
+### File Changed
+`src/services/hardwareStockOutService.js`
+
+### Method
+`createStockOut()`
+
+### Issue Fixed
+Customers were not allowed to pay more than the total amount.
+
+### Change
+Removed the validation that blocked overpayments.
+
+```javascript
+// REMOVED:
+// if (paid > totalAmount) {
+//   const err = new Error("paid_amount cannot be greater than total_amount");
+//   throw err;
+// }
+```
+
+### Result
+Customers can now pay any amount they want, including more than the total amount (overpayment). The system will mark it as "paid" if `paid >= totalAmount`.
+
+---
+
+## 6. Hardware Stock-Out Payment API
+
+### Files Modified
+- `src/services/hardwareStockOutService.js` - Added `addPayment()` method
+- `src/controllers/hardwareStockOutController.js` - Added `addPayment()` controller
+- `src/routes/hardwareStockOutRoutes.js` - Added payment route
+
+### Issue Fixed
+No API existed to add payments to hardware stock-out transactions with due amounts.
+
+### API Endpoint
+```
+POST /api/hardware/stock-out/:stockout_id/payments
+```
+
+### Request Body
+```json
+{
+  "amount": 500
+}
+```
+
+### Result
+Customers can now make additional payments on hardware stock-out transactions. Payment status automatically updates to "partial" or "paid" based on the total paid amount.

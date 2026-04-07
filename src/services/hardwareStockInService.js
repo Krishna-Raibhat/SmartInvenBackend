@@ -34,6 +34,13 @@ class HardwareStockInService {
       throw err;
     }
 
+    if (spNum < cpNum) {
+      const err = new Error("sp cannot be less than cp (selling price should not be below cost price)");
+      err.status = 400;
+      err.code = "VALIDATION_SP_LESS_THAN_CP";
+      throw err;
+    }
+
     // ✅ Ensure product belongs to this owner
     const product = await prisma.hardwareProduct.findFirst({
       where: { product_id, owner_id },

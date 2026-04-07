@@ -3,190 +3,170 @@ const { prisma } = require("../prisma/client");
 const PDFDocument = require("pdfkit");
 class ClothingSalesService {
   // ✅ CREATE SALE (can auto create customer)
-  async createSale(owner_id, payload) {
-    const {
-      customer_id,
-      customer, // { full_name, phone, email, address }
-      paid_amount,
-      note,
-      items,
-    } = payload;
+  async buildBillPdf(owner_id, sales_id) {
+    const bill = await this.getBill(owner_id, sales_id);
 
-    if (!Array.isArray(items) || items.length === 0) {
-      const e = new Error("At least one item is required");
-      e.status = 400;
-      e.code = "VALIDATION_NO_ITEMS";
-      throw e;
-    }
+    const doc = new PDFDocument({ size: "A4", margin: 40 });
 
-    const paid = Number(paid_amount ?? 0);
-    if (!Number.isFinite(paid) || paid < 0) {
-      const e = new Error("paid_amount must be a valid number");
-      e.status = 400;
-      e.code = "VALIDATION_PAID_INVALID";
-      throw e;
-    }
+    const money = (n) => `Rs. ${Number(n || 0).toFixed(2)}`;
+    const primary = "#FF6D1F";
+    const gray = "#6B7280";
+    const light = "#F3F4F6";
 
-    // ✅ resolve customer_id:
-    // - if customer_id provided -> must belong to owner
-    // - else if customer.phone provided -> find by phone; else create
-    let finalCustomerId = customer_id ?? null;
+    const pageWidth =
+      doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
-    if (finalCustomerId) {
-      const cust = await prisma.customer.findFirst({
-        where: { customer_id: finalCustomerId, owner_id },
-        select: { customer_id: true },
-      });
-      if (!cust) {
-        const e = new Error("Customer not found for this owner");
-        e.status = 404;
-        e.code = "CUSTOMER_NOT_FOUND";
-        throw e;
-      }
-    } else if (customer?.phone) {
-      const phone = String(customer.phone).trim();
+    // ================= HEADER =================
+    doc
+      .rect(40, 40, pageWidth, 70)
+      .fill(primary);
 
-      const existing = await prisma.customer.findFirst({
-        where: { owner_id, phone },
-        select: { customer_id: true },
-      });
+    doc
+      .fillColor("white")
+      .fontSize(22)
+      .text("INVOICE", 50, 60);
 
-      if (existing) {
-        finalCustomerId = existing.customer_id;
-      } else {
-        const created = await prisma.customer.create({
-          data: {
-            owner_id,
-            full_name: String(customer.full_name || "Walk-in Customer").trim(),
-            phone,
-            email: customer.email ? String(customer.email).trim() : null,
-            address: customer.address ? String(customer.address).trim() : null,
-          },
-          select: { customer_id: true },
-        });
-        finalCustomerId = created.customer_id;
-      }
+    doc
+      .fontSize(10)
+      .text(`Bill No: ${bill.sale_id}`, 400, 60, { align: "right" });
+
+    doc
+      .text(
+        `Date: ${new Date(bill.created_at).toLocaleString()}`,
+        400,
+        75,
+        { align: "right" }
+      );
+
+    doc.moveDown(3);
+
+    // ================= FROM / TO =================
+    const leftX = 40;
+    const rightX = 300;
+    const boxY = 120;
+    const boxW = 250;
+    const boxH = 100;
+
+    doc.rect(leftX, boxY, boxW, boxH).stroke();
+    doc.rect(rightX, boxY, boxW, boxH).stroke();
+
+    doc.fontSize(11).fillColor("black").text("From", leftX + 10, boxY + 8);
+    doc.fontSize(10).fillColor(gray);
+
+    doc.text(`Name: ${bill.owner?.full_name || "-"}`, leftX + 10, boxY + 28);
+    doc.text(`Phone: ${bill.owner?.phone || "-"}`, leftX + 10, boxY + 44);
+    doc.text(`Email: ${bill.owner?.email || "-"}`, leftX + 10, boxY + 60);
+
+    doc.fillColor("black").text("Bill To", rightX + 10, boxY + 8);
+    doc.fillColor(gray);
+
+    if (bill.customer) {
+      doc.text(`Name: ${bill.customer.full_name}`, rightX + 10, boxY + 28);
+      doc.text(`Phone: ${bill.customer.phone || "-"}`, rightX + 10, boxY + 44);
+      doc.text(`Address: ${bill.customer.address || "-"}`, rightX + 10, boxY + 60);
     } else {
-      // no customer info -> allowed (walk-in without saving)
-      finalCustomerId = null;
+      doc.text("Walk-in Customer", rightX + 10, boxY + 28);
     }
 
-    return prisma.$transaction(async (tx) => {
-      // create header first
-      const header = await tx.clothingSales.create({
-        data: {
-          owner_id,
-          customer_id: finalCustomerId,
-          payment_status: "pending",
-          total_amount: 0,
-          paid_amount: paid,
-          note: note ?? null,
-        },
+    doc.y = boxY + boxH + 20;
+
+    // ================= TABLE HEADER =================
+    const startX = 40;
+    let y = doc.y;
+
+    doc.rect(startX, y, pageWidth, 25).fill(primary);
+
+    doc.fillColor("white").fontSize(10);
+    doc.text("SN", startX + 5, y + 8);
+    doc.text("Product", startX + 35, y + 8);
+    doc.text("Variant", startX + 200, y + 8);
+    doc.text("Qty", startX + 340, y + 8, { width: 40, align: "right" });
+    doc.text("Rate", startX + 390, y + 8, { width: 60, align: "right" });
+    doc.text("Total", startX + 460, y + 8, { width: 80, align: "right" });
+
+    y += 25;
+
+    // ================= TABLE BODY =================
+    doc.fillColor("black").fontSize(10);
+
+    bill.items.forEach((it, i) => {
+      const variant = `${it.size || "-"} / ${it.color || "-"}`;
+
+      doc.rect(startX, y, pageWidth, 22).stroke();
+
+      doc.text(String(i + 1), startX + 5, y + 6);
+      doc.text(it.product_name || "-", startX + 35, y + 6);
+      doc.text(variant, startX + 200, y + 6);
+      doc.text(String(it.sold_qty || 0), startX + 340, y + 6, {
+        width: 40,
+        align: "right",
+      });
+      doc.text(money(it.sp), startX + 390, y + 6, {
+        width: 60,
+        align: "right",
+      });
+      doc.text(money(it.line_total), startX + 460, y + 6, {
+        width: 80,
+        align: "right",
       });
 
-      let totalAmount = 0;
-      const createdItems = [];
-
-      for (const item of items) {
-        const {
-          product_id,
-          lot_id,
-          size_id,
-          color_id,
-          qty,
-          sp, // ✅ changable at sell time
-          note: lineNote,
-        } = item;
-
-        const q = Number(qty);
-        if (!Number.isInteger(q) || q <= 0) {
-          const e = new Error("qty must be a positive integer");
-          e.status = 400;
-          e.code = "VALIDATION_QTY_INVALID";
-          throw e;
-        }
-
-        const lot = await tx.clothingStockLot.findFirst({
-          where: { lot_id, product_id, size_id, color_id },
-          select: { lot_id: true, cp: true, sp: true, qty_remaining: true },
-        });
-
-        if (!lot) {
-          const e = new Error(
-            "Stock lot not found for given product/size/color",
-          );
-          e.status = 404;
-          e.code = "LOT_NOT_FOUND";
-          throw e;
-        }
-
-        if (lot.qty_remaining < q) {
-          const e = new Error("Not enough stock in selected lot");
-          e.status = 400;
-          e.code = "STOCK_NOT_ENOUGH";
-          throw e;
-        }
-
-        await tx.clothingStockLot.update({
-          where: { lot_id },
-          data: { qty_remaining: { decrement: q } },
-        });
-
-        const sellingPrice = Number(sp ?? lot.sp);
-        if (!Number.isFinite(sellingPrice) || sellingPrice < 0) {
-          const e = new Error("sp must be a valid number");
-          e.status = 400;
-          e.code = "VALIDATION_SP_INVALID";
-          throw e;
-        }
-
-        const lineTotal = sellingPrice * q;
-        totalAmount += lineTotal;
-
-        const created = await tx.clothingSalesItem.create({
-          data: {
-            sales_id: header.sales_id,
-            product_id,
-            lot_id,
-            size_id,
-            color_id,
-            qty: q,
-            cp: lot.cp,
-            sp: sellingPrice,
-            line_total: lineTotal,
-            note: lineNote ?? null,
-          },
-        });
-
-        createdItems.push(created);
-      }
-
-      if (paid > totalAmount) {
-        const e = new Error("paid_amount cannot be greater than total_amount");
-        e.status = 400;
-        e.code = "VALIDATION_PAID_GT_TOTAL";
-        throw e;
-      }
-
-      let finalStatus = "pending";
-      if (paid >= totalAmount && totalAmount > 0) finalStatus = "paid";
-      else if (paid > 0) finalStatus = "partial";
-
-      const updatedHeader = await tx.clothingSales.update({
-        where: { sales_id: header.sales_id },
-        data: {
-          total_amount: totalAmount,
-          paid_amount: paid,
-          payment_status: finalStatus,
-        },
-      });
-
-      return {
-        ...updatedHeader,
-        items: createdItems,
-      };
+      y += 22;
     });
-  }
+
+    // ================= TOTALS =================
+    y += 15;
+
+    const totalX = 350;
+
+    doc.fontSize(11).fillColor("black");
+
+    doc.text("Total:", totalX, y);
+    doc.text(money(bill.totals.total_amount), totalX + 120, y, {
+      align: "right",
+    });
+
+    y += 18;
+    doc.text("Paid:", totalX, y);
+    doc.text(money(bill.totals.paid_amount), totalX + 120, y, {
+      align: "right",
+    });
+
+    y += 18;
+    doc.text("Remaining:", totalX, y);
+    doc.fillColor("red").text(
+      money(bill.totals.remaining_amount),
+      totalX + 120,
+      y,
+      { align: "right" }
+    );
+
+    // ================= NOTE =================
+    y += 40;
+
+    doc.fillColor("black").fontSize(11).text("Note:");
+    doc.fillColor(gray).fontSize(10).text(bill.note || "-");
+
+    // ================= FOOTER =================
+    doc
+      .fontSize(10)
+      .fillColor(gray)
+      .text("Thank you for your business!", 40, doc.page.height - 50, {
+        align: "center",
+        width: pageWidth,
+      });
+
+    // ================= BUFFER =================
+    const chunks = [];
+    doc.on("data", (c) => chunks.push(c));
+
+    const pdfBuffer = await new Promise((resolve, reject) => {
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+      doc.end();
+    });
+
+    return { bill, pdfBuffer };
+}
 
   async getById(owner_id, sales_id) {
     return prisma.clothingSales.findFirst({

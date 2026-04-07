@@ -3,7 +3,7 @@ const {prisma}  = require("../prisma/client");
 
 class HardwareCategoryService {
   async createCategory({ package_id, category_name}) {
-    const name = String(category_name || "").trim();
+    const name = String(category_name || "").trim().toLowerCase();
     if (!name) {
       const err = new Error("category_name is required");
       err.status = 400;
@@ -47,7 +47,7 @@ class HardwareCategoryService {
     const category = await this.getById(category_id, package_id);
     if (!category) return null;
 
-    const name = String(category_name || "").trim();
+    const name = String(category_name || "").trim().toLowerCase();
     if (!name) {
       const err = new Error("category_name cannot be empty");
       err.status = 400;

@@ -53,3 +53,15 @@ exports.listStockOut = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
+
+exports.addPayment = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { amount } = req.body;
+    const updated = await stockOutService.addPayment(owner_id, req.params.stockout_id, amount);
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};

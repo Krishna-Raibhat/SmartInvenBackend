@@ -8,5 +8,6 @@ const ctrl = require("../controllers/hardwareStockOutController");
 router.post("/", authMiddleware, ctrl.createStockOut);
 router.get("/", authMiddleware, ctrl.listStockOut);
 router.get("/:stockout_id", authMiddleware, ctrl.getStockOutById);
+router.post("/:stockout_id/payments", authMiddleware, ctrl.addPayment);
 
 module.exports = router;

@@ -109,14 +109,6 @@ class HardwareStockOutService {
         createdItems.push(created);
       }
 
-      // ✅ validate paid vs computed total
-      if (paid > totalAmount) {
-        const err = new Error("paid_amount cannot be greater than total_amount");
-        err.status = 400;
-        err.code = "VALIDATION_PAID_GT_TOTAL";
-        throw err;
-      }
-
       // ✅ final payment status based on paid & total
       let finalStatus = "pending";
       if (paid >= totalAmount && totalAmount > 0) finalStatus = "paid";
@@ -153,6 +145,43 @@ class HardwareStockOutService {
     return prisma.hardwareStockOut.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
+    });
+  }
+
+  async addPayment(owner_id, stockout_id, add_amount) {
+    const add = Number(add_amount);
+    if (!Number.isFinite(add) || add <= 0) {
+      const err = new Error("amount must be a positive number");
+      err.status = 400;
+      err.code = "VALIDATION_AMOUNT_INVALID";
+      throw err;
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const stockOut = await tx.hardwareStockOut.findFirst({
+        where: { owner_id, stockout_id },
+        select: { stockout_id: true, total_amount: true, paid_amount: true },
+      });
+
+      if (!stockOut) {
+        const err = new Error("Stock out not found");
+        err.status = 404;
+        err.code = "STOCKOUT_NOT_FOUND";
+        throw err;
+      }
+
+      const total = Number(stockOut.total_amount);
+      const currentPaid = Number(stockOut.paid_amount);
+      const newPaid = currentPaid + add;
+
+      let status = "pending";
+      if (newPaid >= total && total > 0) status = "paid";
+      else if (newPaid > 0) status = "partial";
+
+      return tx.hardwareStockOut.update({
+        where: { stockout_id },
+        data: { paid_amount: newPaid, payment_status: status },
+      });
     });
   }
 }
