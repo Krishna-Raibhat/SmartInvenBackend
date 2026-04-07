@@ -1,6 +1,7 @@
 // src/services/clothingSalesService.js
 const { prisma } = require("../prisma/client");
 const PDFDocument = require("pdfkit");
+const { normalizeNepalPhone, isValidNepalPhone } = require("../utils/phone");
 class ClothingSalesService {
   // ✅ CREATE SALE (can auto create customer)
   async createSale(owner_id, payload) {
@@ -39,7 +40,14 @@ class ClothingSalesService {
         throw e;
       }
     } else if (customer?.phone) {
-      const phone = String(customer.phone).trim();
+      const phone = normalizeNepalPhone(String(customer.phone).trim());
+      
+      if (!isValidNepalPhone(phone)) {
+        const e = new Error("Invalid phone number. Please enter a valid 10-digit Nepali number.");
+        e.status = 400;
+        e.code = "VALIDATION_PHONE_INVALID";
+        throw e;
+      }
 
       const existing = await prisma.customer.findFirst({
         where: { owner_id, phone },
