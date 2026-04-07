@@ -1,5 +1,6 @@
 // src/services/hardwareStockOutService.js
 const {prisma}  = require("../prisma/client");
+const { normalizeNepalPhone, isValidNepalPhone } = require("../utils/phone");
 
 class HardwareStockOutService {
   async createStockOut({
@@ -17,6 +18,17 @@ class HardwareStockOutService {
       err.status = 400;
       err.code = "VALIDATION_NO_ITEMS";
       throw err;
+    }
+
+    // ✅ Validate phone number if provided
+    if (customer_phn_number) {
+      const normalizedPhone = normalizeNepalPhone(String(customer_phn_number).trim());
+      if (!isValidNepalPhone(normalizedPhone)) {
+        const err = new Error("Invalid phone number. Please enter a valid 10-digit Nepali number.");
+        err.status = 400;
+        err.code = "VALIDATION_PHONE_INVALID";
+        throw err;
+      }
     }
 
     // ✅ compute here (safe)
