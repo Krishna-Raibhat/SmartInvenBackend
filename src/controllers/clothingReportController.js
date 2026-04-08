@@ -52,7 +52,12 @@ exports.download = async (req, res) => {
     const fmt = String(format || "csv").toLowerCase();
 
     if (fmt !== "csv") {
-      return fail(res, 400, "VALIDATION_FORMAT", "Only csv is supported right now");
+      return fail(
+        res,
+        400,
+        "VALIDATION_FORMAT",
+        "Only csv is supported right now",
+      );
     }
 
     // type: "sales" | "stock"
@@ -68,9 +73,21 @@ exports.download = async (req, res) => {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${type || "stock"}_report.csv"`
+      `attachment; filename="${type || "stock"}_report.csv"`,
     );
     return res.status(200).send(csv);
+  } catch (e) {
+    if (e.status) return fail(res, e.status, e.code || "ERROR", e.message);
+    return fail(res, 500, "SERVER_ERROR", e.message);
+  }
+};
+
+exports.returnAnalytics = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { start, end } = req.query;
+    const data = await service.returnAnalytics(owner_id, { start, end });
+    return res.json({ success: true, data });
   } catch (e) {
     if (e.status) return fail(res, e.status, e.code || "ERROR", e.message);
     return fail(res, 500, "SERVER_ERROR", e.message);

@@ -109,9 +109,9 @@ class ClothingCustomerReturnService {
         if (qty > availableToReturn) {
           throw Object.assign(
             new Error(
-              `Return exceeds available qty. Remaining=${availableToReturn}`
+              `Return exceeds available qty. Remaining=${availableToReturn}`,
             ),
-            { status: 400, code: "RETURN_EXCEEDS_SOLD" }
+            { status: 400, code: "RETURN_EXCEEDS_SOLD" },
           );
         }
 
@@ -234,7 +234,45 @@ class ClothingCustomerReturnService {
     return prisma.clothingCustomerReturn.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
-      include: { items: true },
+      include: {
+        sales: {
+          include: {
+            customer: {
+              select: {
+                customer_id: true,
+                full_name: true,
+                phone: true,
+              },
+            },
+          },
+        },
+        items: {
+          include: {
+            salesItem: {
+              include: {
+                product: {
+                  select: {
+                    product_id: true,
+                    product_name: true,
+                  },
+                },
+                color: {
+                  select: {
+                    color_id: true,
+                    color_name: true,
+                  },
+                },
+                size: {
+                  select: {
+                    size_id: true,
+                    size_name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       take: 200,
     });
   }
