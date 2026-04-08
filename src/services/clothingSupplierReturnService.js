@@ -4,7 +4,6 @@ const { prisma } = require("../prisma/client");
 const allowedStatus = new Set(["pending", "approved", "completed", "cancelled"]);
 
 class ClothingSupplierReturnService {
-
   // ======================================================
   // CREATE RETURN (NO STOCK CHANGE HERE)
   // ======================================================
@@ -106,8 +105,40 @@ class ClothingSupplierReturnService {
       where: { owner_id },
       orderBy: { created_at: "desc" },
       include: {
-        supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
-        items: true,
+        supplier: {
+          select: {
+            supplier_id: true,
+            supplier_name: true,
+            phone: true,
+          },
+        },
+        items: {
+          include: {
+            lot: {
+              select: {
+                lot_id: true,
+                product: {
+                  select: {
+                    product_id: true,
+                    product_name: true,
+                  },
+                },
+                color: {
+                  select: {
+                    color_id: true,
+                    color_name: true,
+                  },
+                },
+                size: {
+                  select: {
+                    size_id: true,
+                    size_name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       take: 200,
     });
@@ -120,7 +151,9 @@ class ClothingSupplierReturnService {
     return prisma.clothingSupplierReturn.findFirst({
       where: { owner_id, return_id },
       include: {
-        supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
+        supplier: {
+          select: { supplier_id: true, supplier_name: true, phone: true },
+        },
         items: {
           include: {
             lot: {
@@ -140,7 +173,9 @@ class ClothingSupplierReturnService {
   // UPDATE STATUS (STOCK CHANGES ONLY ON COMPLETED)
   // ======================================================
   async updateStatus(owner_id, return_id, status) {
-    status = String(status || "").trim().toLowerCase();
+    status = String(status || "")
+      .trim()
+      .toLowerCase();
     if (!allowedStatus.has(status)) {
       const e = new Error("Invalid status");
       e.status = 400;

@@ -12,6 +12,7 @@ router.get("/top-products", auth, ctrl.topProducts);
 // Stock flow + profit (qty in/out + profit grouped)
 router.get("/stock-flow", auth, ctrl.stockFlow);
 
+router.get("/return-analytics", auth, ctrl.returnAnalytics);
 // Download CSV (same data)
 router.get("/download", auth, ctrl.download);
 

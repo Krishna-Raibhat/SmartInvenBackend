@@ -22,8 +22,11 @@ class ClothingReportService {
     const endDate = parseDateOrNull(end);
 
     // Default range: last 30 days
-    const startFinal = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const endFinal = endDate || new Date();
+    const startFinal = startDate
+      ? startOfDay(startDate)
+      : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+    const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
 
     // We compute from SALES ITEMS to get sales+cost+profit
     // We compute PAID from ClothingSales table
@@ -79,7 +82,7 @@ class ClothingReportService {
     `;
 
     // Convert period to ISO date string (frontend friendly)
-    return rows.map(r => {
+    return rows.map((r) => {
       const sales = Number(r.sales || 0);
       const cost = Number(r.cost || 0);
       const paid = Number(r.paid || 0);
@@ -98,15 +101,17 @@ class ClothingReportService {
     const startDate = parseDateOrNull(start);
     const endDate = parseDateOrNull(end);
 
-    const startFinal =
-        startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const endFinal = endDate || new Date();
+    const startFinal = startDate
+      ? startOfDay(startDate)
+      : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+    const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
 
     const lim = Math.min(Math.max(Number(limit || 3), 1), 20);
 
     // ✅ Net QTY = sold qty - returned qty
     const rows = await prisma.$queryRawUnsafe(
-        `
+      `
         WITH sold AS (
         SELECT
             csi.product_id,
@@ -141,27 +146,30 @@ class ClothingReportService {
         ORDER BY net_qty DESC
         LIMIT $4;
         `,
-        owner_id,
-        startFinal,
-        endFinal,
-        lim
+      owner_id,
+      startFinal,
+      endFinal,
+      lim,
     );
 
     return rows.map((x) => ({
-        product_id: x.product_id,
-        product_name: x.product_name,
-        qty: Number(x.net_qty || 0),
+      product_id: x.product_id,
+      product_name: x.product_name,
+      qty: Number(x.net_qty || 0),
     }));
-    }
-
+  }
 
   // ✅ qty in / qty out / profit grouped by date
   async stockFlow(owner_id, { start, end, group }) {
     const g = normalizeGroup(group);
     const startDate = parseDateOrNull(start);
     const endDate = parseDateOrNull(end);
-    const startFinal = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const endFinal = endDate || new Date();
+
+    const startFinal = startDate
+      ? startOfDay(startDate)
+      : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+    const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
 
     const rows = await prisma.$queryRaw`
       WITH qty_in AS (
@@ -215,7 +223,7 @@ class ClothingReportService {
       ORDER BY period ASC;
     `;
 
-    return rows.map(r => ({
+    return rows.map((r) => ({
       period: new Date(r.period).toISOString(),
       qty_in: Number(r.qty_in || 0),
       qty_out: Number(r.net_qty_out || 0),
@@ -238,10 +246,111 @@ class ClothingReportService {
     };
     const lines = [
       headers.join(","),
-      ...rows.map(r => headers.map(h => escape(r[h])).join(",")),
+      ...rows.map((r) => headers.map((h) => escape(r[h])).join(",")),
     ];
     return lines.join("\n") + "\n";
   }
+
+  async returnAnalytics(owner_id, { start, end }) {
+    const startDate = parseDateOrNull(start);
+    const endDate = parseDateOrNull(end);
+
+    const startFinal = startDate
+      ? startOfDay(startDate)
+      : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+    const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
+
+    const summaryRows = await prisma.$queryRaw`
+    SELECT
+      COUNT(DISTINCT ccr.return_id)::int AS total_returns,
+      COALESCE(SUM(ccri.qty), 0)::int AS total_qty,
+      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'damaged' THEN ccri.qty ELSE 0 END), 0)::int AS damaged_qty,
+      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN ccri.qty ELSE 0 END), 0)::int AS good_qty,
+      COALESCE(SUM(csi.sp * ccri.qty), 0)::numeric AS return_value
+    FROM clothing_customer_return_items ccri
+    JOIN clothing_customer_returns ccr
+      ON ccr.return_id = ccri.return_id
+    LEFT JOIN clothing_sales_items csi
+      ON csi.sales_item_id = ccri.sales_item_id
+    WHERE ccr.owner_id = ${owner_id}
+      AND ccr.created_at >= ${startFinal}
+      AND ccr.created_at <= ${endFinal};
+  `;
+
+    const conditionRows = await prisma.$queryRaw`
+    SELECT
+      LOWER(ccri.condition) AS condition,
+      COALESCE(SUM(ccri.qty), 0)::int AS qty
+    FROM clothing_customer_return_items ccri
+    JOIN clothing_customer_returns ccr
+      ON ccr.return_id = ccri.return_id
+    WHERE ccr.owner_id = ${owner_id}
+      AND ccr.created_at >= ${startFinal}
+      AND ccr.created_at <= ${endFinal}
+    GROUP BY LOWER(ccri.condition)
+    ORDER BY qty DESC;
+  `;
+
+    const productRows = await prisma.$queryRaw`
+    SELECT
+      p.product_id,
+      p.product_name,
+      COALESCE(SUM(ccri.qty), 0)::int AS total_qty,
+      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'damaged' THEN ccri.qty ELSE 0 END), 0)::int AS damaged_qty,
+      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN ccri.qty ELSE 0 END), 0)::int AS good_qty,
+      COALESCE(SUM(csi.sp * ccri.qty), 0)::numeric AS return_value
+    FROM clothing_customer_return_items ccri
+    JOIN clothing_customer_returns ccr
+      ON ccr.return_id = ccri.return_id
+    LEFT JOIN clothing_sales_items csi
+      ON csi.sales_item_id = ccri.sales_item_id
+    LEFT JOIN clothing_products p
+      ON p.product_id = csi.product_id
+    WHERE ccr.owner_id = ${owner_id}
+      AND ccr.created_at >= ${startFinal}
+      AND ccr.created_at <= ${endFinal}
+    GROUP BY p.product_id, p.product_name
+    ORDER BY total_qty DESC, damaged_qty DESC
+    LIMIT 10;
+  `;
+
+    const s = summaryRows[0] || {};
+
+    return {
+      summary: {
+        total_returns: Number(s.total_returns || 0),
+        total_qty: Number(s.total_qty || 0),
+        damaged_qty: Number(s.damaged_qty || 0),
+        good_qty: Number(s.good_qty || 0),
+        return_value: Number(s.return_value || 0),
+      },
+      by_condition: conditionRows.map((x) => ({
+        condition: x.condition || "unknown",
+        qty: Number(x.qty || 0),
+      })),
+      top_products: productRows.map((x) => ({
+        product_id: x.product_id,
+        product_name: x.product_name || "Unknown Product",
+        total_qty: Number(x.total_qty || 0),
+        damaged_qty: Number(x.damaged_qty || 0),
+        good_qty: Number(x.good_qty || 0),
+        return_value: Number(x.return_value || 0),
+      })),
+    };
+  }
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
 }
 
 module.exports = new ClothingReportService();
