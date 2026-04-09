@@ -1,4 +1,5 @@
-const prisma = require("../prisma/client");
+// const prisma = require("../prisma/client");
+const { prisma } = require("../prisma/client");
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
