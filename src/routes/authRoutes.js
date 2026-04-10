@@ -16,4 +16,6 @@ router.post("/forgot-password", authController.forgotPasswordSendOtp);
 router.post("/forgot-password/verify-otp", authController.forgotPasswordVerifyOtp);
 router.post("/forgot-password/reset", authController.forgotPasswordReset);
 
+router.post("/super-admin/login", authController.superAdminLogin);
+
 module.exports = router;

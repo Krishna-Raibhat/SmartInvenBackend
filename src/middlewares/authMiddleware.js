@@ -25,8 +25,14 @@ module.exports = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // expected decoded: { owner_id, email, package_id?, iat, exp }
 
+    // ✅ Super admin — skip DB lookup
+    if (decoded?.role === "superadmin") {
+      req.superAdmin = { email: decoded.email, role: decoded.role };
+      return next();
+    }
+
+    // expected decoded: { owner_id, email, package_id?, iat, exp }
     if (!decoded?.owner_id) {
       return res.status(401).json({
         success: false,

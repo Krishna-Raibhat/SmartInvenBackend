@@ -692,3 +692,40 @@ exports.forgotPasswordReset = async (req, res) => {
     return res.status(500).json({ message: "Server error." });
   }
 };
+
+/* =========================
+   SUPER ADMIN LOGIN
+========================= */
+const SUPER_ADMIN_EMAIL = "superadmin@smartinven.com";
+const SUPER_ADMIN_PASSWORD = "Admin@1234";
+const SUPER_ADMIN_ROLE = "superadmin";
+
+exports.superAdminLogin = async (req, res) => {
+  try {
+    let { email, password } = req.body;
+    email = normalizeEmail(email);
+
+    if (!email || !password) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Email and password are required.");
+    }
+
+    if (email !== SUPER_ADMIN_EMAIL || password !== SUPER_ADMIN_PASSWORD) {
+      return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
+    }
+
+    const token = jwt.sign(
+      { role: SUPER_ADMIN_ROLE, email: SUPER_ADMIN_EMAIL },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    );
+
+    return sendSuccess(res, 200, {
+      message: "Super admin login successful.",
+      token,
+      admin: { email: SUPER_ADMIN_EMAIL, role: SUPER_ADMIN_ROLE },
+    });
+  } catch (err) {
+    console.error("Super admin login error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Login failed.");
+  }
+};
