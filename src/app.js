@@ -92,6 +92,7 @@ app.use("/api/clothing/reports", require("./routes/clothingReportRoutes"));
 app.use("/api/clothing/dashboard", require("./routes/clothingDashboardRoutes"));
 app.use("/api/clothing/inventory", require("./routes/clothingInventoryRoutes"));
 app.use("/api/clothing/activities", require("./routes/clothingActivityRoutes"));
+app.use("/api/payment-qr", require("./routes/paymentQRStoreRoutes"));
 
 /* ==========================
    SERVER START

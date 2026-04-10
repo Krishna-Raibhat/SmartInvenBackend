@@ -533,3 +533,13 @@ model ClothingNotification {
   @@index([owner_id, read_at])
   @@map("clothing_notifications")
 }
+
+model PaymentQRStore {
+  id           String   @id @default(uuid())
+  qr_image_path String
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@map("payment_qr_store")
+}
