@@ -1,44 +1,56 @@
 // src/app.js
-require("dotenv").config();
+import dotenv from "dotenv";
+dotenv.config();
 
-const express = require("express");
-const cors = require("cors");
+import express, { json, urlencoded } from "express";
+import cors from "cors";
 // If you don't want morgan, remove the next 2 lines
-const morgan = require("morgan");
+import morgan from "morgan";
 
-const { prisma, connectDB }  = require("./prisma/client"); // ✅ IMPORTANT (adapter-based Prisma client)
+import { prisma, connectDB } from "./prisma/client.js";// ✅ IMPORTANT (adapter-based Prisma client)
 
-const authRoutes = require("./routes/authRoutes");
-const hardwareSupplierRoutes = require("./routes/hardwareSupplierRoutes");
-const hardwareCategoryRoutes = require("./routes/hardwareCategoryRoutes");
-const hardwareProductRoutes = require("./routes/hardwareProductRoutes");
-const hardwareStockInRoutes = require("./routes/hardwareStockInRoutes");
-const hardwareStockOutRoutes = require("./routes/hardwareStockOutRoutes");
-const hardwareInventoryRoutes = require("./routes/hardwareInventoryRoutes");
-const hardwareDashboardRoutes = require("./routes/hardwareDashboardRoutes");
-const hardwareProfitLossRoutes = require("./routes/hardwareProfitLossRoutes");
-const hardwareTopSelligRoutes = require("./routes/hardwareTopSellingRoutes");
-const hardwareReportRoutes = require("./routes/hardwareReportRoutes");
-const stockOutCreditRoutes = require("./routes/stockOutCreditRoutes");
-const notificationRoutes = require("./routes/notificationRoutes");
-const issueReportRoutes = require("./routes/issueReportRoutes");
+import authRoutes from "./routes/authRoutes.js";
+import hardwareSupplierRoutes from "./routes/hardwareSupplierRoutes.js";
+import hardwareCategoryRoutes from "./routes/hardwareCategoryRoutes.js";
+import hardwareProductRoutes from "./routes/hardwareProductRoutes.js";
+import hardwareStockInRoutes from "./routes/hardwareStockInRoutes.js";
+import hardwareStockOutRoutes from "./routes/hardwareStockOutRoutes.js";
+import hardwareInventoryRoutes from "./routes/hardwareInventoryRoutes.js";
+import hardwareDashboardRoutes from "./routes/hardwareDashboardRoutes.js";
+import hardwareProfitLossRoutes from "./routes/hardwareProfitLossRoutes.js";
+import hardwareTopSelligRoutes from "./routes/hardwareTopSellingRoutes.js";
+import hardwareReportRoutes from "./routes/hardwareReportRoutes.js";
+import stockOutCreditRoutes from "./routes/stockOutCreditRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import issueReportRoutes from "./routes/issueReportRoutes.js";
 
-const clothingSupplierRoutes = require("./routes/clothingSupplierRoutes");
-const clothingCategoryRoutes = require("./routes/clothingCategoryRoutes");
-const clothingSizeRoutes = require("./routes/clothingSizeRoutes");
-const clothingColorRoutes = require("./routes/clothingColorRoutes");
-const clothingProductRoutes = require("./routes/clothingProductRoutes");
-const clothingStockLotRoutes = require("./routes/clothingStockLotRoutes");
-const clothingSalesRoutes = require("./routes/clothingSalesRoutes");
-const clothingCustomerReturnRoutes = require("./routes/clothingCustomerReturnRoutes");
-const clothingSupplierReturnRoutes = require("./routes/clothingSupplierReturnRoutes");
+import clothingSupplierRoutes from "./routes/clothingSupplierRoutes.js";
+import clothingCategoryRoutes from "./routes/clothingCategoryRoutes.js";
+import clothingSizeRoutes from "./routes/clothingSizeRoutes.js";
+import clothingColorRoutes from "./routes/clothingColorRoutes.js";
+import clothingProductRoutes from "./routes/clothingProductRoutes.js";
+import clothingStockLotRoutes from "./routes/clothingStockLotRoutes.js";
+import clothingSalesRoutes from "./routes/clothingSalesRoutes.js";
+import clothingCustomerReturnRoutes from "./routes/clothingCustomerReturnRoutes.js";
+import clothingSupplierReturnRoutes from "./routes/clothingSupplierReturnRoutes.js";
+
+
+
+import clothingLowStockRoutes from "./routes/clothingLowStockRoutes.js";
+import clothingNotificationRoutes from "./routes/clothingNotificationRoutes.js";
+import clothingReportRoutes from "./routes/clothingReportRoutes.js";
+import clothingDashboardRoutes from "./routes/clothingDashboardRoutes.js";
+import clothingInventoryRoutes from "./routes/clothingInventoryRoutes.js";
+import clothingActivityRoutes from "./routes/clothingActivityRoutes.js";
+import paymentQRStoreRoutes from "./routes/paymentQRStoreRoutes.js";
+
 
 const app = express();
 
 // Middlewares
 app.use(cors());
-app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(json({ limit: "2mb" }));
+app.use(urlencoded({ extended: true }));
 
 // ✅ Use morgan only if installed
 app.use(morgan("dev"));
@@ -70,7 +82,7 @@ app.use("/api/hardware/top-selling-products", hardwareTopSelligRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/issue-report", issueReportRoutes);
 
-require("./cron/lowStockCronAll");
+import "./cron/lowStockCronAll.js";
 
 
 
@@ -85,15 +97,13 @@ app.use("/api/clothing/stock-lots", clothingStockLotRoutes);
 app.use("/api/clothing/sales", clothingSalesRoutes);
 app.use("/api/clothing/returns/customer", clothingCustomerReturnRoutes);
 app.use("/api/clothing/returns/supplier", clothingSupplierReturnRoutes);
-app.use("/api/clothing/low-stock", require("./routes/clothingLowStockRoutes"));
-
-app.use("/api/clothing/notifications", require("./routes/clothingNotificationRoutes"));
-app.use("/api/clothing/reports", require("./routes/clothingReportRoutes"));
-app.use("/api/clothing/dashboard", require("./routes/clothingDashboardRoutes"));
-app.use("/api/clothing/inventory", require("./routes/clothingInventoryRoutes"));
-app.use("/api/clothing/activities", require("./routes/clothingActivityRoutes"));
-app.use("/api/payment-qr", require("./routes/paymentQRStoreRoutes"));
-
+app.use("/api/clothing/low-stock", clothingLowStockRoutes);
+app.use("/api/clothing/notifications", clothingNotificationRoutes);
+app.use("/api/clothing/reports", clothingReportRoutes);
+app.use("/api/clothing/dashboard", clothingDashboardRoutes);
+app.use("/api/clothing/inventory", clothingInventoryRoutes);
+app.use("/api/clothing/activities", clothingActivityRoutes);
+app.use("/api/payment-qr", paymentQRStoreRoutes);
 /* ==========================
    SERVER START
 ========================== */
