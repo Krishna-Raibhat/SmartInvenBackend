@@ -7,6 +7,14 @@ datasource db {
   provider = "postgresql"
 }
 
+enum OwnerStatus {
+  trial
+  active
+  inactive
+
+  @@map("owner_status")
+}
+
 model Package {
   package_id   String @id @default(uuid())
   package_key  String @unique
@@ -20,12 +28,13 @@ model Package {
 }
 
 model Owner {
-  owner_id  String  @id @default(uuid())
+  owner_id  String      @id @default(uuid())
   full_name String
-  email     String  @unique
-  phone     String  @unique
-  password  String  @map("password_hash")
+  email     String      @unique
+  phone     String      @unique
+  password  String      @map("password_hash")
   fcm_token String?
+  status    OwnerStatus @default(trial)
 
   package_id String?
   package    Package? @relation(fields: [package_id], references: [package_id], onDelete: Restrict)

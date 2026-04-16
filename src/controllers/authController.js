@@ -90,7 +90,7 @@ const packageNameMap = {
 
 exports.register = async (req, res) => {
   try {
-    let { full_name, phone, email, password, confirm_password, package_key } = req.body;
+    let { full_name, phone, email, password, confirm_password, package_key, status } = req.body;
 
     email = normalizeEmail(email);
     package_key = String(package_key || "").trim().toLowerCase();
@@ -103,6 +103,12 @@ exports.register = async (req, res) => {
     const allowed = new Set(["hardware", "clothing"]);
     if (!allowed.has(package_key)) {
       return sendError(res, 400, "VALIDATION_PACKAGE_INVALID", "Invalid package_key.");
+    }
+
+    // ✅ validate status if provided
+    const validStatuses = ["trial", "active", "inactive"];
+    if (status && !validStatuses.includes(status)) {
+      return sendError(res, 400, "VALIDATION_STATUS_INVALID", "Invalid status. Must be one of: trial, active, inactive.");
     }
 
     const emailError = validateEmail(email);
@@ -136,7 +142,7 @@ exports.register = async (req, res) => {
       });
     }
 
-    // ✅ create owner in selected package
+    // ✅ create owner in selected package with optional status
     const owner = await prisma.owner.create({
       data: {
         full_name,
@@ -144,6 +150,7 @@ exports.register = async (req, res) => {
         email,
         password: hashedPassword,
         package_id: pkg.package_id,
+        ...(status ? { status } : {}), // use provided status or default to 'trial'
       },
       select: {
         owner_id: true,
@@ -151,6 +158,7 @@ exports.register = async (req, res) => {
         email: true,
         phone: true,
         package_id: true,
+        status: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -204,6 +212,7 @@ exports.login = async (req, res) => {
         phone: true,
         package_id: true,
         password: true,
+        status: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -215,6 +224,11 @@ exports.login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, owner.password);
     if (!isMatch) {
       return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
+    }
+
+    // ✅ Check if account is inactive
+    if (owner.status === "inactive") {
+      return sendError(res, 403, "ACCOUNT_INACTIVE", "Your account is inactive. Please contact support.");
     }
 
     if (fcm_token) {
@@ -240,6 +254,7 @@ exports.login = async (req, res) => {
         email: owner.email,
         phone: owner.phone,
         package_id: owner.package_id,
+        status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
       },
@@ -267,6 +282,7 @@ exports.me = async (req, res) => {
         full_name: true,
         email: true,
         phone: true,
+        status: true,
         created_at: true,
         package_id: true,
       },
