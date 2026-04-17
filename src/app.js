@@ -43,6 +43,7 @@ import clothingDashboardRoutes from "./routes/clothingDashboardRoutes.js";
 import clothingInventoryRoutes from "./routes/clothingInventoryRoutes.js";
 import clothingActivityRoutes from "./routes/clothingActivityRoutes.js";
 import paymentQRStoreRoutes from "./routes/paymentQRStoreRoutes.js";
+import paymentProofRoutes from "./routes/paymentProofRoutes.js";
 
 
 const app = express();
@@ -104,6 +105,7 @@ app.use("/api/clothing/dashboard", clothingDashboardRoutes);
 app.use("/api/clothing/inventory", clothingInventoryRoutes);
 app.use("/api/clothing/activities", clothingActivityRoutes);
 app.use("/api/payment-qr", paymentQRStoreRoutes);
+app.use("/api/payment-proof", paymentProofRoutes);
 /* ==========================
    SERVER START
 ========================== */
