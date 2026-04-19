@@ -181,7 +181,9 @@ exports.register = async (req, res) => {
     if (err.code === "P2002") {
       return sendError(res, 409, "DUPLICATE_VALUE", "Email or phone already exists.");
     }
-    return sendError(res, 500, "SERVER_ERROR", "Registration failed.");
+    return sendError(res, 500, "SERVER_ERROR", "Registration failed.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
   }
 };
 
@@ -280,7 +282,9 @@ exports.login = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    return sendError(res, 500, "SERVER_ERROR", "Login failed.");
+    return sendError(res, 500, "SERVER_ERROR", "Login failed.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
   }
 };
 
@@ -762,5 +766,35 @@ exports.superAdminLogin = async (req, res) => {
   } catch (err) {
     console.error("Super admin login error:", err);
     return sendError(res, 500, "SERVER_ERROR", "Login failed.");
+  }
+};
+
+/* =========================
+   GET ALL OWNERS (Admin)
+========================= */
+exports.getAllOwners = async (req, res) => {
+  try {
+    const owners = await prisma.owner.findMany({
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        status: true,
+        created_at: true,
+        package_id: true,
+        package: {
+          select: { package_key: true, package_name: true },
+        },
+      },
+      orderBy: { created_at: "desc" },
+    });
+
+    return sendSuccess(res, 200, { owners });
+  } catch (err) {
+    console.error(err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to fetch owners.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
   }
 };

@@ -712,6 +712,3 @@ To apply these changes to your database:
 4. Reset database (development only):
    npx prisma migrate reset
 
-================================================================================
-END OF DOCUMENT
-================================================================================

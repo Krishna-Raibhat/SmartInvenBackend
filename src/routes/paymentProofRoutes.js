@@ -25,4 +25,7 @@ router.get("/admin", ctrl.adminList);
 router.patch("/admin/:id/approve", ctrl.approve);
 router.patch("/admin/:id/reject", ctrl.reject);
 
+// Image view
+router.get("/image/:owner_id/:filename", ctrl.viewImage);
+
 export default router;

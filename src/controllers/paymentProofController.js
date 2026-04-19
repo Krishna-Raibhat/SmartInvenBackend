@@ -1,6 +1,6 @@
 // src/controllers/paymentProofController.js
 import { prisma } from "../prisma/client.js";
-import { uploadToS3 } from "../utils/s3.js";
+import { uploadToS3, getObject } from "../utils/s3.js";
 import { v4 as uuidv4 } from "uuid";
 
 const fail = (res, status, code, message) =>
@@ -112,6 +112,23 @@ export const reject = async (req, res) => {
 
     return res.status(200).json({ success: true, message: "Payment proof rejected." });
   } catch (err) {
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
+// GET /api/payment-proof/image/:owner_id/:filename
+export const viewImage = async (req, res) => {
+  try {
+    const { owner_id, filename } = req.params;
+    const key = `payment-proofs/${owner_id}/${filename}`;
+
+    const stream = await getObject(key);
+    res.setHeader("Content-Type", "image/png");
+    stream.pipe(res);
+  } catch (err) {
+    if (err.code === "NoSuchKey" || err.code === "NotFound") {
+      return fail(res, 404, "IMAGE_NOT_FOUND", "Image not found.");
+    }
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };

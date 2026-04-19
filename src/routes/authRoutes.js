@@ -18,4 +18,6 @@ router.post("/forgot-password/reset", authController.forgotPasswordReset);
 
 router.post("/super-admin/login", authController.superAdminLogin);
 
+router.get("/admin/owners", authController.getAllOwners);
+
 module.exports = router;
