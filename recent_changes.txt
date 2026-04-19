@@ -1,0 +1,41 @@
+RECENT CHANGES LOG
+==================
+Date: April 19, 2026
+
+FILES CHANGED IN THIS SESSION:
+-------------------------------
+
+1. src/controllers/authController.js
+   - Login catch block: now includes `detail` field with actual error message in SERVER_ERROR response
+   - Registration catch block: now includes `detail` field with actual error message in SERVER_ERROR response
+   - Added new export: getAllOwners() - fetches all owners (no password) ordered by created_at desc
+
+2. src/routes/authRoutes.js
+   - Added route: GET /api/auth/admin/owners → authController.getAllOwners
+
+3. src/controllers/paymentProofController.js
+   - Added import: getObject from ../utils/s3.js
+   - Added new export: viewImage() - streams payment proof image from S3 by owner_id and filename
+
+4. src/routes/paymentProofRoutes.js
+   - Added route: GET /api/payment-proof/image/:owner_id/:filename → ctrl.viewImage
+
+
+NEW API ENDPOINTS ADDED:
+------------------------
+
+GET /api/auth/admin/owners
+  - No auth required
+  - Returns all owners with: owner_id, full_name, email, phone, status, created_at, package_key, package_name
+
+GET /api/payment-proof/image/:owner_id/:filename
+  - No auth required
+  - Streams image directly from S3
+  - Example: GET /api/payment-proof/image/f7109729-7be5-45bb-804e-6b38020d3337/b35d7cec-c44d-4825-85d1-2f82f7b6a80e.png
+  - Can be used directly in <img> tag on frontend
+
+
+IMPROVEMENTS:
+-------------
+- SERVER_ERROR responses in login and register now include a `detail` field
+  showing the actual underlying error message for easier debugging

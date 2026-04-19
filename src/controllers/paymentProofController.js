@@ -132,3 +132,73 @@ export const viewImage = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
+
+// GET /api/payment-proof/admin/stats
+export const adminStats = async (req, res) => {
+  try {
+    const ownerSelect = {
+      owner_id: true,
+      full_name: true,
+      email: true,
+      phone: true,
+      status: true,
+      created_at: true,
+      package: { select: { package_key: true, package_name: true } },
+    };
+
+    const [
+      totalOwners,
+      activeOwners,
+      inactiveOwners,
+      trialOwners,
+      totalProofs,
+      pendingProofs,
+      approvedProofs,
+      rejectedProofs,
+      recentProofs,
+      activeList,
+      inactiveList,
+      trialList,
+    ] = await Promise.all([
+      prisma.owner.count(),
+      prisma.owner.count({ where: { status: "active" } }),
+      prisma.owner.count({ where: { status: "inactive" } }),
+      prisma.owner.count({ where: { status: "trial" } }),
+      prisma.paymentProof.count(),
+      prisma.paymentProof.count({ where: { status: "pending" } }),
+      prisma.paymentProof.count({ where: { status: "approved" } }),
+      prisma.paymentProof.count({ where: { status: "rejected" } }),
+      prisma.paymentProof.findMany({
+        take: 10,
+        orderBy: { created_at: "desc" },
+        include: {
+          owner: { select: { owner_id: true, full_name: true, email: true, phone: true, status: true } },
+        },
+      }),
+      prisma.owner.findMany({ where: { status: "active" }, select: ownerSelect, orderBy: { created_at: "desc" } }),
+      prisma.owner.findMany({ where: { status: "inactive" }, select: ownerSelect, orderBy: { created_at: "desc" } }),
+      prisma.owner.findMany({ where: { status: "trial" }, select: ownerSelect, orderBy: { created_at: "desc" } }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        owners: {
+          total: totalOwners,
+          active: { count: activeOwners, list: activeList },
+          inactive: { count: inactiveOwners, list: inactiveList },
+          trial: { count: trialOwners, list: trialList },
+        },
+        payment_proofs: {
+          total: totalProofs,
+          pending: pendingProofs,
+          approved: approvedProofs,
+          rejected: rejectedProofs,
+        },
+        recent_proofs: recentProofs,
+      },
+    });
+  } catch (err) {
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
