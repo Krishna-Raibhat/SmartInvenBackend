@@ -15,14 +15,12 @@ const upload = multer({
     cb(null, true);
   },
 });
-
 router.post("/", authMiddleware, upload.single("qr_image"), ctrl.create);
 router.get("/", authMiddleware, ctrl.list);
-router.get("/active", authMiddleware, ctrl.getActive);
+router.get("/active", ctrl.getActive);
 router.get("/:id", authMiddleware, ctrl.getById);
 router.put("/:id", authMiddleware, upload.single("qr_image"), ctrl.update);
 router.patch("/:id/activate", authMiddleware, ctrl.activate);
 router.patch("/:id/deactivate", authMiddleware, ctrl.deactivate);
 router.delete("/:id", authMiddleware, ctrl.remove);
-
 module.exports = router;

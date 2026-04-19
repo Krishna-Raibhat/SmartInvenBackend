@@ -55,6 +55,7 @@ model Owner {
   clothingCustomerReturns ClothingCustomerReturn[]
   clothingSupplierReturns ClothingSupplierReturn[]
   clothingNotifications ClothingNotification[]
+  paymentProofs         PaymentProof[]
   created_at              DateTime                 @default(now())
   updated_at              DateTime                 @updatedAt
 
@@ -552,4 +553,21 @@ model PaymentQRStore {
   updated_at   DateTime @updatedAt
 
   @@map("payment_qr_store")
+}
+
+model PaymentProof {
+  id       String @id @default(uuid())
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  image_url String
+  status    String @default("pending") // pending | approved | rejected
+  note      String? // admin note on rejection
+
+  reviewed_at DateTime?
+  created_at  DateTime @default(now())
+
+  @@index([owner_id])
+  @@index([status])
+  @@map("payment_proofs")
 }

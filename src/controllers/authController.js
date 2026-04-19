@@ -213,6 +213,7 @@ exports.login = async (req, res) => {
         package_id: true,
         password: true,
         status: true,
+        created_at: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -226,9 +227,27 @@ exports.login = async (req, res) => {
       return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
     }
 
-    // ✅ Check if account is inactive
+    // ✅ Check account status
     if (owner.status === "inactive") {
-      return sendError(res, 403, "ACCOUNT_INACTIVE", "Your account is inactive. Please contact support.");
+      return sendError(res, 403, "ACCOUNT_INACTIVE", "Your payment is pending verification. Please wait for approval.");
+    }
+
+    if (owner.status === "trial") {
+      const daysSinceCreation = Math.floor((Date.now() - new Date(owner.created_at).getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceCreation > 7) {
+        return sendError(res, 403, "TRIAL_EXPIRED", "Your 7-day trial has expired. Please subscribe to continue.", {
+          owner: {
+            owner_id: owner.owner_id,
+            full_name: owner.full_name,
+            email: owner.email,
+            phone: owner.phone,
+            package_id: owner.package_id,
+            status: owner.status,
+            package_key: owner.package?.package_key ?? null,
+            package_name: owner.package?.package_name ?? null,
+          },
+        });
+      }
     }
 
     if (fcm_token) {
