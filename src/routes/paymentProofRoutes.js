@@ -22,6 +22,7 @@ router.get("/my", auth, ctrl.myProofs);
 
 // Admin routes
 router.get("/admin/stats", ctrl.adminStats);
+router.get("/admin/all", ctrl.adminAllProofs);
 router.get("/admin", ctrl.adminList);
 router.patch("/admin/:id/approve", ctrl.approve);
 router.patch("/admin/:id/reject", ctrl.reject);

@@ -202,3 +202,29 @@ export const adminStats = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
+
+// GET /api/payment-proof/admin/all
+export const adminAllProofs = async (req, res) => {
+  try {
+    const proofs = await prisma.paymentProof.findMany({
+      orderBy: { created_at: "desc" },
+      include: {
+        owner: {
+          select: {
+            owner_id: true,
+            full_name: true,
+            email: true,
+            phone: true,
+            status: true,
+            created_at: true,
+            package: { select: { package_key: true, package_name: true } },
+          },
+        },
+      },
+    });
+
+    return res.status(200).json({ success: true, total: proofs.length, data: proofs });
+  } catch (err) {
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
