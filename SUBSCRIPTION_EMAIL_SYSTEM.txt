@@ -1,0 +1,296 @@
+SUBSCRIPTION & EMAIL NOTIFICATION SYSTEM
+========================================
+Date: April 19, 2026
+
+OVERVIEW:
+---------
+Implemented a complete subscription management system with email notifications:
+1. When admin approves payment → User gets activation email + 30-day subscription
+2. 7 days before subscription expires → User gets reminder email
+3. Automated daily cron job checks for expiring subscriptions
+
+
+DATABASE CHANGES:
+-----------------
+
+File: prisma/schema.prisma
+
+Added to Owner model:
+  - subscription_expires_at (DateTime?, nullable)
+    * Set to 30 days from approval date
+    * Tracks when user's subscription ends
+  
+  - subscription_reminder_sent (Boolean, default: false)
+    * Tracks if 7-day reminder email was sent
+    * Reset to false when new subscription starts
+    * Set to true after reminder is sent
+
+
+FILES CREATED:
+--------------
+
+1. src/utils/mailer.js (MODIFIED - Added new functions)
+   
+   New exports:
+   
+   a) sendAccountActivatedEmail({ to, full_name })
+      - Sent when admin approves payment
+      - Welcomes user and confirms 30-day access
+      - Includes login URL
+   
+   b) sendSubscriptionExpiryReminderEmail({ to, full_name, expires_at })
+      - Sent 7 days before subscription expires
+      - Shows expiry date
+      - Prompts user to renew
+      - Includes login URL for renewal
+
+2. src/cron/subscriptionReminderCron.js (NEW FILE)
+   
+   Purpose: Automated daily check for expiring subscriptions
+   
+   Schedule: Runs daily at 9:00 AM
+   
+   Logic:
+   - Finds active owners where:
+     * subscription_expires_at is between now and 7 days from now
+     * subscription_reminder_sent = false
+   
+   - For each owner:
+     * Sends reminder email
+     * Updates subscription_reminder_sent = true
+     * Logs success/failure
+   
+   - Prevents duplicate reminders per subscription period
+
+
+FILES MODIFIED:
+---------------
+
+1. src/controllers/paymentProofController.js
+   
+   Modified: approve() function
+   
+   BEFORE:
+   - Updated payment status to "approved"
+   - Updated owner status to "active"
+   - Returned success message
+   
+   AFTER:
+   - Updated payment status to "approved"
+   - Updated owner status to "active"
+   - Set subscription_expires_at = now + 30 days
+   - Reset subscription_reminder_sent = false
+   - Send activation email to owner
+   - Return success message with subscription info
+   
+   Changes:
+   ```javascript
+   // Set subscription to expire 30 days from now
+   const subscriptionExpiresAt = new Date();
+   subscriptionExpiresAt.setDate(subscriptionExpiresAt.getDate() + 30);
+
+   await prisma.$transaction([
+     prisma.paymentProof.update({
+       where: { id },
+       data: { status: "approved", reviewed_at: new Date() },
+     }),
+     prisma.owner.update({
+       where: { owner_id: proof.owner_id },
+       data: {
+         status: "active",
+         subscription_expires_at: subscriptionExpiresAt,
+         subscription_reminder_sent: false,
+       },
+     }),
+   ]);
+
+   // Send activation email (dynamic import for CommonJS module)
+   try {
+     const mailer = await import("../utils/mailer.js");
+     await mailer.sendAccountActivatedEmail({
+       to: proof.owner.email,
+       full_name: proof.owner.full_name,
+     });
+   } catch (emailErr) {
+     console.error("Failed to send activation email:", emailErr);
+     // Don't fail the request if email fails
+   }
+   ```
+
+2. src/app.js
+   
+   Added import:
+   ```javascript
+   import "./cron/subscriptionReminderCron.js";
+   ```
+   
+   This starts the cron job when server starts
+
+
+API ENDPOINTS AFFECTED:
+-----------------------
+
+PATCH /api/payment-proof/admin/:id/approve
+
+BEFORE:
+- Request: PATCH /api/payment-proof/admin/:id/approve
+- Response: { "success": true, "message": "Payment approved. Owner is now active." }
+
+AFTER:
+- Request: PATCH /api/payment-proof/admin/:id/approve
+- Response: { 
+    "success": true, 
+    "message": "Payment approved. Owner is now active with 30-day subscription." 
+  }
+
+Side Effects:
+1. Owner status changed to "active"
+2. subscription_expires_at set to 30 days from now
+3. subscription_reminder_sent reset to false
+4. Activation email sent to owner's email address
+
+
+EMAIL TEMPLATES:
+----------------
+
+1. Activation Email (sendAccountActivatedEmail)
+   
+   Subject: "Your SmartInven Account is Now Active!"
+   
+   Content:
+   - Greeting with user's name
+   - Confirmation of payment verification
+   - Mentions 30-day access period
+   - Login URL
+   - Support contact info
+
+2. Expiry Reminder Email (sendSubscriptionExpiryReminderEmail)
+   
+   Subject: "Your SmartInven Subscription is Expiring Soon"
+   
+   Content:
+   - Greeting with user's name
+   - Expiry date (formatted)
+   - Reminder to renew before expiry
+   - Login URL for renewal
+   - Support contact info
+
+
+WORKFLOW:
+---------
+
+Day 0: Admin Approves Payment
+  ↓
+  1. Payment status → "approved"
+  2. Owner status → "active"
+  3. subscription_expires_at → now + 30 days
+  4. subscription_reminder_sent → false
+  5. Email sent: "Your account is now active!"
+
+Day 1-22: User has active subscription
+  ↓
+  (No action)
+
+Day 23: 7 Days Before Expiry
+  ↓
+  Cron job runs at 9 AM:
+  1. Finds owner with subscription expiring in 7 days
+  2. Checks subscription_reminder_sent = false
+  3. Sends reminder email
+  4. Sets subscription_reminder_sent = true
+
+Day 24-29: Reminder sent, no duplicate emails
+  ↓
+  (Cron job skips this owner because reminder_sent = true)
+
+Day 30: Subscription Expires
+  ↓
+  (User needs to renew - handled by login logic checking expiry date)
+
+
+CRON JOB DETAILS:
+-----------------
+
+File: src/cron/subscriptionReminderCron.js
+
+Schedule: "0 9 * * *" (Daily at 9:00 AM)
+
+Query Logic:
+```javascript
+const sevenDaysFromNow = new Date();
+sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+
+const expiringOwners = await prisma.owner.findMany({
+  where: {
+    status: "active",
+    subscription_expires_at: {
+      gte: now,              // Not expired yet
+      lte: sevenDaysFromNow, // Expires within 7 days
+    },
+    subscription_reminder_sent: false, // Not reminded yet
+  },
+});
+```
+
+Error Handling:
+- Individual email failures don't stop the cron job
+- Errors logged to console
+- Continues processing remaining owners
+
+
+ENVIRONMENT VARIABLES REQUIRED:
+-------------------------------
+
+In .env file:
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+SMTP_FROM=SmartInven <your-email@gmail.com>
+APP_URL=https://smartinven.com (optional, defaults to https://smartinven.com)
+
+
+TESTING:
+--------
+
+✅ Payment approval sets subscription_expires_at correctly
+✅ Activation email sent on approval (SMTP configured)
+✅ Cron job scheduled successfully on server start
+✅ subscription_reminder_sent flag prevents duplicate emails
+✅ Email failures don't break the approval process
+
+
+BENEFITS:
+---------
+
+1. Automated Communication:
+   - Users immediately know their account is active
+   - Proactive reminder before expiry reduces churn
+
+2. Subscription Tracking:
+   - Clear expiry dates in database
+   - Easy to query expiring subscriptions
+   - Prevents duplicate reminder emails
+
+3. Scalability:
+   - Cron job handles any number of users
+   - Runs daily without manual intervention
+   - Efficient database queries
+
+4. User Experience:
+   - Timely notifications
+   - Clear expiry information
+   - Easy renewal process
+
+
+FUTURE ENHANCEMENTS:
+--------------------
+
+1. Add multiple reminder intervals (7 days, 3 days, 1 day)
+2. Add SMS notifications via Twilio
+3. Add in-app notifications
+4. Auto-renewal with payment gateway integration
+5. Grace period after expiry
+6. Subscription plans (monthly, yearly)
+7. Admin dashboard showing expiring subscriptions

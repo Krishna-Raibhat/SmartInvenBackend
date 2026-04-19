@@ -1,0 +1,102 @@
+RECENT CHANGES LOG
+==================
+Date: April 19, 2026
+
+FILES CHANGED IN THIS SESSION:
+-------------------------------
+
+1. src/controllers/authController.js
+   - Login catch block: now includes `detail` field with actual error message in SERVER_ERROR response
+   - Registration catch block: now includes `detail` field with actual error message in SERVER_ERROR response
+   - Added new export: getAllOwners() - fetches all owners (no password) ordered by created_at desc
+
+2. src/routes/authRoutes.js
+   - Added route: GET /api/auth/admin/owners → authController.getAllOwners
+
+3. src/controllers/paymentProofController.js
+   - Added import: getObject from ../utils/s3.js
+   - Added new export: viewImage() - streams payment proof image from S3 by owner_id and filename
+   - Added new export: adminStats() - returns owner counts by status, payment proof counts, and recent proofs with owner lists
+   - Added new export: adminAllProofs() - returns all payment proofs with full owner details
+   - Updated approve() - now sets subscription_expires_at to 30 days from approval and sends activation email
+
+4. src/routes/paymentProofRoutes.js
+   - Added route: GET /api/payment-proof/image/:owner_id/:filename → ctrl.viewImage
+   - Added route: GET /api/payment-proof/admin/stats → ctrl.adminStats
+   - Added route: GET /api/payment-proof/admin/all → ctrl.adminAllProofs
+
+5. prisma/schema.prisma
+   - Added fields to Owner model:
+     * subscription_expires_at (DateTime?) - tracks when subscription ends
+     * subscription_reminder_sent (Boolean, default false) - tracks if 7-day reminder was sent
+
+6. src/utils/mailer.js
+   - Added export: sendAccountActivatedEmail() - sends email when payment is approved
+   - Added export: sendSubscriptionExpiryReminderEmail() - sends reminder 7 days before expiry
+
+7. src/cron/subscriptionReminderCron.js (NEW FILE)
+   - Cron job runs daily at 9 AM
+   - Finds active owners with subscriptions expiring in 7 days
+   - Sends reminder email and marks subscription_reminder_sent = true
+
+8. src/app.js
+   - Added import: ./cron/subscriptionReminderCron.js
+
+
+NEW API ENDPOINTS ADDED:
+------------------------
+
+GET /api/auth/admin/owners
+  - No auth required
+  - Returns all owners with: owner_id, full_name, email, phone, status, created_at, package_key, package_name
+
+GET /api/payment-proof/image/:owner_id/:filename
+  - No auth required
+  - Streams image directly from S3
+  - Example: GET /api/payment-proof/image/f7109729-7be5-45bb-804e-6b38020d3337/b35d7cec-c44d-4825-85d1-2f82f7b6a80e.png
+  - Can be used directly in <img> tag on frontend
+
+GET /api/payment-proof/admin/stats
+  - No auth required
+  - Returns:
+    * owners: { total, active: {count, list}, inactive: {count, list}, trial: {count, list} }
+    * payment_proofs: { total, pending, approved, rejected }
+    * recent_proofs: last 10 proofs with owner details
+
+GET /api/payment-proof/admin/all
+  - No auth required
+  - Returns all payment proofs with full owner and package details
+
+
+DATABASE CHANGES:
+-----------------
+- Owner table:
+  * Added subscription_expires_at (DateTime, nullable) - set to 30 days from approval
+  * Added subscription_reminder_sent (Boolean, default false) - reset on approval, set true when reminder sent
+
+
+NEW FEATURES:
+-------------
+1. Subscription Management:
+   - When admin approves payment, owner gets 30-day subscription
+   - subscription_expires_at is automatically set
+   - Owner receives activation email immediately
+
+2. Email Notifications:
+   - Activation email sent when payment approved
+   - Reminder email sent 7 days before subscription expires
+   - Emails include owner name and relevant dates
+
+3. Automated Reminders:
+   - Cron job runs daily at 9 AM
+   - Checks for subscriptions expiring in 7 days
+   - Sends reminder email once per subscription period
+   - Marks subscription_reminder_sent to avoid duplicate emails
+
+
+IMPROVEMENTS:
+-------------
+- SERVER_ERROR responses in login and register now include a `detail` field
+  showing the actual underlying error message for easier debugging
+- Payment approval now includes subscription duration (30 days)
+- Admin dashboard has comprehensive stats with owner lists by status

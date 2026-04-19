@@ -46,3 +46,56 @@ Sent from SmartInven Issue Reporter
     text,
   });
 };
+
+exports.sendAccountActivatedEmail = async ({ to, full_name }) => {
+  const subject = "Your SmartInven Account is Now Active!";
+  const text = `
+Hello ${full_name},
+
+Great news! Your payment has been verified and your SmartInven account is now active.
+
+You now have full access to all features for the next 30 days.
+
+Login to your account to get started: ${process.env.APP_URL || 'https://smartinven.com'}
+
+If you have any questions, feel free to reach out to our support team.
+
+Best regards,
+SmartInven Team
+  `.trim();
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    text,
+  });
+};
+
+exports.sendSubscriptionExpiryReminderEmail = async ({ to, full_name, expires_at }) => {
+  const expiryDate = new Date(expires_at).toLocaleDateString();
+  const subject = "Your SmartInven Subscription is Expiring Soon";
+  const text = `
+Hello ${full_name},
+
+This is a friendly reminder that your SmartInven subscription will expire on ${expiryDate}.
+
+To continue enjoying uninterrupted access to all features, please renew your subscription before the expiry date.
+
+Login to your account to get started: ${process.env.APP_URL || 'https://smartinven.com'}
+
+If you have any questions or need assistance, please contact our support team.
+
+Best regards,
+SmartInven Team
+  `.trim();
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    text,
+  });
+};
+
+

@@ -76,8 +76,15 @@ export const approve = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const proof = await prisma.paymentProof.findUnique({ where: { id } });
+    const proof = await prisma.paymentProof.findUnique({
+      where: { id },
+      include: { owner: { select: { owner_id: true, full_name: true, email: true } } },
+    });
     if (!proof) return fail(res, 404, "NOT_FOUND", "Payment proof not found.");
+
+    // Set subscription to expire 30 days from now
+    const subscriptionExpiresAt = new Date();
+    subscriptionExpiresAt.setDate(subscriptionExpiresAt.getDate() + 30);
 
     await prisma.$transaction([
       prisma.paymentProof.update({
@@ -86,11 +93,30 @@ export const approve = async (req, res) => {
       }),
       prisma.owner.update({
         where: { owner_id: proof.owner_id },
-        data: { status: "active" },
+        data: {
+          status: "active",
+          subscription_expires_at: subscriptionExpiresAt,
+          subscription_reminder_sent: false,
+        },
       }),
     ]);
 
-    return res.status(200).json({ success: true, message: "Payment approved. Owner is now active." });
+    // Send activation email (dynamic import for CommonJS module)
+    try {
+      const mailer = await import("../utils/mailer.js");
+      await mailer.sendAccountActivatedEmail({
+        to: proof.owner.email,
+        full_name: proof.owner.full_name,
+      });
+    } catch (emailErr) {
+      console.error("Failed to send activation email:", emailErr);
+      // Don't fail the request if email fails
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Payment approved. Owner is now active with 30-day subscription.",
+    });
   } catch (err) {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }

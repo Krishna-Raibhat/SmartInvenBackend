@@ -44,6 +44,8 @@ import clothingInventoryRoutes from "./routes/clothingInventoryRoutes.js";
 import clothingActivityRoutes from "./routes/clothingActivityRoutes.js";
 import paymentQRStoreRoutes from "./routes/paymentQRStoreRoutes.js";
 import paymentProofRoutes from "./routes/paymentProofRoutes.js";
+import packageRoutes from "./routes/packageRoutes.js";
+import adminDashboardRoutes from "./routes/adminDashboardRoutes.js";
 
 
 const app = express();
@@ -84,6 +86,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/issue-report", issueReportRoutes);
 
 import "./cron/lowStockCronAll.js";
+import "./cron/subscriptionReminderCron.js";
 
 
 
@@ -106,6 +109,8 @@ app.use("/api/clothing/inventory", clothingInventoryRoutes);
 app.use("/api/clothing/activities", clothingActivityRoutes);
 app.use("/api/payment-qr", paymentQRStoreRoutes);
 app.use("/api/payment-proof", paymentProofRoutes);
+app.use("/api/packages", packageRoutes);
+app.use("/api/admin/dashboard", adminDashboardRoutes);
 /* ==========================
    SERVER START
 ========================== */
