@@ -1,5 +1,5 @@
-const supplierService = require("../services/hardwareSupplierService");
-const { normalizeNepalPhone, isValidNepalPhone } = require("../utils/phone");
+import supplierService from "../services/hardwareSupplierService.js";
+import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
 
 const isValidEmail = (email) =>
   typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -10,7 +10,7 @@ const fail = (res, status, error_code, message) =>
 /* =========================
    CREATE SUPPLIER
 ========================= */
-exports.createSupplier = async (req, res) => {
+export const createSupplier = async (req, res) => {
   try {
     let { supplier_name, phone, email, address } = req.body;
     const owner_id = req.owner.owner_id;
@@ -67,7 +67,7 @@ exports.createSupplier = async (req, res) => {
   }
 };
 
-exports.getSuppliers = async (req, res) => {
+export const getSuppliers = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const suppliers = await supplierService.getAllSuppliers(owner_id);
@@ -77,7 +77,7 @@ exports.getSuppliers = async (req, res) => {
   }
 };
 
-exports.getSupplierById = async (req, res) => {
+export const getSupplierById = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const supplier = await supplierService.getSupplierById(
@@ -95,7 +95,7 @@ exports.getSupplierById = async (req, res) => {
 /* =========================
    UPDATE SUPPLIER
 ========================= */
-exports.updateSupplier = async (req, res) => {
+export const updateSupplier = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const supplier_id = req.params.supplier_id;
@@ -165,7 +165,7 @@ exports.updateSupplier = async (req, res) => {
   }
 };
 
-exports.deleteSupplier = async (req, res) => {
+export const deleteSupplier = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const supplier_id = req.params.supplier_id;

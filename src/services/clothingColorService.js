@@ -1,5 +1,5 @@
 // // src/services/clothingColorService.js
-// const {prisma}  = require("../prisma/client");
+// import { prisma } from "../prisma/client.js";
 
 // class ClothingColorService {
 //   async create({ color_name }) {
@@ -73,10 +73,10 @@
 //   }
 // }
 
-// module.exports = new ClothingColorService();
+// export default new ClothingColorService();
 
 // src/services/clothingColorService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class ClothingColorService {
   async create({ color_name }) {
@@ -154,4 +154,4 @@ class ClothingColorService {
   }
 }
 
-module.exports = new ClothingColorService();
+export default new ClothingColorService();

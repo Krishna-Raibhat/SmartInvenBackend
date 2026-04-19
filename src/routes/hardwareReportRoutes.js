@@ -1,8 +1,8 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const ctrl=require("../controllers/StockInOutReportController");
-const authMiddleware = require("../middlewares/authMiddleware");
+import ctrl from "../controllers/StockInOutReportController.js";
+import authMiddleware from "../middlewares/authMiddleware.js";
 
 router.get("/stock-in-fixed",authMiddleware,ctrl.stockInFixed);
 router.get("/stock-out-fixed",authMiddleware,ctrl.stockOutFixed);
@@ -12,4 +12,4 @@ router.get("/stock-in",authMiddleware,ctrl.stockIn);
 router.get("/stock-out",authMiddleware,ctrl.stockOut);
 router.get("/combined",authMiddleware,ctrl.combined);
 
-module.exports = router;
+export default router;

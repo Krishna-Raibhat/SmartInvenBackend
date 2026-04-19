@@ -1,9 +1,9 @@
-const service = require("../services/clothingReportService");
+import service from "../services/clothingReportService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.salesCostPaid = async (req, res) => {
+export const salesCostPaid = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { start, end, group } = req.query;
@@ -15,7 +15,7 @@ exports.salesCostPaid = async (req, res) => {
   }
 };
 
-exports.topProducts = async (req, res) => {
+export const topProducts = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { start, end, metric, limit } = req.query;
@@ -32,7 +32,7 @@ exports.topProducts = async (req, res) => {
   }
 };
 
-exports.stockFlow = async (req, res) => {
+export const stockFlow = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { start, end, group } = req.query;
@@ -45,7 +45,7 @@ exports.stockFlow = async (req, res) => {
 };
 
 // Download CSV for report tables
-exports.download = async (req, res) => {
+export const download = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { start, end, group, type, format } = req.query;
@@ -82,7 +82,7 @@ exports.download = async (req, res) => {
   }
 };
 
-exports.returnAnalytics = async (req, res) => {
+export const returnAnalytics = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { start, end } = req.query;

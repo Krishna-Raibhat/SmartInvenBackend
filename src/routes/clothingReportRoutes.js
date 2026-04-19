@@ -1,7 +1,7 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingReportController");
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingReportController.js";
 
 // Chart: sales vs cost vs paid (group by day/week/month/year)
 router.get("/sales-cost-paid", auth, ctrl.salesCostPaid);
@@ -16,4 +16,4 @@ router.get("/return-analytics", auth, ctrl.returnAnalytics);
 // Download CSV (same data)
 router.get("/download", auth, ctrl.download);
 
-module.exports = router;
+export default router;

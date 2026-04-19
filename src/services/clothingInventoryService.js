@@ -1,4 +1,4 @@
-const { prisma } = require("../prisma/client"); // IMPORTANT: use { prisma }
+import { prisma } from "../prisma/client.js"; // IMPORTANT: use { prisma }
 
 class ClothingInventoryService {
   // 1) Inventory list
@@ -540,4 +540,4 @@ class ClothingInventoryService {
   }
 }
 
-module.exports = new ClothingInventoryService();
+export default new ClothingInventoryService();

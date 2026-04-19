@@ -1,4 +1,4 @@
-const hardwareTopSellingService = require("../services/hardwareTopSellingService");
+import hardwareTopSellingService from "../services/hardwareTopSellingService.js";
 
 // ================= VALIDATOR =================
 const validateDate = (date) => {
@@ -22,7 +22,7 @@ const validateDate = (date) => {
 };
 
 // ================= CONTROLLER =================
-exports.getTopSellingProducts = async (req, res, next) => {
+export const getTopSellingProducts = async (req, res, next) => {
   console.log("🔥 TOP SELLING CONTROLLER HIT");
   try {
     const owner_id = req.owner?.owner_id;

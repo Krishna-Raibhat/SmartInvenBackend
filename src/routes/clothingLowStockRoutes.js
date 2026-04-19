@@ -1,8 +1,8 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingLowStockController");
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingLowStockController.js";
 
 router.get("/", auth, ctrl.lowStock); // ✅ /api/clothing/low-stock
 
-module.exports = router;
+export default router;

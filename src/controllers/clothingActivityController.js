@@ -1,9 +1,9 @@
 // src/controllers/clothingActivityController.js
-const service = require("../services/clothingActivityService");
+import service from "../services/clothingActivityService.js";
 
 const fail = (res, s, c, m) => res.status(s).json({ success: false, error_code: c, message: m });
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const limit = Number(req.query.limit ?? 4);

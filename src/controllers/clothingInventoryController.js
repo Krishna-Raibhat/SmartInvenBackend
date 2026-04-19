@@ -1,9 +1,9 @@
-const service = require("../services/clothingInventoryService");
+import service from "../services/clothingInventoryService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.listProducts = async (req, res) => {
+export const listProducts = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { search, category_id } = req.query;
@@ -15,7 +15,7 @@ exports.listProducts = async (req, res) => {
   }
 };
 
-exports.getProductDetails = async (req, res) => {
+export const getProductDetails = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;
@@ -28,7 +28,7 @@ exports.getProductDetails = async (req, res) => {
 };
 
 // edit a single lot (notes + qty + cp/sp optional)
-exports.updateLot = async (req, res) => {
+export const updateLot = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { lot_id } = req.params;
@@ -41,7 +41,7 @@ exports.updateLot = async (req, res) => {
 };
 
 // bulk upsert: add new lots or increase qty for existing lots
-exports.bulkUpsertLots = async (req, res) => {
+export const bulkUpsertLots = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;

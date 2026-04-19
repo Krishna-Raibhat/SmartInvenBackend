@@ -1,9 +1,9 @@
 // src/routes/hardwareProductRoutes.js
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const authMiddleware = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/hardwareProductController");
+import authMiddleware from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/hardwareProductController.js";
 
 router.post("/", authMiddleware, ctrl.createProduct);
 router.get("/", authMiddleware, ctrl.listProducts);
@@ -11,4 +11,4 @@ router.get("/:product_id", authMiddleware, ctrl.getProduct);
 router.put("/:product_id", authMiddleware, ctrl.updateProduct);
 router.delete("/:product_id", authMiddleware, ctrl.deleteProduct);
 
-module.exports = router;
+export default router;

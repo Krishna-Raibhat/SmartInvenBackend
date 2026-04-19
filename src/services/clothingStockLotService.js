@@ -1,7 +1,7 @@
 // src/services/clothingStockLotService.js
-const { prisma } = require("../prisma/client");
-const { generateAndUploadBarcode } = require("../utils/barcode");
-const { v4: uuidv4 } = require("uuid");
+import { prisma } from "../prisma/client.js";
+import { generateAndUploadBarcode } from "../utils/barcode.js";
+import { v4 as uuidv4 } from "uuid";
 
 class ClothingStockLotService {
   async getByBarcode(owner_id, barcode) {
@@ -258,4 +258,4 @@ class ClothingStockLotService {
   }
 }
 
-module.exports = new ClothingStockLotService();
+export default new ClothingStockLotService();

@@ -1,7 +1,7 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const ctrl = require("../controllers/issueReportController");
+import * as ctrl from "../controllers/issueReportController.js";
 
 router.post("/", ctrl.reportIssue);
 
-module.exports = router;
+export default router;

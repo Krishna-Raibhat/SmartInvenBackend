@@ -1,5 +1,5 @@
 // src/services/hardwareSupplierService.js
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareSupplierService {
   async createSupplier({ owner_id, supplier_name, phone, email, address }) {
@@ -106,4 +106,4 @@ class HardwareSupplierService {
   }
 }
 
-module.exports = new HardwareSupplierService();
+export default new HardwareSupplierService();

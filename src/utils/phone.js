@@ -1,5 +1,5 @@
 // utils/phone.js
-exports.normalizeNepalPhone = (input) => {
+export const normalizeNepalPhone = (input) => {
   if (!input) return null;
 
   let phone = String(input);
@@ -14,4 +14,4 @@ exports.normalizeNepalPhone = (input) => {
   return phone;
 };
 
-exports.isValidNepalPhone = (phone) => /^\d{10}$/.test(phone);
+export const isValidNepalPhone = (phone) => /^\d{10}$/.test(phone);

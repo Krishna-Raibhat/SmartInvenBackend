@@ -1,5 +1,5 @@
 // src/services/hardwareInventoryService.js
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareInventoryService {
   async listInventory(owner_id) {
@@ -243,4 +243,4 @@ class HardwareInventoryService {
 
 }
 
-module.exports = new HardwareInventoryService();
+export default new HardwareInventoryService();

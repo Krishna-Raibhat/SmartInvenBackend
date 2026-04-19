@@ -1,5 +1,5 @@
 // src/controllers/paymentQRStoreController.js
-const service = require("../services/paymentQRStoreService");
+import service from "../services/paymentQRStoreService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
@@ -8,7 +8,7 @@ const ok = (res, status, data) =>
   res.status(status).json({ success: true, ...data });
 
 // POST /api/payment-qr
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     if (!req.file) {
       return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "QR image file is required");
@@ -22,7 +22,7 @@ exports.create = async (req, res) => {
 };
 
 // GET /api/payment-qr
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const data = await service.list();
     return ok(res, 200, { data, count: data.length });
@@ -32,7 +32,7 @@ exports.list = async (req, res) => {
 };
 
 // GET /api/payment-qr/active
-exports.getActive = async (req, res) => {
+export const getActive = async (req, res) => {
   try {
     const data = await service.getActive();
     if (!data) return fail(res, 404, "NOT_FOUND", "No active QR found");
@@ -43,7 +43,7 @@ exports.getActive = async (req, res) => {
 };
 
 // GET /api/payment-qr/:id
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const data = await service.getById(req.params.id);
     if (!data) return fail(res, 404, "NOT_FOUND", "QR not found");
@@ -54,7 +54,7 @@ exports.getById = async (req, res) => {
 };
 
 // PUT /api/payment-qr/:id
-exports.update = async (req, res) => {
+export const update = async (req, res) => {
   try {
     if (!req.file) {
       return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "QR image file is required");
@@ -69,7 +69,7 @@ exports.update = async (req, res) => {
 };
 
 // PATCH /api/payment-qr/:id/activate
-exports.activate = async (req, res) => {
+export const activate = async (req, res) => {
   try {
     const data = await service.setActive(req.params.id);
     if (!data) return fail(res, 404, "NOT_FOUND", "QR not found");
@@ -80,7 +80,7 @@ exports.activate = async (req, res) => {
 };
 
 // PATCH /api/payment-qr/:id/deactivate
-exports.deactivate = async (req, res) => {
+export const deactivate = async (req, res) => {
   try {
     const data = await service.setInactive(req.params.id);
     if (!data) return fail(res, 404, "NOT_FOUND", "QR not found");
@@ -91,7 +91,7 @@ exports.deactivate = async (req, res) => {
 };
 
 // DELETE /api/payment-qr/:id
-exports.remove = async (req, res) => {
+export const remove = async (req, res) => {
   try {
     const result = await service.delete(req.params.id);
     if (!result) return fail(res, 404, "NOT_FOUND", "QR not found");

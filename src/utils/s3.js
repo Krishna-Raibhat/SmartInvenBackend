@@ -1,5 +1,5 @@
 // src/utils/s3.js
-const Minio = require("minio");
+import Minio from "minio";
 
 const client = new Minio.Client({
   endPoint: "s3-np1.datahub.com.np",
@@ -48,4 +48,4 @@ async function getObject(key) {
   return client.getObject(BUCKET, key);
 }
 
-module.exports = { uploadToS3, getS3Url, getObject };
+export { uploadToS3, getS3Url, getObject };

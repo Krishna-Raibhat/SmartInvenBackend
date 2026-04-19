@@ -1,4 +1,4 @@
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareTopSellingService {
   async getTopSellingProducts(owner_id, start_date) {
@@ -83,4 +83,4 @@ class HardwareTopSellingService {
   }
 }
 
-module.exports = new HardwareTopSellingService();
+export default new HardwareTopSellingService();

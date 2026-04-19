@@ -1,10 +1,10 @@
 // src/controllers/clothingProductController.js
-const service = require("../services/clothingProductService");
+import service from "../services/clothingProductService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     let { category_id, product_name } = req.body;
@@ -24,7 +24,7 @@ exports.create = async (req, res) => {
   }
 };
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.list(owner_id);
@@ -34,7 +34,7 @@ exports.list = async (req, res) => {
   }
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;
@@ -48,7 +48,7 @@ exports.getById = async (req, res) => {
   }
 };
 
-exports.update = async (req, res) => {
+export const update = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;
@@ -71,7 +71,7 @@ exports.update = async (req, res) => {
   }
 };
 
-exports.remove = async (req, res) => {
+export const remove = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;

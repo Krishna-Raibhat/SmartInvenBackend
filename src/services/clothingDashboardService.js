@@ -1,5 +1,5 @@
 // src/services/clothingDashboardService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 function parseDateOrNull(x) {
   if (!x) return null;
@@ -151,4 +151,4 @@ class ClothingDashboardService {
   }
 }
 
-module.exports = new ClothingDashboardService();
+export default new ClothingDashboardService();

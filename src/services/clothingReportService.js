@@ -1,4 +1,4 @@
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 function parseDateOrNull(x) {
   if (!x) return null;
@@ -353,4 +353,4 @@ function endOfDay(d) {
   return x;
 }
 
-module.exports = new ClothingReportService();
+export default new ClothingReportService();

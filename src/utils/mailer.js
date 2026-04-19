@@ -1,4 +1,4 @@
-const nodemailer = require("nodemailer");
+import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -10,7 +10,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-exports.sendOtpEmail = async ({ to, otp }) => {
+export const sendOtpEmail = async ({ to, otp }) => {
   const subject = "Password Reset OTP";
   const text = `Your OTP is: ${otp}\n\nThis OTP expires in 2 minutes.\nIf you did not request this, ignore this email.`;
 
@@ -22,7 +22,7 @@ exports.sendOtpEmail = async ({ to, otp }) => {
   });
 };
 
-exports.sendIssueReport = async ({ name, email, subject, description }) => {
+export const sendIssueReport = async ({ name, email, subject, description }) => {
   const mailSubject = `Issue Report: ${subject}`;
   const text = `
 Issue Report Received

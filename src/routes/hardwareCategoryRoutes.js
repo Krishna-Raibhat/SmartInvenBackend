@@ -1,9 +1,9 @@
 // src/routes/hardwareCategoryRoutes.js
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const authMiddleware = require("../middlewares/authMiddleware");
-const categoryController = require("../controllers/hardwareCategoryController");
+import authMiddleware from "../middlewares/authMiddleware.js";
+import * as categoryController from "../controllers/hardwareCategoryController.js";
 
 // REST style
 router.post("/", authMiddleware, categoryController.createCategory);
@@ -11,4 +11,4 @@ router.get("/", authMiddleware, categoryController.listCategories);
 router.put("/:category_id", authMiddleware, categoryController.updateCategory);
 router.delete("/:category_id", authMiddleware, categoryController.deleteCategory);
 
-module.exports = router;
+export default router;

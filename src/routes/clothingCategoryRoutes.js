@@ -1,9 +1,9 @@
 // src/routes/clothingCategoryRoutes.js
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingCategoryController");
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingCategoryController.js";
 
 // /api/clothing/categories
 router.post("/", auth, ctrl.create);
@@ -12,4 +12,4 @@ router.get("/:category_id", auth, ctrl.getById);
 router.put("/:category_id", auth, ctrl.update);
 router.delete("/:category_id", auth, ctrl.remove);
 
-module.exports = router;
+export default router;

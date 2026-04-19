@@ -1,5 +1,5 @@
 // src/services/hardwareCategoryService.js
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareCategoryService {
   async createCategory({ package_id, category_name}) {
@@ -91,4 +91,4 @@ class HardwareCategoryService {
   }
 }
 
-module.exports = new HardwareCategoryService();
+export default new HardwareCategoryService();

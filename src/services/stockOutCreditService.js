@@ -1,4 +1,4 @@
-const {prisma} = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class StockOutCreditService {
   async getStockOutWithCreditLeft(owner_id) {
@@ -50,4 +50,4 @@ class StockOutCreditService {
   }
 }
 
-module.exports = new StockOutCreditService();
+export default new StockOutCreditService();

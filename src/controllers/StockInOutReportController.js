@@ -1,4 +1,4 @@
-const reportService = require("../services/StockInOutReportService");
+import reportService from "../services/StockInOutReportService.js";
 
 const validateOwner = (res, owner_id) => {
   if (!owner_id) {
@@ -272,4 +272,4 @@ class HardwareReportController {
   }
 }
 
-module.exports = new HardwareReportController();
+export default new HardwareReportController();

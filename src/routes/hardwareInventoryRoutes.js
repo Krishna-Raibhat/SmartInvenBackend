@@ -1,8 +1,8 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const authMiddleware = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/hardwareInventoryController");
+import authMiddleware from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/hardwareInventoryController.js";
 
 // // List inventory grid
 // router.get("/", authMiddleware, ctrl.listInventory);
@@ -21,7 +21,7 @@ const ctrl = require("../controllers/hardwareInventoryController");
 
 // router.get("/low-stock", authMiddleware, ctrl.lowStock);
 
-// module.exports = router;
+// export default router;
 // List inventory grid
 router.get("/", authMiddleware, ctrl.listInventory);
 
@@ -40,4 +40,4 @@ router.put("/lot/:lot_id", authMiddleware, ctrl.updateLot);
 // Delete product
 router.delete("/product/:product_id", authMiddleware, ctrl.deleteProduct);
 
-module.exports = router;
+export default router;

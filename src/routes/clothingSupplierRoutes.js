@@ -1,9 +1,9 @@
 // src/routes/clothingSupplierRoutes.js
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingSupplierController");
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingSupplierController.js";
 
 // /api/clothing/suppliers
 router.post("/", auth, ctrl.create);
@@ -12,4 +12,4 @@ router.get("/:supplier_id", auth, ctrl.getById);
 router.put("/:supplier_id", auth, ctrl.update);
 router.delete("/:supplier_id", auth, ctrl.remove);
 
-module.exports = router;
+export default router;

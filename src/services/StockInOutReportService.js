@@ -1,4 +1,4 @@
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareReportService {
   // Helper: Build date range
@@ -351,4 +351,4 @@ class HardwareReportService {
 
 }
 
-module.exports = new HardwareReportService();
+export default new HardwareReportService();

@@ -1,6 +1,6 @@
 // src/utils/barcode.js
-const bwipjs = require("bwip-js");
-const { uploadToS3 } = require("./s3");
+import bwipjs from "bwip-js";
+import { uploadToS3 } from "./s3.js";
 
 /**
  * Generate a unique barcode string for a stock lot.
@@ -48,4 +48,4 @@ async function generateAndUploadBarcode(lotId) {
   return { barcode, barcode_image_url: storedKey };
 }
 
-module.exports = { generateAndUploadBarcode };
+export { generateAndUploadBarcode };

@@ -1,6 +1,6 @@
 // src/controllers/clothingSupplierController.js
-const clothingSupplierService = require("../services/clothingSupplierService");
-const { normalizeNepalPhone, isValidNepalPhone } = require("../utils/phone");
+import clothingSupplierService from "../services/clothingSupplierService.js";
+import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
 
 const isValidEmail = (email) =>
   typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -8,7 +8,7 @@ const isValidEmail = (email) =>
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     let { supplier_name, phone, email, address } = req.body;
@@ -57,7 +57,7 @@ exports.create = async (req, res) => {
   }
 };
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const suppliers = await clothingSupplierService.list(owner_id);
@@ -67,7 +67,7 @@ exports.list = async (req, res) => {
   }
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const supplier_id = req.params.supplier_id;
@@ -81,7 +81,7 @@ exports.getById = async (req, res) => {
   }
 };
 
-exports.update = async (req, res) => {
+export const update = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const supplier_id = req.params.supplier_id;
@@ -145,7 +145,7 @@ exports.update = async (req, res) => {
   }
 };
 
-exports.remove = async (req, res) => {
+export const remove = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const supplier_id = req.params.supplier_id;

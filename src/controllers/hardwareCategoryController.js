@@ -1,10 +1,10 @@
 // src/controllers/hardwareCategoryController.js
-const categoryService = require("../services/hardwareCategoryService");
+import categoryService from "../services/hardwareCategoryService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.createCategory = async (req, res) => {
+export const createCategory = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const package_id = req.owner.package_id;
@@ -29,7 +29,7 @@ exports.createCategory = async (req, res) => {
   }
 };
 
-exports.listCategories = async (req, res) => {
+export const listCategories = async (req, res) => {
   try {
     const package_id = req.owner.package_id;
     if (!package_id) return fail(res, 400, "NO_PACKAGE", "Owner has no package_id");
@@ -41,7 +41,7 @@ exports.listCategories = async (req, res) => {
   }
 };
 
-exports.updateCategory = async (req, res) => {
+export const updateCategory = async (req, res) => {
   try {
     const package_id = req.owner.package_id;
     if (!package_id) return fail(res, 400, "NO_PACKAGE", "Owner has no package_id");
@@ -63,7 +63,7 @@ exports.updateCategory = async (req, res) => {
   }
 };
 
-exports.deleteCategory = async (req, res) => {
+export const deleteCategory = async (req, res) => {
   try {
     const package_id = req.owner.package_id;
     if (!package_id) return fail(res, 400, "NO_PACKAGE", "Owner has no package_id");

@@ -1,11 +1,11 @@
 // src/routes/clothingCustomerReturnRoutes.js
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingCustomerReturnController");
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingCustomerReturnController.js";
 
 router.post("/", auth, ctrl.create);
 router.get("/", auth, ctrl.list);
 router.get("/:return_id", auth, ctrl.getById);
 
-module.exports = router;
+export default router;

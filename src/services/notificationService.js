@@ -1,8 +1,8 @@
 // src/services/notificationService.js
-const admin = require("../firebase/firebase-admin");
-const {prisma}  = require("../prisma/client");
+import admin from "../firebase/firebase-admin.js";
+import { prisma } from "../prisma/client.js";
 
-exports.sendLowStockNotification = async ({
+export const sendLowStockNotification = async ({
   owner_id,
   fcmToken,
   productId,

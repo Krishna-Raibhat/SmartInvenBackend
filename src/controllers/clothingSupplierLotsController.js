@@ -1,10 +1,10 @@
 // src/controllers/clothingSupplierLotsController.js
-const service = require("../services/clothingSupplierLotsService");
+import service from "../services/clothingSupplierLotsService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.listLots = async (req, res) => {
+export const listLots = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { supplier_id } = req.params;

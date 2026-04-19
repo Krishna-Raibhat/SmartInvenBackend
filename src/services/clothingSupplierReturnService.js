@@ -1,5 +1,5 @@
 // src/services/clothingSupplierReturnService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 const allowedStatus = new Set(["pending", "approved", "completed", "cancelled"]);
 
@@ -287,4 +287,4 @@ class ClothingSupplierReturnService {
   }
 }
 
-module.exports = new ClothingSupplierReturnService();
+export default new ClothingSupplierReturnService();

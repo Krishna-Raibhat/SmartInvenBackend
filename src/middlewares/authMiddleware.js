@@ -1,7 +1,7 @@
-const jwt = require("jsonwebtoken");
-const { prisma }= require("../prisma/client"); // adjust path if different
+import jwt from "jsonwebtoken";
+import { prisma } from "../prisma/client.js";
 
-module.exports = async (req, res, next) => {
+export default async (req, res, next) => {
   try {
     const authHeader = req.headers["authorization"]; // "Bearer <token>"
 

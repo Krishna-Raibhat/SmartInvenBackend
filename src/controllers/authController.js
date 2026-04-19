@@ -1,9 +1,8 @@
-
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const { prisma } = require("../prisma/client");
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { prisma } from "../prisma/client.js";
 // adjust path if needed
-const { sendOtpEmail } = require("../utils/mailer");
+import { sendOtpEmail } from "../utils/mailer.js";
 
 /* =========================
    Helpers
@@ -88,7 +87,7 @@ const packageNameMap = {
   clothing: "Clothing Store",
 };
 
-exports.register = async (req, res) => {
+export const register = async (req, res) => {
   try {
     let { full_name, phone, email, password, confirm_password, package_key, status } = req.body;
 
@@ -189,7 +188,7 @@ exports.register = async (req, res) => {
 /* =========================
    LOGIN
 ========================= */
-exports.login = async (req, res) => {
+export const login = async (req, res) => {
   try {
     let { email, password, fcm_token } = req.body;
     email = normalizeEmail(email);
@@ -269,7 +268,7 @@ exports.login = async (req, res) => {
 /* =========================
    ME
 ========================= */
-exports.me = async (req, res) => {
+export const me = async (req, res) => {
   try {
     const ownerId = req.owner?.owner_id;
     if (!ownerId)
@@ -301,7 +300,7 @@ exports.me = async (req, res) => {
 /* =========================
    UPDATE PROFILE
 ========================= */
-exports.updateMe = async (req, res) => {
+export const updateMe = async (req, res) => {
   try {
     const ownerId = req.owner?.owner_id;
     if (!ownerId)
@@ -407,7 +406,7 @@ exports.updateMe = async (req, res) => {
 /* =========================
    CHANGE PASSWORD
 ========================= */
-exports.changePassword = async (req, res) => {
+export const changePassword = async (req, res) => {
   try {
     const ownerId = req.owner?.owner_id;
     if (!ownerId)
@@ -491,7 +490,7 @@ exports.changePassword = async (req, res) => {
 /* =========================
    FORGOT PASSWORD: SEND OTP
 ========================= */
-exports.forgotPasswordSendOtp = async (req, res) => {
+export const forgotPasswordSendOtp = async (req, res) => {
   try {
     let { email } = req.body;
     email = normalizeEmail(email);
@@ -569,7 +568,7 @@ exports.forgotPasswordSendOtp = async (req, res) => {
 /* =========================
    FORGOT PASSWORD: VERIFY OTP
 ========================= */
-exports.forgotPasswordVerifyOtp = async (req, res) => {
+export const forgotPasswordVerifyOtp = async (req, res) => {
   try {
     let { email, otp } = req.body;
     email = normalizeEmail(email);
@@ -659,7 +658,7 @@ exports.forgotPasswordVerifyOtp = async (req, res) => {
 /* =========================
    FORGOT PASSWORD: RESET
 ========================= */
-exports.forgotPasswordReset = async (req, res) => {
+export const forgotPasswordReset = async (req, res) => {
   try {
     const { reset_token, new_password, confirm_password } = req.body;
 
@@ -716,7 +715,7 @@ const SUPER_ADMIN_EMAIL = "superadmin@smartinven.com";
 const SUPER_ADMIN_PASSWORD = "Admin@1234";
 const SUPER_ADMIN_ROLE = "superadmin";
 
-exports.superAdminLogin = async (req, res) => {
+export const superAdminLogin = async (req, res) => {
   try {
     let { email, password } = req.body;
     email = normalizeEmail(email);

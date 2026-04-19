@@ -1,10 +1,10 @@
 // src/controllers/clothingSalesController.js
-const service = require("../services/clothingSalesService");
+import service from "../services/clothingSalesService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const sale = await service.createSale(owner_id, req.body);
@@ -15,7 +15,7 @@ exports.create = async (req, res) => {
   }
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const sale = await service.getById(owner_id, req.params.sales_id);
@@ -26,7 +26,7 @@ exports.getById = async (req, res) => {
   }
 };
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.list(owner_id);
@@ -36,7 +36,7 @@ exports.list = async (req, res) => {
   }
 };
 
-exports.creditList = async (req, res) => {
+export const creditList = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.listCredit(owner_id);
@@ -46,7 +46,7 @@ exports.creditList = async (req, res) => {
   }
 };
 
-exports.addPayment = async (req, res) => {
+export const addPayment = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { amount } = req.body;
@@ -59,7 +59,7 @@ exports.addPayment = async (req, res) => {
 };
 
 // ✅ BILL JSON API
-exports.bill = async (req, res) => {
+export const bill = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const bill = await service.getBill(owner_id, req.params.sales_id);
@@ -70,7 +70,7 @@ exports.bill = async (req, res) => {
   }
 };
 
-exports.billPdf = async (req, res) => {
+export const billPdf = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { pdfBuffer, bill } = await service.buildBillPdf(

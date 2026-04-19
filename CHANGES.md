@@ -243,3 +243,79 @@ Owners can optionally specify their status during registration by including a `s
 - Login now returns the owner's `status` in the response
 - Accounts with `status: "inactive"` are blocked from logging in with error code `ACCOUNT_INACTIVE`
 - The `/me` endpoint now includes the `status` field
+
+
+---
+
+## 9. Complete ES Module Conversion
+
+### Date
+2026-04-19
+
+### Issue Fixed
+Entire project was using CommonJS (`require`/`module.exports`) instead of modern ES Modules (`import`/`export`).
+
+### Changes Made
+Converted all JavaScript files from CommonJS to ES Modules:
+
+**Package Configuration:**
+- Added `"type": "module"` to `package.json`
+
+**Controllers (31 files):**
+- All hardware controllers (9 files)
+- All clothing controllers (16 files)
+- Other controllers (6 files)
+- Changed `exports.*` to `export const`
+
+**Services (35 files):**
+- All hardware services (9 files)
+- All clothing services (16 files)
+- Other services (4 files)
+- Changed `module.exports = new ServiceClass()` to `export default new ServiceClass()`
+- Changed `exports.*` to `export const` for named exports
+
+**Routes (31 files):**
+- All route files converted
+- Changed `module.exports = router` to `export default router`
+
+**Utilities (5 files):**
+- `apiResponse.js` - Changed to named exports
+- `barcode.js` - Changed to named exports
+- `mailer.js` - Changed to named exports
+- `phone.js` - Changed to named exports
+- `s3.js` - Changed to named exports
+
+**Configuration (1 file):**
+- `src/config/prisma.js` - Changed to default export
+
+**Cron Jobs (3 files):**
+- All cron files converted to ES modules
+
+**Middleware (1 file):**
+- `authMiddleware.js` - Converted to ES module
+
+**Firebase (1 file):**
+- `firebase-admin.js` - Already was ES module
+
+**Main Application:**
+- `src/app.js` - Already was ES module
+
+### Key Patterns Used
+```javascript
+// Before (CommonJS)
+const service = require("./service");
+module.exports = new ServiceClass();
+exports.method = () => {};
+
+// After (ES Modules)
+import service from "./service.js";
+export default new ServiceClass();
+export const method = () => {};
+```
+
+### Result
+- Modern ES Module syntax throughout the entire codebase
+- All imports include `.js` file extensions
+- Consistent export patterns across all files
+- Better compatibility with modern JavaScript tooling
+- Improved tree-shaking and bundling capabilities

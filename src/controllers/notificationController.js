@@ -1,10 +1,9 @@
-// const prisma = require("../prisma/client");
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 
@@ -24,7 +23,7 @@ exports.list = async (req, res) => {
   }
 };
 
-exports.markRead = async (req, res) => {
+export const markRead = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const id = req.params.id;
@@ -45,7 +44,7 @@ exports.markRead = async (req, res) => {
   }
 };
 
-exports.markAllRead = async (req, res) => {
+export const markAllRead = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 
@@ -60,7 +59,7 @@ exports.markAllRead = async (req, res) => {
   }
 };
 
-exports.deleteOne = async (req, res) => {
+export const deleteOne = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const id = req.params.id;

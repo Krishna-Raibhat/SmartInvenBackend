@@ -1,4 +1,4 @@
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareProductService {
   async createProductMaster({ owner_id,  product_name, category_id }) {
@@ -158,4 +158,4 @@ class HardwareProductService {
 }
 }
 
-module.exports = new HardwareProductService();
+export default new HardwareProductService();

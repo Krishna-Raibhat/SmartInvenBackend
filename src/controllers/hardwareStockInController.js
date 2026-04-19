@@ -1,6 +1,6 @@
-const stockInService = require("../services/hardwareStockInService");
+import stockInService from "../services/hardwareStockInService.js";
 
-exports.stockIn = async (req, res) => {
+export const stockIn = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 

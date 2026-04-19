@@ -1,5 +1,5 @@
-const { prisma } = require("../prisma/client");
-const { sendClothingLowStockNotification } = require("./notificationService");
+import { prisma } from "../prisma/client.js";
+import { sendClothingLowStockNotification } from "./clothingNotificationService.js";
 
 class ClothingLowStockService {
   async listLowStock(owner_id, threshold = 40) {
@@ -85,4 +85,4 @@ class ClothingLowStockService {
   }
 }
 
-module.exports = new ClothingLowStockService();
+export default new ClothingLowStockService();

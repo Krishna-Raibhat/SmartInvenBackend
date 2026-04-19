@@ -1,10 +1,10 @@
 // src/routes/clothingSupplierLotsRoutes.js
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingSupplierLotsController");
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingSupplierLotsController.js";
 
 // ✅ /api/clothing/suppliers/:supplier_id/lots
 router.get("/:supplier_id/lots", auth, ctrl.listLots);
 
-module.exports = router;
+export default router;

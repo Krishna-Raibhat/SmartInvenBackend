@@ -1,9 +1,9 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const ctrl = require("../controllers/hardwareTopSellingController");
-const authMiddleware = require("../middlewares/authMiddleware");
+import * as ctrl from "../controllers/hardwareTopSellingController.js";
+import authMiddleware from "../middlewares/authMiddleware.js";
 
 router.get("/",authMiddleware,ctrl.getTopSellingProducts);
 
-module.exports = router;
+export default router;

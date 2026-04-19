@@ -1,5 +1,5 @@
 // // src/services/clothingSizeService.js
-// const {prisma}  = require("../prisma/client");
+// import { prisma } from "../prisma/client.js";
 
 
 // class ClothingSizeService {
@@ -74,10 +74,10 @@
 //   }
 // }
 
-// module.exports = new ClothingSizeService();
+// export default new ClothingSizeService();
 
 // src/services/clothingSizeService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class ClothingSizeService {
   async create({ size_name }) {
@@ -155,4 +155,4 @@ class ClothingSizeService {
   }
 }
 
-module.exports = new ClothingSizeService();
+export default new ClothingSizeService();

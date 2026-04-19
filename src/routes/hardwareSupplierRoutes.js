@@ -1,8 +1,8 @@
-const express = require("express");
+import express from "express";
 const router = express.Router();
 
-const supplierController = require("../controllers/hardwareSupplierController");
-const authMiddleware = require("../middlewares/authMiddleware");
+import * as supplierController from "../controllers/hardwareSupplierController.js";
+import authMiddleware from "../middlewares/authMiddleware.js";
 
 
 router.post("/", authMiddleware, supplierController.createSupplier);
@@ -11,4 +11,4 @@ router.get("/:supplier_id", authMiddleware, supplierController.getSupplierById);
 router.put("/:supplier_id", authMiddleware, supplierController.updateSupplier);
 router.delete("/:supplier_id", authMiddleware, supplierController.deleteSupplier);
 
-module.exports = router;
+export default router;

@@ -1,5 +1,4 @@
-
-const stockOutCreditService = require("../services/stockOutCreditService");
+import stockOutCreditService from "../services/stockOutCreditService.js";
 
 const validateOwner = (res, owner_id) => {
   if (!owner_id) {
@@ -14,7 +13,7 @@ const validateOwner = (res, owner_id) => {
 };
 
 // GET /api/stock-out/credit
-exports.getStockOutCredits = async (req, res) => {
+export const getStockOutCredits = async (req, res) => {
   try {
     
     const owner_id = req.owner.owner_id;

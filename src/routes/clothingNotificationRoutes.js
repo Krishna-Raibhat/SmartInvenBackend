@@ -1,8 +1,8 @@
 // src/routes/clothingNotificationRoutes.js
-const express = require("express");
+import express from "express";
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingNotificationController");
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingNotificationController.js";
 
 router.get("/", auth, ctrl.list);
 router.post("/:id/read", auth, ctrl.markRead);
@@ -10,4 +10,4 @@ router.post("/read-all", auth, ctrl.markAllRead);
 router.delete("/:id", auth, ctrl.deleteOne);
 
 
-module.exports = router;
+export default router;

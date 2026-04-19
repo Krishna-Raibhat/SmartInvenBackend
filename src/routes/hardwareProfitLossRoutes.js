@@ -1,14 +1,14 @@
-const express = require("express");
+import express from "express";
 
 const router = express.Router();
 
-const ctrl = require("../controllers/hardwareProfitLossController");
+import * as ctrl from "../controllers/hardwareProfitLossController.js";
 
-const authMiddleware = require("../middlewares/authMiddleware");
+import authMiddleware from "../middlewares/authMiddleware.js";
 
 // Route to get profit/loss report
 // Example: GET /api/hardware/profit-loss?type=monthly
 //router.get("/type", authMiddleware, ctrl.getProfitLoss);
 router.get("/", authMiddleware, ctrl.getProfitLoss);
 
-module.exports = router;
+export default router;

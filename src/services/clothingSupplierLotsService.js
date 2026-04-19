@@ -1,5 +1,5 @@
 // src/services/clothingSupplierLotsService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class ClothingSupplierLotsService {
   async listLots(owner_id, supplier_id, { search, product_id, only_in_stock } = {}) {
@@ -66,4 +66,4 @@ class ClothingSupplierLotsService {
   }
 }
 
-module.exports = new ClothingSupplierLotsService();
+export default new ClothingSupplierLotsService();

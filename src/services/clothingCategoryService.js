@@ -1,5 +1,5 @@
 // src/services/clothingCategoryService.js
-const {prisma} = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class ClothingCategoryService {
 
@@ -74,4 +74,4 @@ class ClothingCategoryService {
   }
 }
 
-module.exports = new ClothingCategoryService();
+export default new ClothingCategoryService();
