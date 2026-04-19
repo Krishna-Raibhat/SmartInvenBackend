@@ -1,6 +1,6 @@
 const cron = require("node-cron");
 const { prisma } = require("../prisma/client");
-const { sendClothingLowStockNotification } = require("../services/notificationService");
+const { sendClothingLowStockNotification } = require("../services/clothingNotificationService");
 
 const LOW_STOCK_THRESHOLD = 40;
 

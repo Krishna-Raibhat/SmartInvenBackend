@@ -1,5 +1,5 @@
 const { prisma } = require("../prisma/client");
-const { sendClothingLowStockNotification } = require("./notificationService");
+const { sendClothingLowStockNotification } = require("./clothingNotificationService");
 
 class ClothingLowStockService {
   async listLowStock(owner_id, threshold = 40) {
