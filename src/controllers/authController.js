@@ -209,7 +209,7 @@ export async function login(req, res) {
         "Email and password are required."
       );
     }
-
+    
     const owner = await prisma.owner.findUnique({
       where: { email },
       select: {
@@ -249,7 +249,7 @@ export async function login(req, res) {
         });
 
         if (pendingPayment) {
-          return sendError(res, 403, "TRIAL_EXPIRED", "Your payment is still in verification.", {
+          return sendError(res, 403, "TRIAL_EXPIRED", "Your payment is still in verification. Please wait for approval or upload a new payment receipt if needed.", {
             owner: {
               owner_id: owner.owner_id,
               full_name: owner.full_name,
@@ -260,6 +260,9 @@ export async function login(req, res) {
               package_key: owner.package?.package_key ?? null,
               package_name: owner.package?.package_name ?? null,
             },
+            can_update_payment: true,
+            payment_status: "pending",
+            upload_url: "/api/payment-proof",
           });
         }
 
