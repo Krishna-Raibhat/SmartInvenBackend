@@ -242,6 +242,27 @@ export async function login(req, res) {
     if (owner.status === "trial") {
       const daysSinceCreation = Math.floor((Date.now() - new Date(owner.created_at).getTime()) / (1000 * 60 * 60 * 24));
       if (daysSinceCreation > 7) {
+        // Check if owner has a pending payment proof
+        const pendingPayment = await prisma.paymentProof.findFirst({
+          where: { owner_id: owner.owner_id, status: "pending" },
+          select: { id: true },
+        });
+
+        if (pendingPayment) {
+          return sendError(res, 403, "TRIAL_EXPIRED", "Your payment is still in verification.", {
+            owner: {
+              owner_id: owner.owner_id,
+              full_name: owner.full_name,
+              email: owner.email,
+              phone: owner.phone,
+              package_id: owner.package_id,
+              status: owner.status,
+              package_key: owner.package?.package_key ?? null,
+              package_name: owner.package?.package_name ?? null,
+            },
+          });
+        }
+
         return sendError(res, 403, "TRIAL_EXPIRED", "Your 7-day trial has expired. Please subscribe to continue.", {
           owner: {
             owner_id: owner.owner_id,
