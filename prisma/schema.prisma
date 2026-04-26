@@ -35,6 +35,10 @@ model Owner {
   password  String      @map("password_hash")
   fcm_token String?
   status    OwnerStatus @default(trial)
+  
+  subscription_expires_at     DateTime?
+  subscription_reminder_sent  Boolean   @default(false)
+
 
   package_id String?
   package    Package? @relation(fields: [package_id], references: [package_id], onDelete: Restrict)

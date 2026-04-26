@@ -11,7 +11,7 @@ import { sendOtpEmail } from "../utils/mailer.js";
 const { sign, verify } = jwt;
 
 /* =========================
-   Helpers
+Helpers
 ========================= */
 const sendError = (res, status, error_code, message, extra = {}) => {
   return res.status(status).json({
