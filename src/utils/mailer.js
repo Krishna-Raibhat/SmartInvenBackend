@@ -1,4 +1,4 @@
-const nodemailer = require("nodemailer");
+import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -10,7 +10,8 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-exports.sendOtpEmail = async ({ to, otp }) => {
+// OTP EMAIL
+export const sendOtpEmail = async ({ to, otp }) => {
   const subject = "Password Reset OTP";
   const text = `Your OTP is: ${otp}\n\nThis OTP expires in 2 minutes.\nIf you did not request this, ignore this email.`;
 
@@ -22,7 +23,8 @@ exports.sendOtpEmail = async ({ to, otp }) => {
   });
 };
 
-exports.sendIssueReport = async ({ name, email, subject, description }) => {
+// ISSUE REPORT
+export const sendIssueReport = async ({ name, email, subject, description }) => {
   const mailSubject = `Issue Report: ${subject}`;
   const text = `
 Issue Report Received
@@ -47,7 +49,8 @@ Sent from SmartInven Issue Reporter
   });
 };
 
-exports.sendAccountActivatedEmail = async ({ to, full_name }) => {
+// ACCOUNT ACTIVATED
+export const sendAccountActivatedEmail = async ({ to, full_name }) => {
   const subject = "Your SmartInven Account is Now Active!";
   const text = `
 Hello ${full_name},
@@ -56,9 +59,7 @@ Great news! Your payment has been verified and your SmartInven account is now ac
 
 You now have full access to all features for the next 30 days.
 
-Login to your account to get started: ${process.env.APP_URL || 'https://smartinven.com'}
-
-If you have any questions, feel free to reach out to our support team.
+Login: ${process.env.APP_URL || 'https://smartinven.com'}
 
 Best regards,
 SmartInven Team
@@ -72,19 +73,19 @@ SmartInven Team
   });
 };
 
-exports.sendSubscriptionExpiryReminderEmail = async ({ to, full_name, expires_at }) => {
+// SUBSCRIPTION REMINDER
+export const sendSubscriptionExpiryReminderEmail = async ({ to, full_name, expires_at }) => {
   const expiryDate = new Date(expires_at).toLocaleDateString();
+
   const subject = "Your SmartInven Subscription is Expiring Soon";
   const text = `
 Hello ${full_name},
 
-This is a friendly reminder that your SmartInven subscription will expire on ${expiryDate}.
+Your SmartInven subscription will expire on ${expiryDate}.
 
-To continue enjoying uninterrupted access to all features, please renew your subscription before the expiry date.
+Renew before expiry to continue using all features.
 
-Login to your account to get started: ${process.env.APP_URL || 'https://smartinven.com'}
-
-If you have any questions or need assistance, please contact our support team.
+Login: ${process.env.APP_URL || 'https://smartinven.com'}
 
 Best regards,
 SmartInven Team
@@ -97,5 +98,3 @@ SmartInven Team
     text,
   });
 };
-
-
