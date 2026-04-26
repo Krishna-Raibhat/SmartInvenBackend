@@ -1,10 +1,10 @@
 // src/controllers/hardwareStockOutController.js
-const stockOutService = require("../services/hardwareStockOutService");
+import stockOutService from "../services/hardwareStockOutService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.createStockOut = async (req, res) => {
+export const createStockOut = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 
@@ -33,7 +33,7 @@ exports.createStockOut = async (req, res) => {
   }
 };
 
-exports.getStockOutById = async (req, res) => {
+export const getStockOutById = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const result = await stockOutService.getStockOutById(owner_id, req.params.stockout_id);
@@ -44,7 +44,7 @@ exports.getStockOutById = async (req, res) => {
   }
 };
 
-exports.listStockOut = async (req, res) => {
+export const listStockOut = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const list = await stockOutService.listStockOut(owner_id);
@@ -54,7 +54,7 @@ exports.listStockOut = async (req, res) => {
   }
 };
 
-exports.addPayment = async (req, res) => {
+export const addPayment = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { amount } = req.body;

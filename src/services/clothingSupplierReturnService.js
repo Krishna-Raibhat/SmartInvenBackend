@@ -1,12 +1,9 @@
 // src/services/clothingSupplierReturnService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 const allowedStatus = new Set(["pending", "approved", "completed", "cancelled"]);
 
 class ClothingSupplierReturnService {
-  // ======================================================
-  // CREATE RETURN (NO STOCK CHANGE HERE)
-  // ======================================================
   async createReturn(owner_id, payload) {
     const { supplier_id, note, items } = payload;
 
@@ -97,9 +94,6 @@ class ClothingSupplierReturnService {
     });
   }
 
-  // ======================================================
-  // LIST
-  // ======================================================
   async list(owner_id) {
     return prisma.clothingSupplierReturn.findMany({
       where: { owner_id },
@@ -144,9 +138,6 @@ class ClothingSupplierReturnService {
     });
   }
 
-  // ======================================================
-  // GET BY ID
-  // ======================================================
   async getById(owner_id, return_id) {
     return prisma.clothingSupplierReturn.findFirst({
       where: { owner_id, return_id },
@@ -169,9 +160,6 @@ class ClothingSupplierReturnService {
     });
   }
 
-  // ======================================================
-  // UPDATE STATUS (STOCK CHANGES ONLY ON COMPLETED)
-  // ======================================================
   async updateStatus(owner_id, return_id, status) {
     status = String(status || "")
       .trim()
@@ -196,7 +184,6 @@ class ClothingSupplierReturnService {
         throw e;
       }
 
-      // ❌ cannot change after completed
       if (ret.status === "completed") {
         const e = new Error("Completed return cannot be modified");
         e.status = 400;
@@ -204,7 +191,6 @@ class ClothingSupplierReturnService {
         throw e;
       }
 
-      // ✅ deduct stock ONLY when completing
       if (status === "completed") {
         for (const item of ret.items) {
           const lot = await tx.clothingStockLot.findFirst({
@@ -233,9 +219,6 @@ class ClothingSupplierReturnService {
     });
   }
 
-  // ======================================================
-  // CANCEL (NO STOCK CHANGE)
-  // ======================================================
   async cancel(owner_id, return_id) {
     const ret = await prisma.clothingSupplierReturn.findFirst({
       where: { owner_id, return_id },
@@ -262,9 +245,6 @@ class ClothingSupplierReturnService {
     });
   }
 
-  // ======================================================
-  // DELETE (SAFE)
-  // ======================================================
   async delete(owner_id, return_id) {
     const ret = await prisma.clothingSupplierReturn.findFirst({
       where: { owner_id, return_id },
@@ -287,4 +267,4 @@ class ClothingSupplierReturnService {
   }
 }
 
-module.exports = new ClothingSupplierReturnService();
+export default new ClothingSupplierReturnService();

@@ -1,11 +1,11 @@
-const productService = require("../services/hardwareProductService");
+import productService from "../services/hardwareProductService.js";
 
 const sendFail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 const sendOk = (res, status, data) =>
   res.status(status).json({ success: true, ...data });
 
-exports.createProduct = async (req, res) => {
+export const createProduct = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_name, category_id } = req.body;
@@ -32,7 +32,7 @@ exports.createProduct = async (req, res) => {
   }
 };
 
-exports.listProducts = async (req, res) => {
+export const listProducts = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const products = await productService.listProducts(owner_id);
@@ -42,7 +42,7 @@ exports.listProducts = async (req, res) => {
   }
 };
 
-exports.getProduct = async (req, res) => {
+export const getProduct = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const product = await productService.getById(owner_id, req.params.product_id);
@@ -53,7 +53,7 @@ exports.getProduct = async (req, res) => {
   }
 };
 
-exports.updateProduct = async (req, res) => {
+export const updateProduct = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_name, category_id } = req.body;
@@ -87,7 +87,7 @@ exports.updateProduct = async (req, res) => {
 };
 
 
-exports.deleteProduct = async (req, res) => {
+export const deleteProduct = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 

@@ -1,5 +1,5 @@
 // src/services/hardwareDashboardService.js
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareDashboardService {
   async summary(owner_id) {
@@ -23,4 +23,4 @@ class HardwareDashboardService {
   }
 }
 
-module.exports = new HardwareDashboardService();
+export default new HardwareDashboardService();

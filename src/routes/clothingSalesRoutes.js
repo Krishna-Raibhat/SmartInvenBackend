@@ -1,8 +1,9 @@
 // src/routes/clothingSalesRoutes.js
-const express = require("express");
+import express from "express";
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingSalesController.js";
+
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingSalesController");
 
 router.post("/", auth, ctrl.create);
 router.get("/", auth, ctrl.list);
@@ -12,4 +13,4 @@ router.post("/:sales_id/payments", auth, ctrl.addPayment);
 router.get("/:sales_id/bill", auth, ctrl.bill);
 router.get("/:sales_id/bill/pdf", auth, ctrl.billPdf);
 
-module.exports = router;
+export default router;

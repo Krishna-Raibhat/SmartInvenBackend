@@ -1,9 +1,9 @@
-const service = require("../services/clothingLowStockService");
+import service from "../services/clothingLowStockService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.lowStock = async (req, res) => {
+export const lowStock = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const threshold = req.query.threshold ?? 40;

@@ -1,7 +1,8 @@
 // src/services/clothingSalesService.js
-const { prisma } = require("../prisma/client");
-const PDFDocument = require("pdfkit");
-const { normalizeNepalPhone, isValidNepalPhone } = require("../utils/phone");
+import { prisma } from "../prisma/client.js";
+import PDFDocument from "pdfkit";
+import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
+
 class ClothingSalesService {
   // ✅ CREATE SALE (can auto create customer)
   async createSale(owner_id, payload) {
@@ -23,9 +24,6 @@ class ClothingSalesService {
       throw e;
     }
 
-    // ✅ resolve customer_id:
-    // - if customer_id provided -> must belong to owner
-    // - else if customer.phone provided -> find by phone; else create
     let finalCustomerId = customer_id ?? null;
 
     if (finalCustomerId) {
@@ -70,7 +68,6 @@ class ClothingSalesService {
         finalCustomerId = created.customer_id;
       }
     } else {
-      // no customer info -> allowed (walk-in without saving)
       finalCustomerId = null;
     }
 
@@ -174,7 +171,6 @@ class ClothingSalesService {
       let finalStatus = "pending";
 
       if (payment_status === "paid") {
-        // allow completed sale even when paid is less than original total
         finalStatus = "paid";
       } else if (payment_status === "partial") {
         finalStatus = "partial";
@@ -353,7 +349,6 @@ class ClothingSalesService {
   async buildBillPdf(owner_id, sales_id) {
     const bill = await this.getBill(owner_id, sales_id);
 
-    const PDFDocument = require("pdfkit");
     const doc = new PDFDocument({
       size: "A4",
       margin: 40,
@@ -581,4 +576,4 @@ class ClothingSalesService {
   }
 }
 
-module.exports = new ClothingSalesService();
+export default new ClothingSalesService();

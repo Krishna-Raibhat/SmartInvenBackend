@@ -1,10 +1,10 @@
 // src/controllers/clothingDashboardController.js
-const service = require("../services/clothingDashboardService");
+import service from "../services/clothingDashboardService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.summary = async (req, res) => {
+export const summary = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { start, end } = req.query;

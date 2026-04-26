@@ -1,10 +1,10 @@
 // src/controllers/clothingSizeController.js
-const service = require("../services/clothingSizeService");
+import service from "../services/clothingSizeService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     let { size_name } = req.body;
     size_name = String(size_name || "").trim();
@@ -21,7 +21,7 @@ exports.create = async (req, res) => {
   }
 };
 
-exports.list = async (_req, res) => {
+export const list = async (_req, res) => {
   try {
     const data = await service.list();
     return res.json({ success: true, data });
@@ -30,7 +30,7 @@ exports.list = async (_req, res) => {
   }
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const { size_id } = req.params;
     const data = await service.getById(size_id);
@@ -41,7 +41,7 @@ exports.getById = async (req, res) => {
   }
 };
 
-exports.update = async (req, res) => {
+export const update = async (req, res) => {
   try {
     const { size_id } = req.params;
     let { size_name } = req.body;
@@ -61,7 +61,7 @@ exports.update = async (req, res) => {
   }
 };
 
-exports.remove = async (req, res) => {
+export const remove = async (req, res) => {
   try {
     const { size_id } = req.params;
 

@@ -1,21 +1,23 @@
-const express = require("express");
-const authController = require("../controllers/authController");
-const authMiddleware = require("../middlewares/authMiddleware");
+import { Router } from "express";
+import { register, login, me, updateMe, changePassword, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordReset, superAdminLogin, getAllOwners } from "../controllers/authController.js";
+import authMiddleware from "../middlewares/authMiddleware.js";
 
-const router = express.Router();
+const router = Router();
 
-router.post("/register", authController.register);
-router.post("/login", authController.login);
+router.post("/register", register);
+router.post("/login", login);
 
-router.get("/me", authMiddleware, authController.me);
-router.put("/me", authMiddleware, authController.updateMe);
+router.get("/me", authMiddleware, me);
+router.put("/me", authMiddleware, updateMe);
 
-router.put("/change-password", authMiddleware, authController.changePassword);
+router.put("/change-password", authMiddleware, changePassword);
 
-router.post("/forgot-password", authController.forgotPasswordSendOtp);
-router.post("/forgot-password/verify-otp", authController.forgotPasswordVerifyOtp);
-router.post("/forgot-password/reset", authController.forgotPasswordReset);
+router.post("/forgot-password", forgotPasswordSendOtp);
+router.post("/forgot-password/verify-otp", forgotPasswordVerifyOtp);
+router.post("/forgot-password/reset", forgotPasswordReset);
 
-router.post("/super-admin/login", authController.superAdminLogin);
+router.post("/super-admin/login", superAdminLogin);
 
-module.exports = router;
+router.get("/admin/owners", getAllOwners);
+
+export default router;

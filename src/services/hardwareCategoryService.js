@@ -1,5 +1,5 @@
 // src/services/hardwareCategoryService.js
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareCategoryService {
   async createCategory({ package_id, category_name}) {
@@ -71,15 +71,10 @@ class HardwareCategoryService {
     }
   }
 
-  // ✅ return:
-  // null => not found
-  // false => blocked (linked products exist)
-  // true => deleted
   async deleteCategory(category_id, package_id) {
     const category = await this.getById(category_id, package_id);
     if (!category) return null;
 
-    // block delete if linked with products (products are owner-based but category is shared)
     const linkedCount = await prisma.hardwareProduct.count({
       where: { category_id },
     });
@@ -91,4 +86,4 @@ class HardwareCategoryService {
   }
 }
 
-module.exports = new HardwareCategoryService();
+export default new HardwareCategoryService();

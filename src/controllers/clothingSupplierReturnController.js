@@ -1,10 +1,10 @@
 // src/controllers/clothingSupplierReturnController.js
-const service = require("../services/clothingSupplierReturnService");
+import service from "../services/clothingSupplierReturnService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.createReturn(owner_id, req.body);
@@ -15,7 +15,7 @@ exports.create = async (req, res) => {
   }
 };
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.list(owner_id);
@@ -25,7 +25,7 @@ exports.list = async (req, res) => {
   }
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.getById(owner_id, req.params.return_id);
@@ -36,7 +36,7 @@ exports.getById = async (req, res) => {
   }
 };
 
-exports.updateStatus = async (req, res) => {
+export const updateStatus = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { status } = req.body;
@@ -48,7 +48,7 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-exports.cancel = async (req, res) => {
+export const cancel = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.cancel(owner_id, req.params.return_id);
@@ -59,7 +59,7 @@ exports.cancel = async (req, res) => {
   }
 };
 
-exports.deleteOne = async (req, res) => {
+export const deleteOne = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const ok = await service.delete(owner_id, req.params.return_id);

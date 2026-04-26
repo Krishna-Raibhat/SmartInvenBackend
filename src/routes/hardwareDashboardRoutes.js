@@ -1,9 +1,9 @@
-const express = require("express");
-const router = express.Router();
+import express from "express";
+import authMiddleware from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/hardwareDashboardController.js";
 
-const authMiddleware = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/hardwareDashboardController");
+const router = express.Router();
 
 router.get("/summary", authMiddleware, ctrl.summary);
 
-module.exports = router;
+export default router;

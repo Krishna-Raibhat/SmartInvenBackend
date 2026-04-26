@@ -1,8 +1,9 @@
 // src/routes/clothingSupplierReturnRoutes.js
-const express = require("express");
+import express from "express";
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingSupplierReturnController.js";
+
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingSupplierReturnController");
 
 router.post("/", auth, ctrl.create);
 router.get("/", auth, ctrl.list);
@@ -12,4 +13,4 @@ router.post("/:return_id/status", auth, ctrl.updateStatus); // {status:"approved
 router.post("/:return_id/cancel", auth, ctrl.cancel);
 router.delete("/:return_id", auth, ctrl.deleteOne);
 
-module.exports = router;
+export default router;

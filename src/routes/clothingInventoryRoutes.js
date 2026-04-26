@@ -1,8 +1,8 @@
-const express = require("express");
-const router = express.Router();
+import express from "express";
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingInventoryController.js";
 
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingInventoryController");
+const router = express.Router();
 
 // Inventory list: products with category + total qty
 router.get("/products", auth, ctrl.listProducts);
@@ -16,4 +16,4 @@ router.patch("/lots/:lot_id", auth, ctrl.updateLot);
 // Bulk upsert lots by variants (color -> sizes)
 router.post("/products/:product_id/lots/bulk-upsert", auth, ctrl.bulkUpsertLots);
 
-module.exports = router;
+export default router;

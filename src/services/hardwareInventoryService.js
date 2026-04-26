@@ -1,5 +1,5 @@
 // src/services/hardwareInventoryService.js
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareInventoryService {
   async listInventory(owner_id) {
@@ -44,7 +44,6 @@ class HardwareInventoryService {
     });
     const total_stock = Number(totalAgg._sum.qty_remaining || 0);
 
-    // supplier dropdown options (suppliers who have lots for this product)
     const supplierAgg = await prisma.hardwareStockLot.groupBy({
       by: ["supplier_id"],
       where: { owner_id, product_id },
@@ -66,10 +65,8 @@ class HardwareInventoryService {
       qty_remaining: Number(x._sum.qty_remaining || 0),
     }));
 
-    // lots list
     const lotWhere = { owner_id, product_id };
     if (supplier_id) {
-      // validate supplier belongs to owner
       const sup = await prisma.hardwareSupplier.findFirst({
         where: { owner_id, supplier_id },
         select: { supplier_id: true },
@@ -93,7 +90,6 @@ class HardwareInventoryService {
 
     const lotIds = lots.map(l => l.lot_id);
 
-    // sold qty per lot
     const soldAgg = lotIds.length
       ? await prisma.hardwareStockOutItem.groupBy({
           by: ["lot_id"],
@@ -175,7 +171,6 @@ class HardwareInventoryService {
       }
     }
 
-    // qty_in safety: cannot go below sold qty
     let qty_in = undefined;
     let qty_remaining = undefined;
     if (data.qty_in !== undefined) {
@@ -243,4 +238,4 @@ class HardwareInventoryService {
 
 }
 
-module.exports = new HardwareInventoryService();
+export default new HardwareInventoryService();

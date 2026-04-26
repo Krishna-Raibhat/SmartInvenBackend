@@ -1,4 +1,4 @@
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 function parseDateOrNull(x) {
   if (!x) return null;
@@ -21,17 +21,11 @@ class ClothingReportService {
     const startDate = parseDateOrNull(start);
     const endDate = parseDateOrNull(end);
 
-    // Default range: last 30 days
     const startFinal = startDate
       ? startOfDay(startDate)
       : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
     const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
-
-    // We compute from SALES ITEMS to get sales+cost+profit
-    // We compute PAID from ClothingSales table
-    // We also subtract customer returns (refund logic) if you want accurate net sales.
-    // Here: net_sales = sum(sales_items.line_total) - sum(return_qty * sales_item.sp)
 
     const rows = await prisma.$queryRaw`
       WITH sales_items AS (
@@ -81,7 +75,6 @@ class ClothingReportService {
       ORDER BY period ASC;
     `;
 
-    // Convert period to ISO date string (frontend friendly)
     return rows.map((r) => {
       const sales = Number(r.sales || 0);
       const cost = Number(r.cost || 0);
@@ -109,7 +102,6 @@ class ClothingReportService {
 
     const lim = Math.min(Math.max(Number(limit || 3), 1), 20);
 
-    // ✅ Net QTY = sold qty - returned qty
     const rows = await prisma.$queryRawUnsafe(
       `
         WITH sold AS (
@@ -159,7 +151,6 @@ class ClothingReportService {
     }));
   }
 
-  // ✅ qty in / qty out / profit grouped by date
   async stockFlow(owner_id, { start, end, group }) {
     const g = normalizeGroup(group);
     const startDate = parseDateOrNull(start);
@@ -353,4 +344,4 @@ function endOfDay(d) {
   return x;
 }
 
-module.exports = new ClothingReportService();
+export default new ClothingReportService();

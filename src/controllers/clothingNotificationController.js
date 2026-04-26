@@ -1,9 +1,9 @@
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 const fail = (res, s, c, m) =>
   res.status(s).json({ success: false, error_code: c, message: m });
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 
@@ -23,7 +23,7 @@ exports.list = async (req, res) => {
   }
 };
 
-exports.markRead = async (req, res) => {
+export const markRead = async (req, res) => {
   try {
     const { owner_id } = req.owner;
     const { id } = req.params;
@@ -44,7 +44,7 @@ exports.markRead = async (req, res) => {
   }
 };
 
-exports.markAllRead = async (req, res) => {
+export const markAllRead = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 
@@ -59,7 +59,7 @@ exports.markAllRead = async (req, res) => {
   }
 };
 // DELETE /api/clothing/notifications/:id
-exports.deleteOne = async (req, res) => {
+export const deleteOne = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { id } = req.params;

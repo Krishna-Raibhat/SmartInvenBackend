@@ -1,10 +1,12 @@
 // src/controllers/clothingStockLotController.js
-const service = require("../services/clothingStockLotService");
+import service from "../services/clothingStockLotService.js";
+import { prisma } from "../prisma/client.js";
+import { getObject } from "../utils/s3.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.getAll = async (req, res) => {
+export const getAll = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.getAll(owner_id);
@@ -14,12 +16,12 @@ exports.getAll = async (req, res) => {
   }
 };
 
-exports.getBarcodeImage = async (req, res) => {
+export const getBarcodeImage = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { lot_id } = req.params;
 
-    const lot = await require("../prisma/client").prisma.clothingStockLot.findFirst({
+    const lot = await prisma.clothingStockLot.findFirst({
       where: { lot_id, product: { owner_id } },
       select: { barcode_image_url: true },
     });
@@ -28,7 +30,6 @@ exports.getBarcodeImage = async (req, res) => {
       return fail(res, 404, "NOT_FOUND", "Barcode image not found");
     }
 
-    const { getObject } = require("../utils/s3");
     const stream = await getObject(lot.barcode_image_url);
 
     res.setHeader("Content-Type", "image/png");
@@ -38,7 +39,7 @@ exports.getBarcodeImage = async (req, res) => {
   }
 };
 
-exports.getByBarcode = async (req, res) => {
+export const getByBarcode = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { barcode } = req.params;
@@ -50,7 +51,7 @@ exports.getByBarcode = async (req, res) => {
   }
 };
 
-exports.bulkCreate = async (req, res) => {
+export const bulkCreate = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 

@@ -1,4 +1,4 @@
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareStockInService {
   async stockIn({ owner_id, product_id, supplier_id, cp, sp, qty, notes}) {
@@ -77,4 +77,4 @@ class HardwareStockInService {
   }
 }
 
-module.exports = new HardwareStockInService();
+export default new HardwareStockInService();

@@ -1,7 +1,7 @@
 // src/services/paymentQRStoreService.js
-const { prisma } = require("../prisma/client");
-const { uploadToS3, getS3Url } = require("../utils/s3");
-const { v4: uuidv4 } = require("uuid");
+import { prisma } from "../prisma/client.js";
+import { uploadToS3, getS3Url } from "../utils/s3.js";
+import { v4 as uuidv4 } from "uuid";
 
 class PaymentQRStoreService {
   async create(fileBuffer, mimeType) {
@@ -79,4 +79,4 @@ class PaymentQRStoreService {
   }
 }
 
-module.exports = new PaymentQRStoreService();
+export default new PaymentQRStoreService();

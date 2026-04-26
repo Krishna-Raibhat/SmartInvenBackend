@@ -1,13 +1,13 @@
 // src/routes/hardwareStockOutRoutes.js
-const express = require("express");
-const router = express.Router();
+import express from "express";
+import authMiddleware from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/hardwareStockOutController.js";
 
-const authMiddleware = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/hardwareStockOutController");
+const router = express.Router();
 
 router.post("/", authMiddleware, ctrl.createStockOut);
 router.get("/", authMiddleware, ctrl.listStockOut);
 router.get("/:stockout_id", authMiddleware, ctrl.getStockOutById);
 router.post("/:stockout_id/payments", authMiddleware, ctrl.addPayment);
 
-module.exports = router;
+export default router;

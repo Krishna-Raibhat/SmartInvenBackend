@@ -1,27 +1,9 @@
-const express = require("express");
+import express from "express";
+import authMiddleware from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/hardwareInventoryController.js";
+
 const router = express.Router();
 
-const authMiddleware = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/hardwareInventoryController");
-
-// // List inventory grid
-// router.get("/", authMiddleware, ctrl.listInventory);
-
-// // Product detail page (+ supplier filtering)
-// router.get("/:product_id", authMiddleware, ctrl.getInventoryDetail);
-
-// // Edit product (name/category/notes/default_cp/default_sp)
-// router.put("/product/:product_id", authMiddleware, ctrl.updateProduct);
-
-// // Edit a stock-lot/batch (supplier/cp/sp/qty/notes)
-// router.put("/lot/:lot_id", authMiddleware, ctrl.updateLot);
-
-// // Delete product
-// router.delete("/product/:product_id", authMiddleware, ctrl.deleteProduct);
-
-// router.get("/low-stock", authMiddleware, ctrl.lowStock);
-
-// module.exports = router;
 // List inventory grid
 router.get("/", authMiddleware, ctrl.listInventory);
 
@@ -40,4 +22,4 @@ router.put("/lot/:lot_id", authMiddleware, ctrl.updateLot);
 // Delete product
 router.delete("/product/:product_id", authMiddleware, ctrl.deleteProduct);
 
-module.exports = router;
+export default router;

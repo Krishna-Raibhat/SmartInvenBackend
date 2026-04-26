@@ -1,4 +1,4 @@
-const { prisma } = require("../prisma/client"); // IMPORTANT: use { prisma }
+import { prisma } from "../prisma/client.js";
 
 class ClothingInventoryService {
   // 1) Inventory list
@@ -46,55 +46,6 @@ class ClothingInventoryService {
       total_qty_remaining: mapQty.get(p.product_id) ?? 0,
     }));
   }
-
-  // 2) Product details with all lots (variants)
-  // async getProductDetails(owner_id, product_id) {
-  //   const product = await prisma.clothingProduct.findFirst({
-  //     where: { product_id, owner_id },
-  //     select: {
-  //       product_id: true,
-  //       product_name: true,
-  //       category: { select: { category_id: true, category_name: true } },
-  //       created_at: true,
-  //     },
-  //   });
-
-  //   if (!product) {
-  //     const e = new Error("Product not found for this owner");
-  //     e.status = 404;
-  //     e.code = "PRODUCT_NOT_FOUND";
-  //     throw e;
-  //   }
-
-  //   const lots = await prisma.clothingStockLot.findMany({
-  //     where: { product_id ,product: { owner_id },},
-  //     orderBy: [{ created_at: "desc" }],
-  //     include: {
-  //       supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
-  //       size: { select: { size_id: true, size_name: true } },
-  //       color: { select: { color_id: true, color_name: true } },
-  //     },
-  //   });
-
-  //   const total_qty_remaining = lots.reduce((a, l) => a + Number(l.qty_remaining || 0), 0);
-
-  //   return {
-  //     product,
-  //     total_qty_remaining,
-  //     lots: lots.map(l => ({
-  //       lot_id: l.lot_id,
-  //       supplier: l.supplier,
-  //       color: l.color,
-  //       size: l.size,
-  //       cp: Number(l.cp),
-  //       sp: Number(l.sp),
-  //       qty_in: l.qty_in,
-  //       qty_remaining: l.qty_remaining,
-  //       notes: l.notes,
-  //       created_at: l.created_at,
-  //     })),
-  //   };
-  // }
 
   async getProductDetails(owner_id, product_id) {
     const product = await prisma.clothingProduct.findFirst({
@@ -173,13 +124,6 @@ class ClothingInventoryService {
     };
   }
 
-  // 3) Update single lot (notes + qty)
-  // Supports:
-  // - notes change
-  // - set cp/sp optional
-  // - change qty_remaining safely (delta or set)
-  // src/services/clothingInventoryService.js
-
   async updateLot(owner_id, lot_id, payload) {
     const { notes, cp, sp, qty_remaining, qty_in } = payload;
 
@@ -230,7 +174,7 @@ class ClothingInventoryService {
 
     const oldIn = Number(lot.qty_in);
     const oldRem = Number(lot.qty_remaining);
-    const sold = oldIn - oldRem; // already sold qty from this lot (cannot reduce below this)
+    const sold = oldIn - oldRem;
 
     const hasQtyIn = qty_in !== undefined;
     const hasQtyRem = qty_remaining !== undefined;
@@ -238,7 +182,6 @@ class ClothingInventoryService {
     let newIn = oldIn;
     let newRem = oldRem;
 
-    // validate qty_in if provided
     if (hasQtyIn) {
       const q = Number(qty_in);
       if (!Number.isInteger(q) || q < 0) {
@@ -247,7 +190,6 @@ class ClothingInventoryService {
         e.code = "VALIDATION_QTY_IN_INVALID";
         throw e;
       }
-      // qty_in cannot be less than already sold
       if (q < sold) {
         const e = new Error(
           `qty_in cannot be less than already sold qty (${sold}).`,
@@ -259,7 +201,6 @@ class ClothingInventoryService {
       newIn = q;
     }
 
-    // validate qty_remaining if provided
     if (hasQtyRem) {
       const q = Number(qty_remaining);
       if (!Number.isInteger(q) || q < 0) {
@@ -271,8 +212,6 @@ class ClothingInventoryService {
       newRem = q;
     }
 
-    // if only qty_remaining is provided, keep qty_in same BUT ensure remaining <= qty_in
-    // if remaining is bigger, either error or auto-raise qty_in. (I recommend ERROR for correctness)
     if (hasQtyRem && !hasQtyIn) {
       if (newRem > newIn) {
         const e = new Error("qty_remaining cannot be greater than qty_in");
@@ -282,13 +221,10 @@ class ClothingInventoryService {
       }
     }
 
-    // if qty_in was changed but qty_remaining not provided,
-    // keep sold qty same by recomputing remaining:
     if (hasQtyIn && !hasQtyRem) {
       newRem = newIn - sold;
     }
 
-    // if both provided, final consistency checks:
     if (hasQtyIn && hasQtyRem) {
       if (newRem > newIn) {
         const e = new Error("qty_remaining cannot be greater than qty_in");
@@ -296,7 +232,6 @@ class ClothingInventoryService {
         e.code = "QTY_REMAINING_GT_QTY_IN";
         throw e;
       }
-      // also ensure sold qty is not changed to negative
       const newSold = newIn - newRem;
       if (newSold < sold) {
         const e = new Error(
@@ -308,7 +243,6 @@ class ClothingInventoryService {
       }
     }
 
-    // apply if qty fields changed
     if (hasQtyIn) data.qty_in = newIn;
     if (hasQtyRem || hasQtyIn) data.qty_remaining = newRem;
 
@@ -324,22 +258,6 @@ class ClothingInventoryService {
     });
   }
 
-  // 4) Bulk upsert variants for product:
-  // Payload example:
-  // {
-  //   supplier_id,
-  //   cp,
-  //   sp,
-  //   notes,
-  //   variants: [
-  //     { color_id, sizes: [{ size_id, qty_in }] },
-  //     ...
-  //   ]
-  // }
-  //
-  // Behavior:
-  // - if lot exists => increment qty_in and qty_remaining by qty_in
-  // - else create new lot
   async bulkUpsertLots(owner_id, product_id, payload) {
     const { supplier_id, cp, sp, notes, variants } = payload;
 
@@ -357,7 +275,6 @@ class ClothingInventoryService {
       throw e;
     }
 
-    // owner-safe product check (also gives category auto)
     const product = await prisma.clothingProduct.findFirst({
       where: { product_id, owner_id },
       select: {
@@ -374,7 +291,6 @@ class ClothingInventoryService {
       throw e;
     }
 
-    // owner-safe supplier check
     const supplier = await prisma.clothingSupplier.findFirst({
       where: { supplier_id, owner_id },
       select: { supplier_id: true, supplier_name: true },
@@ -402,7 +318,6 @@ class ClothingInventoryService {
       throw e;
     }
 
-    // ✅ SPEED FIX: prefetch all colors + sizes BEFORE transaction (avoid tx timeout)
     const colorIds = [
       ...new Set(variants.map((v) => v.color_id).filter(Boolean)),
     ];
@@ -446,7 +361,6 @@ class ClothingInventoryService {
       }
     }
 
-    // ✅ Now do minimal work inside transaction
     return prisma.$transaction(
       async (tx) => {
         const created = [];
@@ -485,7 +399,6 @@ class ClothingInventoryService {
               throw e;
             }
 
-            // find existing lot for same product+supplier+color+size
             const existing = await tx.clothingStockLot.findFirst({
               where: { product_id, supplier_id, color_id, size_id },
               select: { lot_id: true },
@@ -526,7 +439,7 @@ class ClothingInventoryService {
           product: {
             product_id: product.product_id,
             product_name: product.product_name,
-            category: product.category, // ✅ auto for UI
+            category: product.category,
           },
           supplier,
           created_count: created.length,
@@ -535,9 +448,9 @@ class ClothingInventoryService {
           updated,
         };
       },
-      { timeout: 20000 }, // avoids the 5s interactive tx timeout for bigger payloads
+      { timeout: 20000 },
     );
   }
 }
 
-module.exports = new ClothingInventoryService();
+export default new ClothingInventoryService();

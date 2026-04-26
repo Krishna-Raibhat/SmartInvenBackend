@@ -1,9 +1,10 @@
 // src/routes/paymentQRStoreRoutes.js
-const express = require("express");
+import express from "express";
+import multer from "multer";
+import authMiddleware from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/paymentQRStoreController.js";
+
 const router = express.Router();
-const multer = require("multer");
-const authMiddleware = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/paymentQRStoreController");
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -23,4 +24,5 @@ router.put("/:id", authMiddleware, upload.single("qr_image"), ctrl.update);
 router.patch("/:id/activate", authMiddleware, ctrl.activate);
 router.patch("/:id/deactivate", authMiddleware, ctrl.deactivate);
 router.delete("/:id", authMiddleware, ctrl.remove);
-module.exports = router;
+
+export default router;

@@ -1,7 +1,7 @@
 // src/utils/s3.js
-const Minio = require("minio");
+import { Client } from "minio";
 
-const client = new Minio.Client({
+const client = new Client({
   endPoint: "s3-np1.datahub.com.np",
   port: 443,
   useSSL: true,
@@ -18,7 +18,7 @@ const BUCKET = process.env.AWS_S3_BUCKET;
  * @param {string} contentType
  * @returns {Promise<string>} public URL
  */
-async function uploadToS3(buffer, key, contentType = "image/png") {
+export async function uploadToS3(buffer, key, contentType = "image/png") {
   console.log(`[S3] Uploading to bucket: ${BUCKET}, key: ${key}`);
   try {
     await client.putObject(BUCKET, key, buffer, buffer.length, { "Content-Type": contentType });
@@ -35,7 +35,7 @@ async function uploadToS3(buffer, key, contentType = "image/png") {
  * @param {string} key - e.g. "barcodes/lot_abc.png"
  * @returns {string}
  */
-function getS3Url(key) {
+export function getS3Url(key) {
   return `https://s3-np1.datahub.com.np/${BUCKET}/${key}`;
 }
 
@@ -44,8 +44,8 @@ function getS3Url(key) {
  * @param {string} key
  * @returns {Promise<stream.Readable>}
  */
-async function getObject(key) {
+export function getObject(key) {
   return client.getObject(BUCKET, key);
 }
 
-module.exports = { uploadToS3, getS3Url, getObject };
+
