@@ -183,7 +183,7 @@ export const sendAccountActivatedEmail = async ({ to, full_name }) => {
                   <td style="padding:0 0 12px 0;">
                     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5ff;border-radius:10px;padding:16px 20px;">
                       <tr><td style="font-size:12px;color:#1a73e8;font-weight:600;padding-bottom:4px;">📦 &nbsp;Subscription Duration</td></tr>
-                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">30 Days</td></tr>
+                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">1 Year (365 Days)</td></tr>
                     </table>
                   </td>
                 </tr>
@@ -236,7 +236,7 @@ export const sendAccountActivatedEmail = async ({ to, full_name }) => {
 </html>
   `;
 
-  const text = `Hello ${full_name},\n\nYour payment has been verified and your SmartInven account is now active for 30 days.\n\nBest regards,\nSmartInven Team`;
+  const text = `Hello ${full_name},\n\nYour payment has been verified and your SmartInven account is now active for 1 year (365 days).\n\nBest regards,\nSmartInven Team`;
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,

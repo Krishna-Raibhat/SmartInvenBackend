@@ -82,9 +82,9 @@ export const approve = async (req, res) => {
     });
     if (!proof) return fail(res, 404, "NOT_FOUND", "Payment proof not found.");
 
-    // Set subscription to expire 30 days from now
+    // Set subscription to expire 365 days from now
     const subscriptionExpiresAt = new Date();
-    subscriptionExpiresAt.setDate(subscriptionExpiresAt.getDate() + 30);
+    subscriptionExpiresAt.setDate(subscriptionExpiresAt.getDate() + 365);
 
     await prisma.$transaction([
       prisma.paymentProof.update({
@@ -115,7 +115,7 @@ export const approve = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Payment approved. Owner is now active with 30-day subscription.",
+      message: "Payment approved. Owner is now active with 1-year subscription.",
     });
   } catch (err) {
     return fail(res, 500, "SERVER_ERROR", err.message);
