@@ -1,5 +1,5 @@
 // src/services/clothingSupplierService.js
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class ClothingSupplierService {
   async create({ owner_id, supplier_name, phone, email, address }) {
@@ -92,4 +92,4 @@ class ClothingSupplierService {
   }
 }
 
-module.exports = new ClothingSupplierService();
+export default new ClothingSupplierService();

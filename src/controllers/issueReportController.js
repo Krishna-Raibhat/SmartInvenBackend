@@ -1,9 +1,9 @@
-const mailer = require("../utils/mailer");
+import * as mailer from "../utils/mailer.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.reportIssue = async (req, res) => {
+export const reportIssue = async (req, res) => {
   try {
     const { name, email, subject, description } = req.body;
 

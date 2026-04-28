@@ -1,4 +1,4 @@
-const hardwareProfitLossService = require("../services/hardwareProfitLossService");
+import hardwareProfitLossService from "../services/hardwareProfitLossService.js";
 
 const validateDate = (res, date) => {
   if (!date) {
@@ -50,18 +50,6 @@ class HardwareProfitLossController {
         });
       }
 
-  
-
-      /* Validate period existence early (optional but helpful)
-      if (!type) {
-        return res.status(400).json({
-          success: false,
-          message: "Type is required",
-          code: "TYPE_REQUIRED",
-        });
-      }*/
-
-
       const {start_date, end_date} = req.query
       const startDate=validateDate(res, start_date);
       const endDate=validateDate(res, end_date);
@@ -95,4 +83,4 @@ class HardwareProfitLossController {
   }
 }
 
-module.exports = new HardwareProfitLossController();
+export default new HardwareProfitLossController();

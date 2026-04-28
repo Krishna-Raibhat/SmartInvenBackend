@@ -1,5 +1,5 @@
 // src/services/clothingActivityService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class ClothingActivityService {
   async listRecent(owner_id, limit = 4) {
@@ -141,4 +141,4 @@ class ClothingActivityService {
   }
 }
 
-module.exports = new ClothingActivityService();
+export default new ClothingActivityService();

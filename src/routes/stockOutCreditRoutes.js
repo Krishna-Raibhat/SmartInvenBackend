@@ -1,8 +1,9 @@
-const router = require("express").Router();
+import express from "express";
+import * as ctrl from "../controllers/stockOutCreditController.js";
+import authMiddleware from "../middlewares/authMiddleware.js";
 
-const ctrl=require("../controllers/stockOutCreditController");
-const authMiddleware = require("../middlewares/authMiddleware");
+const router = express.Router();
 
 router.get("/credit",authMiddleware,ctrl.getStockOutCredits);
 
-module.exports = router;
+export default router;

@@ -1,10 +1,10 @@
 // src/controllers/hardwareInventoryController.js
-const inventoryService = require("../services/hardwareInventoryService");
+import inventoryService from "../services/hardwareInventoryService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.listInventory = async (req, res) => {
+export const listInventory = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await inventoryService.listInventory(owner_id);
@@ -14,7 +14,7 @@ exports.listInventory = async (req, res) => {
   }
 };
 
-exports.getInventoryDetail = async (req, res) => {
+export const getInventoryDetail = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;
@@ -29,7 +29,7 @@ exports.getInventoryDetail = async (req, res) => {
   }
 };
 
-exports.updateProduct = async (req, res) => {
+export const updateProduct = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;
@@ -48,7 +48,7 @@ exports.updateProduct = async (req, res) => {
   }
 };
 
-exports.updateLot = async (req, res) => {
+export const updateLot = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { lot_id } = req.params;
@@ -67,7 +67,7 @@ exports.updateLot = async (req, res) => {
   }
 };
 
-exports.lowStock = async (req, res) => {
+export const lowStock = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const threshold = Number(req.query.threshold ?? 40);
@@ -77,7 +77,7 @@ exports.lowStock = async (req, res) => {
     return fail(res, err.status || 500, err.code || "SERVER_ERROR", err.message);
   }
 };
-exports.deleteProduct = async (req, res) => {
+export const deleteProduct = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { product_id } = req.params;

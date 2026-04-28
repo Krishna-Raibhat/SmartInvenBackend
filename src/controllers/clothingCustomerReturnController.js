@@ -1,10 +1,10 @@
 // src/controllers/clothingCustomerReturnController.js
-const service = require("../services/clothingCustomerReturnService");
+import service from "../services/clothingCustomerReturnService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.createReturn(owner_id, req.body);
@@ -15,7 +15,7 @@ exports.create = async (req, res) => {
   }
 };
 
-exports.list = async (req, res) => {
+export const list = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.list(owner_id);
@@ -25,7 +25,7 @@ exports.list = async (req, res) => {
   }
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const data = await service.getById(owner_id, req.params.return_id);

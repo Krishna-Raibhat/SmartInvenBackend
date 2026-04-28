@@ -1,7 +1,8 @@
-const express = require("express");
+import express from "express";
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/clothingStockLotController.js";
+
 const router = express.Router();
-const auth = require("../middlewares/authMiddleware");
-const ctrl = require("../controllers/clothingStockLotController");
 
 // bulk stock-in
 router.post("/bulk", auth, ctrl.bulkCreate);
@@ -15,4 +16,4 @@ router.get("/scan/:barcode", auth, ctrl.getByBarcode);
 // preview barcode image
 router.get("/:lot_id/barcode-image", auth, ctrl.getBarcodeImage);
 
-module.exports = router;
+export default router;

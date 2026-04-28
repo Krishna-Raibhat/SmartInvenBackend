@@ -1,6 +1,6 @@
 // src/services/hardwareStockOutService.js
-const {prisma}  = require("../prisma/client");
-const { normalizeNepalPhone, isValidNepalPhone } = require("../utils/phone");
+import { prisma } from "../prisma/client.js";
+import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
 
 class HardwareStockOutService {
   async createStockOut({
@@ -198,4 +198,4 @@ class HardwareStockOutService {
   }
 }
 
-module.exports = new HardwareStockOutService();
+export default new HardwareStockOutService();

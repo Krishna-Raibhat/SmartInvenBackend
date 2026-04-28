@@ -1,12 +1,17 @@
 
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const { prisma } = require("../prisma/client");
+import { hash, compare } from "bcrypt";
+import jwt from "jsonwebtoken";
+
+
+import { prisma } from "../prisma/client.js";
 // adjust path if needed
-const { sendOtpEmail } = require("../utils/mailer");
+import { sendOtpEmail } from "../utils/mailer.js";
+
+
+const { sign, verify } = jwt;
 
 /* =========================
-   Helpers
+Helpers
 ========================= */
 const sendError = (res, status, error_code, message, extra = {}) => {
   return res.status(status).json({
@@ -32,7 +37,7 @@ const normalizeEmail = (email) =>
 const generateToken = (payload) => {
   if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET_MISSING");
 
-  return jwt.sign(
+  return sign(
     {
       owner_id: payload.owner_id,
       email: payload.email,
@@ -88,9 +93,9 @@ const packageNameMap = {
   clothing: "Clothing Store",
 };
 
-exports.register = async (req, res) => {
+export async function register(req, res) {
   try {
-    let { full_name, phone, email, password, confirm_password, package_key } = req.body;
+    let { full_name, phone, email, password, confirm_password, package_key, status } = req.body;
 
     email = normalizeEmail(email);
     package_key = String(package_key || "").trim().toLowerCase();
@@ -103,6 +108,12 @@ exports.register = async (req, res) => {
     const allowed = new Set(["hardware", "clothing"]);
     if (!allowed.has(package_key)) {
       return sendError(res, 400, "VALIDATION_PACKAGE_INVALID", "Invalid package_key.");
+    }
+
+    // ✅ validate status if provided
+    const validStatuses = ["trial", "active", "inactive"];
+    if (status && !validStatuses.includes(status)) {
+      return sendError(res, 400, "VALIDATION_STATUS_INVALID", "Invalid status. Must be one of: trial, active, inactive.");
     }
 
     const emailError = validateEmail(email);
@@ -126,7 +137,7 @@ exports.register = async (req, res) => {
     const phoneExists = await prisma.owner.findUnique({ where: { phone } });
     if (phoneExists) return sendError(res, 409, "PHONE_ALREADY_EXISTS", "Phone number is already registered.");
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await hash(password, 10);
 
     // ✅ get/create selected package
     let pkg = await prisma.package.findUnique({ where: { package_key } });
@@ -136,7 +147,7 @@ exports.register = async (req, res) => {
       });
     }
 
-    // ✅ create owner in selected package
+    // ✅ create owner in selected package with optional status
     const owner = await prisma.owner.create({
       data: {
         full_name,
@@ -144,6 +155,7 @@ exports.register = async (req, res) => {
         email,
         password: hashedPassword,
         package_id: pkg.package_id,
+        ...(status ? { status } : {}), // use provided status or default to 'trial'
       },
       select: {
         owner_id: true,
@@ -151,6 +163,7 @@ exports.register = async (req, res) => {
         email: true,
         phone: true,
         package_id: true,
+        status: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -173,15 +186,17 @@ exports.register = async (req, res) => {
     if (err.code === "P2002") {
       return sendError(res, 409, "DUPLICATE_VALUE", "Email or phone already exists.");
     }
-    return sendError(res, 500, "SERVER_ERROR", "Registration failed.");
+    return sendError(res, 500, "SERVER_ERROR", "Registration failed.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
   }
-};
+}
 
 
 /* =========================
    LOGIN
 ========================= */
-exports.login = async (req, res) => {
+export async function login(req, res) {
   try {
     let { email, password, fcm_token } = req.body;
     email = normalizeEmail(email);
@@ -194,7 +209,7 @@ exports.login = async (req, res) => {
         "Email and password are required."
       );
     }
-
+    
     const owner = await prisma.owner.findUnique({
       where: { email },
       select: {
@@ -204,6 +219,8 @@ exports.login = async (req, res) => {
         phone: true,
         package_id: true,
         password: true,
+        status: true,
+        created_at: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -212,9 +229,56 @@ exports.login = async (req, res) => {
       return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
     }
 
-    const isMatch = await bcrypt.compare(password, owner.password);
+    const isMatch = await compare(password, owner.password);
     if (!isMatch) {
       return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
+    }
+
+    // ✅ Check account status
+    if (owner.status === "inactive") {
+      return sendError(res, 403, "ACCOUNT_INACTIVE", "Your payment is pending verification. Please wait for approval.");
+    }
+
+    if (owner.status === "trial") {
+      const daysSinceCreation = Math.floor((Date.now() - new Date(owner.created_at).getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceCreation > 7) {
+        // Check if owner has a pending payment proof
+        const pendingPayment = await prisma.paymentProof.findFirst({
+          where: { owner_id: owner.owner_id, status: "pending" },
+          select: { id: true },
+        });
+
+        if (pendingPayment) {
+          return sendError(res, 403, "TRIAL_EXPIRED", "Your payment is still in verification. Please wait for approval or upload a new payment receipt if needed.", {
+            owner: {
+              owner_id: owner.owner_id,
+              full_name: owner.full_name,
+              email: owner.email,
+              phone: owner.phone,
+              package_id: owner.package_id,
+              status: owner.status,
+              package_key: owner.package?.package_key ?? null,
+              package_name: owner.package?.package_name ?? null,
+            },
+            can_update_payment: true,
+            payment_status: "pending",
+            upload_url: "/api/payment-proof",
+          });
+        }
+
+        return sendError(res, 403, "TRIAL_EXPIRED", "Your 7-day trial has expired. Please subscribe to continue.", {
+          owner: {
+            owner_id: owner.owner_id,
+            full_name: owner.full_name,
+            email: owner.email,
+            phone: owner.phone,
+            package_id: owner.package_id,
+            status: owner.status,
+            package_key: owner.package?.package_key ?? null,
+            package_name: owner.package?.package_name ?? null,
+          },
+        });
+      }
     }
 
     if (fcm_token) {
@@ -240,21 +304,24 @@ exports.login = async (req, res) => {
         email: owner.email,
         phone: owner.phone,
         package_id: owner.package_id,
+        status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
       },
     });
   } catch (err) {
     console.error(err);
-    return sendError(res, 500, "SERVER_ERROR", "Login failed.");
+    return sendError(res, 500, "SERVER_ERROR", "Login failed.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
   }
-};
+}
 
 
 /* =========================
    ME
 ========================= */
-exports.me = async (req, res) => {
+export async function me(req, res) {
   try {
     const ownerId = req.owner?.owner_id;
     if (!ownerId)
@@ -267,6 +334,7 @@ exports.me = async (req, res) => {
         full_name: true,
         email: true,
         phone: true,
+        status: true,
         created_at: true,
         package_id: true,
       },
@@ -280,12 +348,12 @@ exports.me = async (req, res) => {
     console.error(err);
     return sendError(res, 500, "SERVER_ERROR", "Failed to fetch profile.");
   }
-};
+}
 
 /* =========================
    UPDATE PROFILE
 ========================= */
-exports.updateMe = async (req, res) => {
+export async function updateMe(req, res) {
   try {
     const ownerId = req.owner?.owner_id;
     if (!ownerId)
@@ -386,12 +454,12 @@ exports.updateMe = async (req, res) => {
 
     return sendError(res, 500, "SERVER_ERROR", "Profile update failed.");
   }
-};
+}
 
 /* =========================
    CHANGE PASSWORD
 ========================= */
-exports.changePassword = async (req, res) => {
+export async function changePassword(req, res) {
   try {
     const ownerId = req.owner?.owner_id;
     if (!ownerId)
@@ -438,7 +506,7 @@ exports.changePassword = async (req, res) => {
     if (!owner)
       return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
 
-    const isOldMatch = await bcrypt.compare(old_password, owner.password);
+    const isOldMatch = await compare(old_password, owner.password);
     if (!isOldMatch) {
       return sendError(
         res,
@@ -448,7 +516,7 @@ exports.changePassword = async (req, res) => {
       );
     }
 
-    const sameAsOld = await bcrypt.compare(new_password, owner.password);
+    const sameAsOld = await compare(new_password, owner.password);
     if (sameAsOld) {
       return sendError(
         res,
@@ -458,7 +526,7 @@ exports.changePassword = async (req, res) => {
       );
     }
 
-    const hashed = await bcrypt.hash(new_password, 10);
+    const hashed = await hash(new_password, 10);
 
     await prisma.owner.update({
       where: { owner_id: ownerId },
@@ -470,12 +538,12 @@ exports.changePassword = async (req, res) => {
     console.error(err);
     return sendError(res, 500, "SERVER_ERROR", "Password change failed.");
   }
-};
+}
 
 /* =========================
    FORGOT PASSWORD: SEND OTP
 ========================= */
-exports.forgotPasswordSendOtp = async (req, res) => {
+export async function forgotPasswordSendOtp(req, res) {
   try {
     let { email } = req.body;
     email = normalizeEmail(email);
@@ -525,7 +593,7 @@ exports.forgotPasswordSendOtp = async (req, res) => {
     }
 
     const otp = generateOtp();
-    const otpHash = await bcrypt.hash(otp, 10);
+    const otpHash = await hash(otp, 10);
     const expiresAt = new Date(Date.now() + 2 * 60 * 1000); // 2 minutes
 
     await prisma.passwordResetOtp.create({
@@ -548,12 +616,12 @@ exports.forgotPasswordSendOtp = async (req, res) => {
     console.error("forgotPasswordSendOtp error:", error);
     return sendError(res, 500, "SERVER_ERROR", "Server error.");
   }
-};
+}
 
 /* =========================
    FORGOT PASSWORD: VERIFY OTP
 ========================= */
-exports.forgotPasswordVerifyOtp = async (req, res) => {
+export async function forgotPasswordVerifyOtp(req, res) {
   try {
     let { email, otp } = req.body;
     email = normalizeEmail(email);
@@ -590,7 +658,7 @@ exports.forgotPasswordVerifyOtp = async (req, res) => {
         .json({ message: "OTP expired. Please request a new OTP." });
     }
 
-    const isMatch = await bcrypt.compare(String(otp), record.otp_hash);
+    const isMatch = await compare(String(otp), record.otp_hash);
 
     if (!isMatch) {
       const newAttempts = record.wrong_attempts + 1;
@@ -625,7 +693,7 @@ exports.forgotPasswordVerifyOtp = async (req, res) => {
       data: { verified_at: now },
     });
 
-    const resetToken = jwt.sign(
+    const resetToken = sign(
       { owner_id: owner.owner_id, purpose: "reset_password" },
       process.env.JWT_SECRET,
       { expiresIn: "10m" }
@@ -638,12 +706,12 @@ exports.forgotPasswordVerifyOtp = async (req, res) => {
     console.error("forgotPasswordVerifyOtp error:", error);
     return res.status(500).json({ message: "Server error." });
   }
-};
+}
 
 /* =========================
    FORGOT PASSWORD: RESET
 ========================= */
-exports.forgotPasswordReset = async (req, res) => {
+export async function forgotPasswordReset(req, res) {
   try {
     const { reset_token, new_password, confirm_password } = req.body;
 
@@ -665,7 +733,7 @@ exports.forgotPasswordReset = async (req, res) => {
       });
     }
 
-    const decoded = jwt.verify(reset_token, process.env.JWT_SECRET);
+    const decoded = verify(reset_token, process.env.JWT_SECRET);
     if (decoded.purpose !== "reset_password") {
       return res.status(401).json({ message: "Invalid reset token." });
     }
@@ -677,7 +745,7 @@ exports.forgotPasswordReset = async (req, res) => {
 
     if (!owner) return res.status(404).json({ message: "Owner not found." });
 
-    const hashed = await bcrypt.hash(new_password, 10);
+    const hashed = await hash(new_password, 10);
 
     await prisma.owner.update({
       where: { owner_id: decoded.owner_id },
@@ -691,4 +759,71 @@ exports.forgotPasswordReset = async (req, res) => {
     console.error("forgotPasswordReset error:", error);
     return res.status(500).json({ message: "Server error." });
   }
-};
+}
+
+/* =========================
+   SUPER ADMIN LOGIN
+========================= */
+const SUPER_ADMIN_EMAIL = "superadmin@smartinven.com";
+const SUPER_ADMIN_PASSWORD = "Admin@1234";
+const SUPER_ADMIN_ROLE = "superadmin";
+
+export async function superAdminLogin(req, res) {
+  try {
+    let { email, password } = req.body;
+    email = normalizeEmail(email);
+
+    if (!email || !password) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Email and password are required.");
+    }
+
+    if (email !== SUPER_ADMIN_EMAIL || password !== SUPER_ADMIN_PASSWORD) {
+      return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
+    }
+
+    const token = sign(
+      { role: SUPER_ADMIN_ROLE, email: SUPER_ADMIN_EMAIL },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    );
+
+    return sendSuccess(res, 200, {
+      message: "Super admin login successful.",
+      token,
+      admin: { email: SUPER_ADMIN_EMAIL, role: SUPER_ADMIN_ROLE },
+    });
+  } catch (err) {
+    console.error("Super admin login error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Login failed.");
+  }
+}
+
+/* =========================
+   GET ALL OWNERS (Admin)
+========================= */
+export async function getAllOwners(req, res) {
+  try {
+    const owners = await prisma.owner.findMany({
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        status: true,
+        created_at: true,
+        package_id: true,
+        package: {
+          select: { package_key: true, package_name: true },
+        },
+      },
+      orderBy: { created_at: "desc" },
+    });
+
+    return sendSuccess(res, 200, { owners });
+  } catch (err) {
+    console.error(err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to fetch owners.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
+  }
+}

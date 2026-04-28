@@ -1,8 +1,9 @@
-// src/prisma/client.js
+import "dotenv/config";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
-const { Pool } = require("pg");
+const { Pool } = pg;
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is not defined in environment variables");
@@ -14,26 +15,19 @@ const pool = new Pool({
 
 const adapter = new PrismaPg(pool);
 
-const prisma = new PrismaClient({ adapter ,
-  log: ["error", "warn"], });
-
-// module.exports = prisma;
-
+const prisma = new PrismaClient({
+  adapter,
+  log: ["error", "warn"],
+});
 
 async function connectDB() {
   try {
     await prisma.$connect();
-    console.log("✅ Prisma connected to database");
+    console.log("Prisma connected to database");
   } catch (error) {
-    console.error("❌ Prisma failed to connect");
-    throw error; // 🔥 VERY IMPORTANT
+    console.error("Prisma failed to connect");
+    throw error;
   }
 }
 
-module.exports = {
-  prisma,
-  connectDB,
-};
-
-
-
+export { prisma, connectDB };

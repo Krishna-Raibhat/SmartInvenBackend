@@ -1,4 +1,4 @@
-const {prisma}  = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class HardwareReportService {
   // Helper: Build date range
@@ -39,11 +39,12 @@ class HardwareReportService {
           end.setHours(23, 59, 59, 999);
           break;
 
-        default:
+        default: {
           const err = new Error("Invalid report type");
           err.status = 400;
           err.code = "INVALID_REPORT_TYPE";
           throw err;
+        }
       }
 
       return { start, end };
@@ -113,8 +114,6 @@ class HardwareReportService {
     }
   }
 
-  //for getting stock-in and stock-out records on daily, weekly, monthly, yearly basis
-  // Stock-In Report (date range fixed)
   async stockInReportFixed(owner_id, type, date) {
     try {
       const { start, end } = this.getDateRange(type, date);
@@ -143,7 +142,6 @@ class HardwareReportService {
     }
   }
 
-  // Stock-Out Report (date range fixed)
   async stockOutReportFixed(owner_id, type, date) {
     try {
       const { start, end } = this.getDateRange(type, date);
@@ -179,7 +177,6 @@ class HardwareReportService {
     }
   }
 
-  // Combined Report (Stock-In + Stock-Out + Summary)(date range fixed)
   async combinedReportFixed(owner_id, type, date) {
     try {
       const { start, end } = this.getDateRange(type, date);
@@ -232,7 +229,6 @@ class HardwareReportService {
     }
   }
 
-  // Stock-In Report (date range dynamic)
   async stockInReport(owner_id, startDate, endDate) {
     try {
       
@@ -261,7 +257,6 @@ class HardwareReportService {
     }
   }
 
-  // Stock-Out Report (date range dynamic)
   async stockOutReport(owner_id, startDate, endDate) {
     try {
      
@@ -282,7 +277,7 @@ class HardwareReportService {
       
 
       return {
-        period: { type, start, end },
+        period: { startDate, endDate },
         stock_out: stockOut,
         summary: {
           total_qty_out: totalQtyOut,
@@ -297,7 +292,6 @@ class HardwareReportService {
     }
   }
 
-  // Combined Report (Stock-In + Stock-Out + Summary)(date range dynamic)
   async combinedReport(owner_id, startDate, endDate) {
     try {
     
@@ -351,4 +345,4 @@ class HardwareReportService {
 
 }
 
-module.exports = new HardwareReportService();
+export default new HardwareReportService();

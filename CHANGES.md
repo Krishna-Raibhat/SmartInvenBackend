@@ -201,3 +201,45 @@ if (!isValidNepalPhone(normalizedPhone)) {
 
 ### Result
 Customer phone numbers are now validated to be exactly 10 digits. The system normalizes the phone (removes spaces, dashes, +977 prefix) and validates the format before creating sales or stock-out records.
+
+---
+
+## 8. Owner Status Field
+
+### Files Modified
+- `prisma/schema.prisma` - Added `OwnerStatus` enum and `status` field to Owner model
+
+### Issue Fixed
+No way to track owner account status (trial, active, inactive).
+
+### Change
+Added status enum and field to Owner model.
+
+```prisma
+enum OwnerStatus {
+  trial
+  active
+  inactive
+}
+
+model Owner {
+  // ...
+  status OwnerStatus @default(trial)
+  // ...
+}
+```
+
+### Migration
+```
+npx prisma migrate dev --name add_owner_status
+```
+
+### Result
+Owner accounts now have a status field that defaults to "trial". This allows tracking of account lifecycle and can be used for access control or feature restrictions based on subscription status.
+
+Owners can optionally specify their status during registration by including a `status` field in the request body with one of: `trial`, `active`, or `inactive`. If not provided, it defaults to `trial`.
+
+**Login Changes:**
+- Login now returns the owner's `status` in the response
+- Accounts with `status: "inactive"` are blocked from logging in with error code `ACCOUNT_INACTIVE`
+- The `/me` endpoint now includes the `status` field

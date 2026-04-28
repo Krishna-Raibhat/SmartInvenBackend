@@ -1,4 +1,4 @@
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 function parseDateOrNull(x) {
   if (!x) return null;
@@ -21,17 +21,11 @@ class ClothingReportService {
     const startDate = parseDateOrNull(start);
     const endDate = parseDateOrNull(end);
 
-    // Default range: last 30 days
     const startFinal = startDate
       ? startOfDay(startDate)
       : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
     const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
-
-    // We compute from SALES ITEMS to get sales+cost+profit
-    // We compute PAID from ClothingSales table
-    // We also subtract customer returns (refund logic) if you want accurate net sales.
-    // Here: net_sales = sum(sales_items.line_total) - sum(return_qty * sales_item.sp)
 
     const rows = await prisma.$queryRaw`
       WITH sales_items AS (
@@ -60,7 +54,8 @@ class ClothingReportService {
       returns AS (
         SELECT
           date_trunc(${g}, ccr.created_at) AS period,
-          SUM((csi.sp * ccri.qty))::numeric AS return_value
+          SUM((csi.sp * ccri.qty))::numeric AS return_value,
+          SUM(COALESCE(ccr.refund_amount, 0))::numeric AS refund_total
         FROM clothing_customer_return_items ccri
         JOIN clothing_customer_returns ccr ON ccr.return_id = ccri.return_id
         LEFT JOIN clothing_sales_items csi ON csi.sales_item_id = ccri.sales_item_id
@@ -74,25 +69,27 @@ class ClothingReportService {
         COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0) AS sales,
         COALESCE(si.cost, 0) AS cost,
         (COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0)) - COALESCE(si.cost, 0) AS profit,
-        COALESCE(p.paid_total, 0) AS paid
+        COALESCE(p.paid_total, 0) AS paid,
+        COALESCE(r.refund_total, 0) AS refund_total
       FROM sales_items si
       FULL OUTER JOIN paid p ON p.period = si.period
       FULL OUTER JOIN returns r ON r.period = COALESCE(si.period, p.period)
       ORDER BY period ASC;
     `;
 
-    // Convert period to ISO date string (frontend friendly)
     return rows.map((r) => {
       const sales = Number(r.sales || 0);
       const cost = Number(r.cost || 0);
       const paid = Number(r.paid || 0);
+      const refund = Number(r.refund_total || 0);
+      const due = sales - paid - refund;
       return {
         period: new Date(r.period).toISOString(),
         sales,
         cost,
         paid,
         profit: Number(r.profit || 0),
-        balance: sales - paid,
+        balance: due > 0 ? due : 0,
       };
     });
   }
@@ -109,7 +106,6 @@ class ClothingReportService {
 
     const lim = Math.min(Math.max(Number(limit || 3), 1), 20);
 
-    // ✅ Net QTY = sold qty - returned qty
     const rows = await prisma.$queryRawUnsafe(
       `
         WITH sold AS (
@@ -159,7 +155,6 @@ class ClothingReportService {
     }));
   }
 
-  // ✅ qty in / qty out / profit grouped by date
   async stockFlow(owner_id, { start, end, group }) {
     const g = normalizeGroup(group);
     const startDate = parseDateOrNull(start);
@@ -353,4 +348,4 @@ function endOfDay(d) {
   return x;
 }
 
-module.exports = new ClothingReportService();
+export default new ClothingReportService();

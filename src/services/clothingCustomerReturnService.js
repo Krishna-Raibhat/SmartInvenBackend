@@ -1,5 +1,5 @@
 // src/services/clothingCustomerReturnService.js
-const { prisma } = require("../prisma/client");
+import { prisma } from "../prisma/client.js";
 
 class ClothingCustomerReturnService {
   async createReturn(owner_id, payload) {
@@ -308,4 +308,4 @@ class ClothingCustomerReturnService {
   }
 }
 
-module.exports = new ClothingCustomerReturnService();
+export default new ClothingCustomerReturnService();

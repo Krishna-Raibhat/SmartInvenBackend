@@ -1,10 +1,10 @@
 // src/controllers/clothingCategoryController.js
-const service = require("../services/clothingCategoryService");
+import service from "../services/clothingCategoryService.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
 
-exports.create = async (req, res) => {
+export const create = async (req, res) => {
   try {
     let { category_name } = req.body;
     category_name = String(category_name || "").trim() .toLowerCase();
@@ -21,7 +21,7 @@ exports.create = async (req, res) => {
   }
 };
 
-exports.list = async (_req, res) => {
+export const list = async (_req, res) => {
   try {
     const data = await service.list();
     return res.json({ success: true, data });
@@ -30,7 +30,7 @@ exports.list = async (_req, res) => {
   }
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
   try {
     const { category_id } = req.params;
     const data = await service.getById(category_id);
@@ -41,11 +41,11 @@ exports.getById = async (req, res) => {
   }
 };
 
-exports.update = async (req, res) => {
+export const update = async (req, res) => {
   try {
     const { category_id } = req.params;
     let { category_name } = req.body;
-    category_name = String(category_name || "").trim() .toLowerCase(); //;
+    category_name = String(category_name || "").trim() .toLowerCase();
 
     if (!category_name) {
       return fail(res, 400, "VALIDATION_REQUIRED_FIELDS", "category_name is required.");
@@ -61,7 +61,7 @@ exports.update = async (req, res) => {
   }
 };
 
-exports.remove = async (req, res) => {
+export const remove = async (req, res) => {
   try {
     const { category_id } = req.params;
 
