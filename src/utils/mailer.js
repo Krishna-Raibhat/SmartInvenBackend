@@ -255,26 +255,127 @@ export const sendAccountActivatedEmail = async ({ to, full_name }) => {
 
 // SUBSCRIPTION REMINDER
 export const sendSubscriptionExpiryReminderEmail = async ({ to, full_name, expires_at }) => {
-  const expiryDate = new Date(expires_at).toLocaleDateString();
+  const expiryDate = new Date(expires_at).toLocaleDateString("en-US", {
+    year: "numeric", month: "long", day: "numeric",
+  });
+
+  const daysLeft = Math.ceil((new Date(expires_at) - new Date()) / (1000 * 60 * 60 * 24));
 
   const subject = "Your SmartInven Subscription is Expiring Soon";
-  const text = `
-Hello ${full_name},
 
-Your SmartInven subscription will expire on ${expiryDate}.
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Subscription Expiring</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-Renew before expiry to continue using all features.
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:36px 40px 28px;">
+              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
+              <div style="font-size:13px;color:#a8c7fa;margin-top:4px;letter-spacing:0.5px;">Inventory Management System</div>
+            </td>
+          </tr>
 
-Login: ${process.env.APP_URL || 'https://smartinven.com'}
+          <!-- Warning Icon -->
+          <tr>
+            <td align="center" style="padding:36px 48px 0;">
+              <div style="width:72px;height:72px;background:#fff8e1;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;">
+                <div style="font-size:36px;line-height:72px;">⏰</div>
+              </div>
+            </td>
+          </tr>
 
-Best regards,
-SmartInven Team
-  `.trim();
+          <!-- Body -->
+          <tr>
+            <td style="padding:24px 48px 32px;">
+              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;text-align:center;">Subscription Expiring Soon</p>
+              <p style="margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.7;text-align:center;">
+                Hello <strong>${full_name}</strong>, your SmartInven subscription is expiring soon.<br/>
+                Renew now to avoid any interruption to your inventory management.
+              </p>
+
+              <!-- Info Cards -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td style="padding:0 0 12px 0;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff8e1;border-radius:10px;padding:16px 20px;">
+                      <tr>
+                        <td style="font-size:13px;color:#d97706;font-weight:600;">📅 &nbsp;Expiry Date</td>
+                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">${expiryDate}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 0 12px 0;">
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background:#fef2f2;border-radius:10px;padding:16px 20px;">
+                      <tr>
+                        <td style="font-size:13px;color:#dc2626;font-weight:600;">⚠️ &nbsp;Days Remaining</td>
+                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">${daysLeft} day${daysLeft !== 1 ? "s" : ""}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5ff;border-radius:10px;padding:16px 20px;">
+                      <tr>
+                        <td style="font-size:13px;color:#1a73e8;font-weight:600;">💡 &nbsp;Action Required</td>
+                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">Renew Subscription</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;text-align:center;">
+                To renew, make a payment and upload your payment proof through the app.<br/>
+                Our team will verify and activate your subscription promptly.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding:0 48px;">
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 48px 32px;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                © ${new Date().getFullYear()} SmartInven. All rights reserved.<br/>
+                This is an automated email — please do not reply.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `Hello ${full_name},\n\nYour SmartInven subscription expires on ${expiryDate} (${daysLeft} days remaining).\n\nPlease renew by uploading your payment proof through the app.\n\nBest regards,\nSmartInven Team`;
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
     subject,
+    html,
     text,
   });
 };

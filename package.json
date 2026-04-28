@@ -21,8 +21,8 @@
   "description": "",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1016.0",
-    "@prisma/adapter-pg": "^7.2.0",
-    "@prisma/client": "^7.2.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "bcrypt": "^6.0.0",
     "bwip-js": "^4.8.0",
     "cors": "^2.8.5",
@@ -44,7 +44,7 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.11",
-    "prisma": "^7.2.0",
+    "prisma": "^7.8.0",
     "sequelize-cli": "^6.6.3"
   }
 }
