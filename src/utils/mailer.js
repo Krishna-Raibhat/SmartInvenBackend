@@ -182,30 +182,24 @@ export const sendAccountActivatedEmail = async ({ to, full_name }) => {
                 <tr>
                   <td style="padding:0 0 12px 0;">
                     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5ff;border-radius:10px;padding:16px 20px;">
-                      <tr>
-                        <td style="font-size:13px;color:#1a73e8;font-weight:600;">📦 &nbsp;Subscription Duration</td>
-                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">30 Days</td>
-                      </tr>
+                      <tr><td style="font-size:12px;color:#1a73e8;font-weight:600;padding-bottom:4px;">📦 &nbsp;Subscription Duration</td></tr>
+                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">30 Days</td></tr>
                     </table>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:0 0 12px 0;">
                     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf4;border-radius:10px;padding:16px 20px;">
-                      <tr>
-                        <td style="font-size:13px;color:#16a34a;font-weight:600;">✔ &nbsp;Account Status</td>
-                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">Active</td>
-                      </tr>
+                      <tr><td style="font-size:12px;color:#16a34a;font-weight:600;padding-bottom:4px;">✔ &nbsp;Account Status</td></tr>
+                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">Active</td></tr>
                     </table>
                   </td>
                 </tr>
                 <tr>
                   <td>
                     <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff8e1;border-radius:10px;padding:16px 20px;">
-                      <tr>
-                        <td style="font-size:13px;color:#d97706;font-weight:600;">🔓 &nbsp;Access</td>
-                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">Full Features Unlocked</td>
-                      </tr>
+                      <tr><td style="font-size:12px;color:#d97706;font-weight:600;padding-bottom:4px;">🔓 &nbsp;Access</td></tr>
+                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">Full Features Unlocked</td></tr>
                     </table>
                   </td>
                 </tr>
@@ -308,30 +302,24 @@ export const sendSubscriptionExpiryReminderEmail = async ({ to, full_name, expir
                 <tr>
                   <td style="padding:0 0 12px 0;">
                     <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff8e1;border-radius:10px;padding:16px 20px;">
-                      <tr>
-                        <td style="font-size:13px;color:#d97706;font-weight:600;">📅 &nbsp;Expiry Date</td>
-                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">${expiryDate}</td>
-                      </tr>
+                      <tr><td style="font-size:12px;color:#d97706;font-weight:600;padding-bottom:4px;">📅 &nbsp;Expiry Date</td></tr>
+                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">${expiryDate}</td></tr>
                     </table>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:0 0 12px 0;">
                     <table width="100%" cellpadding="0" cellspacing="0" style="background:#fef2f2;border-radius:10px;padding:16px 20px;">
-                      <tr>
-                        <td style="font-size:13px;color:#dc2626;font-weight:600;">⚠️ &nbsp;Days Remaining</td>
-                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">${daysLeft} day${daysLeft !== 1 ? "s" : ""}</td>
-                      </tr>
+                      <tr><td style="font-size:12px;color:#dc2626;font-weight:600;padding-bottom:4px;">⚠️ &nbsp;Days Remaining</td></tr>
+                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">${daysLeft} day${daysLeft !== 1 ? "s" : ""}</td></tr>
                     </table>
                   </td>
                 </tr>
                 <tr>
                   <td>
                     <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f5ff;border-radius:10px;padding:16px 20px;">
-                      <tr>
-                        <td style="font-size:13px;color:#1a73e8;font-weight:600;">💡 &nbsp;Action Required</td>
-                        <td align="right" style="font-size:13px;color:#1a1a2e;font-weight:700;">Renew Subscription</td>
-                      </tr>
+                      <tr><td style="font-size:12px;color:#1a73e8;font-weight:600;padding-bottom:4px;">💡 &nbsp;Action Required</td></tr>
+                      <tr><td style="font-size:15px;color:#1a1a2e;font-weight:700;">Renew Subscription</td></tr>
                     </table>
                   </td>
                 </tr>
