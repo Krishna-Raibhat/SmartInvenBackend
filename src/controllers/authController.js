@@ -337,6 +337,7 @@ export async function me(req, res) {
         status: true,
         created_at: true,
         package_id: true,
+        subscription_expires_at:true
       },
     });
 
