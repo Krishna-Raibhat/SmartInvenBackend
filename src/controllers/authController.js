@@ -91,6 +91,7 @@ const validatePhone = (phone) => {
 const packageNameMap = {
   hardware: "Hardware Store",
   clothing: "Clothing Store",
+  grocery: "Grocery Store",
 };
 
 export async function register(req, res) {
@@ -105,7 +106,7 @@ export async function register(req, res) {
     }
 
     // ✅ allow only these packages
-    const allowed = new Set(["hardware", "clothing"]);
+    const allowed = new Set(["hardware", "clothing", "grocery"]);
     if (!allowed.has(package_key)) {
       return sendError(res, 400, "VALIDATION_PACKAGE_INVALID", "Invalid package_key.");
     }
