@@ -46,6 +46,8 @@ import paymentQRStoreRoutes from "./routes/paymentQRStoreRoutes.js";
 import paymentProofRoutes from "./routes/paymentProofRoutes.js";
 import packageRoutes from "./routes/packageRoutes.js";
 import adminDashboardRoutes from "./routes/adminDashboardRoutes.js";
+import grocerySupplierRoutes from "./routes/grocerySupplierRoutes.js";
+import groceryCategoryRoutes from "./routes/groceryCategoryRoutes.js";
 
 
 const app = express();
@@ -112,6 +114,11 @@ app.use("/api/payment-qr", paymentQRStoreRoutes);
 app.use("/api/payment-proof", paymentProofRoutes);
 app.use("/api/packages", packageRoutes);
 app.use("/api/admin/dashboard", adminDashboardRoutes);
+
+// Grocery routes
+app.use("/api/grocery/suppliers", grocerySupplierRoutes);
+app.use("/api/grocery/categories", groceryCategoryRoutes);
+
 /* ==========================
    SERVER START
 ========================== */

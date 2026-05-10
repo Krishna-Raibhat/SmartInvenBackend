@@ -59,6 +59,7 @@ model Owner {
   clothingCustomerReturns ClothingCustomerReturn[]
   clothingSupplierReturns ClothingSupplierReturn[]
   clothingNotifications ClothingNotification[]
+  grocerySuppliers        GrocerySupplier[]
   paymentProofs         PaymentProof[]
   created_at              DateTime                 @default(now())
   updated_at              DateTime                 @updatedAt
@@ -574,4 +575,34 @@ model PaymentProof {
   @@index([owner_id])
   @@index([status])
   @@map("payment_proofs")
+}
+
+
+model GrocerySupplier {
+  supplier_id String @id @default(uuid())
+
+  owner_id String
+  owner    Owner  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  supplier_name String
+  phone         String
+  email         String?
+  address       String?
+
+  created_at DateTime                 @default(now())
+  
+  @@unique([owner_id, phone])
+  @@map("grocery_suppliers")
+}
+
+model GroceryCategory {
+  category_id   String @id @default(uuid())
+  category_name String @unique
+
+  
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("grocery_categories")
 }
