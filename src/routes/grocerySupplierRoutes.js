@@ -1,26 +1,15 @@
 // src/routes/grocerySupplierRoutes.js
-import { Router } from "express";
-import * as grocerySupplierController from "../controllers/grocerySupplierController.js";
-import { authenticate } from "../middlewares/authMiddleware.js";
+import express from "express";
+import auth from "../middlewares/authMiddleware.js";
+import * as ctrl from "../controllers/grocerySupplierController.js";
 
-const router = Router();
+const router = express.Router();
 
-// All routes require authentication
-router.use(authenticate);
-
-// POST /api/grocery/suppliers - Create supplier
-router.post("/", grocerySupplierController.create);
-
-// GET /api/grocery/suppliers - List all suppliers
-router.get("/", grocerySupplierController.list);
-
-// GET /api/grocery/suppliers/:supplier_id - Get supplier by ID
-router.get("/:supplier_id", grocerySupplierController.getById);
-
-// PUT /api/grocery/suppliers/:supplier_id - Update supplier
-router.put("/:supplier_id", grocerySupplierController.update);
-
-// DELETE /api/grocery/suppliers/:supplier_id - Delete supplier
-router.delete("/:supplier_id", grocerySupplierController.remove);
+// /api/grocery/suppliers
+router.post("/", auth, ctrl.create);
+router.get("/", auth, ctrl.list);
+router.get("/:supplier_id", auth, ctrl.getById);
+router.put("/:supplier_id", auth, ctrl.update);
+router.delete("/:supplier_id", auth, ctrl.remove);
 
 export default router;

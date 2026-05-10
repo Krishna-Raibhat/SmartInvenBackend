@@ -594,3 +594,15 @@ model GrocerySupplier {
   @@unique([owner_id, phone])
   @@map("grocery_suppliers")
 }
+
+model GroceryCategory {
+  category_id   String @id @default(uuid())
+  category_name String @unique
+
+  
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("grocery_categories")
+}
