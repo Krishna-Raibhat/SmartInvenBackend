@@ -49,6 +49,9 @@ import adminDashboardRoutes from "./routes/adminDashboardRoutes.js";
 import grocerySupplierRoutes from "./routes/grocerySupplierRoutes.js";
 import groceryCategoryRoutes from "./routes/groceryCategoryRoutes.js";
 import groceryBrandRoutes from "./routes/groceryBrandRoutes.js";
+import groceryUnitRoutes from "./routes/groceryUnitRoutes.js";
+import groceryProductRoutes from "./routes/groceryProductRoutes.js";
+import groceryStockLotRoutes from "./routes/groceryStockLotRoutes.js";
 
 
 const app = express();
@@ -120,6 +123,9 @@ app.use("/api/admin/dashboard", adminDashboardRoutes);
 app.use("/api/grocery/suppliers", grocerySupplierRoutes);
 app.use("/api/grocery/categories", groceryCategoryRoutes);
 app.use("/api/grocery/brands", groceryBrandRoutes);
+app.use("/api/grocery/units", groceryUnitRoutes);
+app.use("/api/grocery/products", groceryProductRoutes);
+app.use("/api/grocery/stock-lots", groceryStockLotRoutes);
 
 /* ==========================
    SERVER START
