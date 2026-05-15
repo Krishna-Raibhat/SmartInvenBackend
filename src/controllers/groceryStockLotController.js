@@ -294,14 +294,3 @@ export const remove = async (req, res) => {
     return fail(res, 500, 'SERVER_ERROR', err.message);
   }
 };
-
-export const getLowStock = async (req, res) => {
-  try {
-    const owner_id = req.owner.owner_id;
-    const data = await service.getLowStock(owner_id);
-    return res.json({ success: true, data });
-  } catch (err) {
-    console.error('Error fetching low stock products:', err);
-    return fail(res, 500, 'SERVER_ERROR', err.message);
-  }
-};

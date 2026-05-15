@@ -7,7 +7,7 @@ class GroceryUnitController {
   async createUnit(req, res) {
     try {
       const { unit_name } = req.body;
-      const ownerId = req.user.owner_id;
+      const ownerId = req.owner.owner_id;
 
       if (!unit_name || typeof unit_name !== 'string') {
         return fail(res, 400, 'VALIDATION_ERROR', 'Unit name is required');
@@ -46,7 +46,7 @@ class GroceryUnitController {
 
   async getUnits(req, res) {
     try {
-      const ownerId = req.user.owner_id;
+      const ownerId = req.owner.owner_id;
       const units = await groceryUnitService.getUnitsByOwner(ownerId);
       return res.json({ success: true, data: units });
     } catch (error) {
@@ -58,7 +58,7 @@ class GroceryUnitController {
   async getUnitById(req, res) {
     try {
       const { id } = req.params;
-      const ownerId = req.user.owner_id;
+      const ownerId = req.owner.owner_id;
       const unit = await groceryUnitService.getUnitById(id, ownerId);
       return res.json({ success: true, data: unit });
     } catch (error) {
@@ -77,7 +77,7 @@ class GroceryUnitController {
     try {
       const { id } = req.params;
       const { unit_name } = req.body;
-      const ownerId = req.user.owner_id;
+      const ownerId = req.owner.owner_id;
 
       if (!unit_name || typeof unit_name !== 'string') {
         return fail(res, 400, 'VALIDATION_ERROR', 'Unit name is required');
@@ -123,7 +123,7 @@ class GroceryUnitController {
   async deleteUnit(req, res) {
     try {
       const { id } = req.params;
-      const ownerId = req.user.owner_id;
+      const ownerId = req.owner.owner_id;
       const result = await groceryUnitService.deleteUnit(id, ownerId);
       return res.json({ success: true, message: result.message });
     } catch (error) {

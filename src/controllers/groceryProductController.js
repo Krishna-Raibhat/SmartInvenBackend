@@ -13,8 +13,6 @@ export const create = async (req, res) => {
       product_name,
       barcode,
       description,
-      image_url,
-      min_stock_level,
     } = req.body;
 
     // Required fields validation
@@ -74,18 +72,6 @@ export const create = async (req, res) => {
         );
       }
     }
-    if (image_url) image_url = String(image_url).trim();
-    if (min_stock_level !== undefined && min_stock_level !== null) {
-      min_stock_level = Number(min_stock_level);
-      if (!Number.isInteger(min_stock_level) || min_stock_level < 0) {
-        return fail(
-          res,
-          400,
-          'VALIDATION_MIN_STOCK_INVALID',
-          'min_stock_level must be a non-negative integer'
-        );
-      }
-    }
 
     const created = await service.create({
       owner_id,
@@ -95,8 +81,6 @@ export const create = async (req, res) => {
       product_name,
       barcode,
       description,
-      image_url,
-      min_stock_level,
     });
 
     return res.status(201).json({ success: true, data: created });
@@ -163,8 +147,6 @@ export const update = async (req, res) => {
       product_name,
       barcode,
       description,
-      image_url,
-      min_stock_level,
     } = req.body;
 
     // Trim and validate if provided
@@ -212,18 +194,6 @@ export const update = async (req, res) => {
         );
       }
     }
-    if (image_url !== undefined) image_url = String(image_url || '').trim() || null;
-    if (min_stock_level !== undefined && min_stock_level !== null) {
-      min_stock_level = Number(min_stock_level);
-      if (!Number.isInteger(min_stock_level) || min_stock_level < 0) {
-        return fail(
-          res,
-          400,
-          'VALIDATION_MIN_STOCK_INVALID',
-          'min_stock_level must be a non-negative integer'
-        );
-      }
-    }
 
     // Check if at least one field is provided
     if (
@@ -232,9 +202,7 @@ export const update = async (req, res) => {
       unit_id === undefined &&
       product_name === undefined &&
       barcode === undefined &&
-      description === undefined &&
-      image_url === undefined &&
-      min_stock_level === undefined
+      description === undefined
     ) {
       return fail(
         res,
@@ -251,8 +219,6 @@ export const update = async (req, res) => {
       product_name,
       barcode,
       description,
-      image_url,
-      min_stock_level,
     });
 
     if (!updated) return fail(res, 404, 'NOT_FOUND', 'Product not found');

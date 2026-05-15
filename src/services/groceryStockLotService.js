@@ -226,46 +226,6 @@ class GroceryStockLotService {
     await prisma.groceryStockLot.delete({ where: { lot_id } });
     return true;
   }
-
-  /**
-   * Get low stock products
-   */
-  async getLowStock(owner_id) {
-    const products = await prisma.groceryProduct.findMany({
-      where: {
-        owner_id,
-        min_stock_level: { not: null },
-      },
-      include: {
-        category: true,
-        brand: true,
-        unit: true,
-        stockLots: {
-          select: {
-            qty_remaining: true,
-          },
-        },
-      },
-    });
-
-    // Calculate total stock and filter low stock
-    const lowStockProducts = products
-      .map((product) => {
-        const totalStock = product.stockLots.reduce(
-          (sum, lot) => sum + parseFloat(lot.qty_remaining.toString()),
-          0
-        );
-
-        return {
-          ...product,
-          total_stock: totalStock,
-          stockLots: undefined, // Remove from response
-        };
-      })
-      .filter((product) => product.total_stock < product.min_stock_level);
-
-    return lowStockProducts;
-  }
 }
 
 export default new GroceryStockLotService();

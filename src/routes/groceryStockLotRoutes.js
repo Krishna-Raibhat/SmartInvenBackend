@@ -9,9 +9,6 @@ router.post('/', auth, controller.create);
 // Get all stock lots for authenticated owner
 router.get('/', auth, controller.getAll);
 
-// Get low stock products
-router.get('/low-stock', auth, controller.getLowStock);
-
 // Get stock lots by product
 router.get('/product/:product_id', auth, controller.getByProduct);
 

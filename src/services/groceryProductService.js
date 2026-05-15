@@ -12,8 +12,6 @@ class GroceryProductService {
     product_name,
     barcode,
     description,
-    image_url,
-    min_stock_level,
   }) {
     try {
       // Verify unit belongs to owner
@@ -63,8 +61,6 @@ class GroceryProductService {
           product_name,
           barcode: barcode || null,
           description: description || null,
-          image_url: image_url || null,
-          min_stock_level: min_stock_level || null,
         },
         include: {
           category: true,
@@ -171,8 +167,6 @@ class GroceryProductService {
       product_name,
       barcode,
       description,
-      image_url,
-      min_stock_level,
     }
   ) {
     // Check if product exists and belongs to owner
@@ -203,8 +197,6 @@ class GroceryProductService {
     if (product_name !== undefined) data.product_name = product_name;
     if (barcode !== undefined) data.barcode = barcode || null;
     if (description !== undefined) data.description = description || null;
-    if (image_url !== undefined) data.image_url = image_url || null;
-    if (min_stock_level !== undefined) data.min_stock_level = min_stock_level || null;
 
     try {
       return await prisma.groceryProduct.update({
