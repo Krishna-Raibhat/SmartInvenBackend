@@ -1,5 +1,5 @@
 // src/services/grocerySupplierService.js
-import { prisma } from "../prisma/client.js";
+import prisma from "../config/prisma.js";
 
 class GrocerySupplierService {
   async create({ owner_id, supplier_name, phone, email, address }) {

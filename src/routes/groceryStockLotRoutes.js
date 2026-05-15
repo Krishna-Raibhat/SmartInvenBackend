@@ -1,7 +1,7 @@
 import express from 'express';
 const router = express.Router();
 import * as controller from '../controllers/groceryStockLotController.js';
-import auth from '../middleware/auth.js';
+import auth from '../middlewares/authMiddleware.js';
 
 // Create a new stock lot
 router.post('/', auth, controller.create);
