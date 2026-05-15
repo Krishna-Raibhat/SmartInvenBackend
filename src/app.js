@@ -48,6 +48,7 @@ import packageRoutes from "./routes/packageRoutes.js";
 import adminDashboardRoutes from "./routes/adminDashboardRoutes.js";
 import grocerySupplierRoutes from "./routes/grocerySupplierRoutes.js";
 import groceryCategoryRoutes from "./routes/groceryCategoryRoutes.js";
+import groceryBrandRoutes from "./routes/groceryBrandRoutes.js";
 
 
 const app = express();
@@ -118,6 +119,7 @@ app.use("/api/admin/dashboard", adminDashboardRoutes);
 // Grocery routes
 app.use("/api/grocery/suppliers", grocerySupplierRoutes);
 app.use("/api/grocery/categories", groceryCategoryRoutes);
+app.use("/api/grocery/brands", groceryBrandRoutes);
 
 /* ==========================
    SERVER START
