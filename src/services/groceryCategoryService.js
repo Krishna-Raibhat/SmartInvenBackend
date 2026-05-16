@@ -63,11 +63,11 @@ class GroceryCategoryService {
     });
     if (!existing) return null;
 
-    // Note: Add check for linked products when GroceryProduct model is created
-    // const linked = await prisma.groceryProduct.count({
-    //   where: { category_id },
-    // });
-    // if (linked > 0) return false;
+    // Check for linked products
+    const linked = await prisma.groceryProduct.count({
+      where: { category_id },
+    });
+    if (linked > 0) return false;
 
     await prisma.groceryCategory.delete({ where: { category_id } });
     return true;
