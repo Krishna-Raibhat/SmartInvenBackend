@@ -41,6 +41,7 @@ model Owner {
   groceryProducts            GroceryProduct[]
   groceryStockLots           GroceryStockLot[]
   grocerySuppliers           GrocerySupplier[]
+  grocerySupplierReturns     GrocerySupplierReturn[]
   groceryUnits               GroceryUnit[]
   notifications              HardwareNotification[]
   products                   HardwareProduct[]
@@ -470,15 +471,16 @@ enum OwnerStatus {
 }
 
 model GrocerySupplier {
-  supplier_id   String            @id @default(uuid())
+  supplier_id   String                  @id @default(uuid())
   owner_id      String
-  owner         Owner             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  owner         Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   supplier_name String
   phone         String
   email         String?
   address       String?
-  created_at    DateTime          @default(now())
+  created_at    DateTime                @default(now())
   stockLots     GroceryStockLot[]
+  returns       GrocerySupplierReturn[]
   
   @@unique([owner_id, phone])
   @@map("grocery_suppliers")
@@ -544,23 +546,57 @@ model GroceryProduct {
 }
 
 model GroceryStockLot {
-  lot_id        String          @id @default(uuid())
+  lot_id        String                      @id @default(uuid())
   owner_id      String
   product_id    String
   supplier_id   String
-  qty_in        Decimal         @db.Decimal(10, 3)
-  qty_remaining Decimal         @db.Decimal(10, 3)
-  cp            Decimal         @db.Decimal(10, 2)
-  sp            Decimal         @db.Decimal(10, 2)
+  qty_in        Decimal                     @db.Decimal(10, 3)
+  qty_remaining Decimal                     @db.Decimal(10, 3)
+  cp            Decimal                     @db.Decimal(10, 2)
+  sp            Decimal                     @db.Decimal(10, 2)
   batch_no      String?
   expiry_date   DateTime?
   notes         String?
-  created_at    DateTime        @default(now())
-  owner         Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  product       GroceryProduct  @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
-  supplier      GrocerySupplier @relation(fields: [supplier_id], references: [supplier_id])
+  created_at    DateTime                    @default(now())
+  owner         Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  product       GroceryProduct              @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
+  supplier      GrocerySupplier             @relation(fields: [supplier_id], references: [supplier_id])
+  returnItems   GrocerySupplierReturnItem[]
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
   @@map("grocery_stock_lots")
+}
+
+model GrocerySupplierReturn {
+  return_id    String                      @id @default(uuid())
+  owner_id     String
+  supplier_id  String
+  total_refund Decimal                     @db.Decimal(10, 2)
+  note         String?
+  created_at   DateTime                    @default(now())
+  owner        Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  supplier     GrocerySupplier             @relation(fields: [supplier_id], references: [supplier_id])
+  items        GrocerySupplierReturnItem[]
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, supplier_id])
+  @@map("grocery_supplier_returns")
+}
+
+model GrocerySupplierReturnItem {
+  return_item_id String                @id @default(uuid())
+  return_id      String
+  lot_id         String
+  qty            Decimal               @db.Decimal(10, 3)
+  refund_amount  Decimal               @db.Decimal(10, 2)
+  reason         String?
+  note           String?
+  created_at     DateTime              @default(now())
+  lot            GroceryStockLot       @relation(fields: [lot_id], references: [lot_id])
+  return         GrocerySupplierReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
+
+  @@index([return_id])
+  @@index([lot_id])
+  @@map("grocery_supplier_return_items")
 }
