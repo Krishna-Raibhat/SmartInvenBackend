@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { prisma } from "../prisma/client.js";
 import { sendLowStockNotification } from "../services/notificationService.js";
 import { sendClothingLowStockNotification } from "../services/clothingNotificationService.js";
+import { sendGroceryLowStockNotification } from "../services/groceryNotificationService.js";
 
 const LOW_STOCK_THRESHOLD = 40;
 const COOLDOWN_HOURS = 24;
@@ -136,6 +137,72 @@ cron.schedule(
             });
 
             await prisma.clothingProduct.update({
+              where: { product_id: p.product_id },
+              data: { last_low_stock_notified_at: now },
+            });
+          }
+        }
+
+        /* ===============================
+           🛒 GROCERY LOW STOCK
+        =============================== */
+        const grocerySums = await prisma.groceryStockLot.groupBy({
+          by: ["product_id"],
+          where: { owner_id: ownerId },
+          _sum: { qty_remaining: true },
+        });
+
+        if (grocerySums.length) {
+          const grMap = new Map(
+            grocerySums.map(x => [x.product_id, Number(x._sum.qty_remaining || 0)])
+          );
+
+          const grProducts = await prisma.groceryProduct.findMany({
+            where: {
+              owner_id: ownerId,
+              product_id: { in: [...grMap.keys()] },
+            },
+            select: {
+              product_id: true,
+              product_name: true,
+              last_low_stock_notified_at: true,
+              unit: {
+                select: {
+                  unit_name: true,
+                },
+              },
+            },
+          });
+
+          for (const p of grProducts) {
+            const remaining = grMap.get(p.product_id) ?? 0;
+
+            if (remaining >= LOW_STOCK_THRESHOLD && p.last_low_stock_notified_at) {
+              await prisma.groceryProduct.update({
+                where: { product_id: p.product_id },
+                data: { last_low_stock_notified_at: null },
+              });
+              continue;
+            }
+
+            if (remaining >= LOW_STOCK_THRESHOLD) continue;
+
+            const last = p.last_low_stock_notified_at;
+            const hours =
+              last ? (now - new Date(last)) / (1000 * 60 * 60) : Infinity;
+
+            if (hours < COOLDOWN_HOURS) continue;
+
+            await sendGroceryLowStockNotification({
+              owner_id: ownerId,
+              fcmToken: owner.fcm_token ?? null,
+              productId: p.product_id,
+              productName: p.product_name,
+              remainingQty: remaining,
+              unitName: p.unit?.unit_name || "units",
+            });
+
+            await prisma.groceryProduct.update({
               where: { product_id: p.product_id },
               data: { last_low_stock_notified_at: now },
             });

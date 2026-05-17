@@ -44,6 +44,7 @@ model Owner {
   grocerySupplierReturns     GrocerySupplierReturn[]
   grocerySales               GrocerySales[]
   groceryCustomerReturns     GroceryCustomerReturn[]
+  groceryNotifications       GroceryNotification[]
   groceryUnits               GroceryUnit[]
   notifications              HardwareNotification[]
   products                   HardwareProduct[]
@@ -524,14 +525,15 @@ model GroceryUnit {
 }
 
 model GroceryProduct {
-  product_id      String            @id @default(uuid())
-  owner_id        String
-  category_id     String?
-  brand_id        String?
-  unit_id         String
-  product_name    String
-  barcode         String?           @unique
-  description     String?
+  product_id                 String            @id @default(uuid())
+  owner_id                   String
+  category_id                String?
+  brand_id                   String?
+  unit_id                    String
+  product_name               String
+  barcode                    String?           @unique
+  description                String?
+  last_low_stock_notified_at DateTime?
   
   created_at      DateTime          @default(now())
   updated_at      DateTime          @updatedAt
@@ -541,6 +543,7 @@ model GroceryProduct {
   unit            GroceryUnit       @relation(fields: [unit_id], references: [unit_id])
   stockLots       GroceryStockLot[]
   salesItems      GrocerySalesItem[]
+  notifications   GroceryNotification[]
 
   @@unique([owner_id, product_name])
   @@index([owner_id, category_id])
@@ -681,4 +684,21 @@ model GroceryCustomerReturnItem {
   @@index([sales_item_id])
   @@index([lot_id])
   @@map("grocery_customer_return_items")
+}
+
+model GroceryNotification {
+  notification_id String          @id @default(uuid())
+  owner_id        String
+  type            String
+  title           String
+  message         String
+  product_id      String?
+  read_at         DateTime?
+  created_at      DateTime        @default(now())
+  owner           Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  product         GroceryProduct? @relation(fields: [product_id], references: [product_id])
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, read_at])
+  @@map("grocery_notifications")
 }
