@@ -1,7 +1,9 @@
 // src/services/grocerySalesService.js
 import prisma from "../config/prisma.js";
 import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
+
+const Decimal = Prisma.Decimal;
 
 class GrocerySalesService {
   // ✅ CREATE SALE (with optional lot_id or FIFO, auto-create customer)

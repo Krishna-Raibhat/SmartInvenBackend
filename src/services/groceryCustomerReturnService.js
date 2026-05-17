@@ -1,6 +1,8 @@
 // src/services/groceryCustomerReturnService.js
 import prisma from "../config/prisma.js";
-import { Decimal } from "@prisma/client/runtime/library";
+import { Prisma } from "@prisma/client";
+
+const Decimal = Prisma.Decimal;
 
 class GroceryCustomerReturnService {
   async createReturn(owner_id, payload) {
