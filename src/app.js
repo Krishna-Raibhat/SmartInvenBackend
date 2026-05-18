@@ -58,6 +58,7 @@ import groceryCustomerReturnRoutes from "./routes/groceryCustomerReturnRoutes.js
 import groceryDashboardRoutes from "./routes/groceryDashboardRoutes.js";
 import groceryLowStockRoutes from "./routes/groceryLowStockRoutes.js";
 import groceryReportRoutes from "./routes/groceryReportRoutes.js";
+import groceryNotificationRoutes from "./routes/groceryNotificationRoutes.js";
 
 
 const app = express();
@@ -138,6 +139,7 @@ app.use("/api/grocery/returns/customer", groceryCustomerReturnRoutes);
 app.use("/api/grocery/dashboard", groceryDashboardRoutes);
 app.use("/api/grocery/low-stock", groceryLowStockRoutes);
 app.use("/api/grocery/reports", groceryReportRoutes);
+app.use("/api/grocery/notifications", groceryNotificationRoutes);
 
 /* ==========================
    SERVER START

@@ -80,7 +80,7 @@ class GroceryReportService {
       include: {
         items: {
           include: {
-            sales_item: {
+            salesItem: {
               select: { cp: true, sp: true },
             },
           },
@@ -96,8 +96,8 @@ class GroceryReportService {
       totalRefund += Number(ret.refund_amount || 0);
       ret.items.forEach((item) => {
         const qty = Number(item.qty);
-        const sp = Number(item.sales_item?.sp || 0);
-        const cp = Number(item.sales_item?.cp || 0);
+        const sp = Number(item.salesItem?.sp || 0);
+        const cp = Number(item.salesItem?.cp || 0);
         returnValue += sp * qty;
         returnCost += cp * qty;
       });
