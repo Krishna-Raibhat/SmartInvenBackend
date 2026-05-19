@@ -1,4 +1,6 @@
 import service from '../services/groceryStockLotService.js';
+import prisma from '../config/prisma.js';
+import { getObject } from '../utils/s3.js';
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
@@ -291,6 +293,43 @@ export const remove = async (req, res) => {
     return res.json({ success: true, message: 'Stock lot deleted successfully' });
   } catch (err) {
     console.error('Error deleting grocery stock lot:', err);
+    return fail(res, 500, 'SERVER_ERROR', err.message);
+  }
+};
+
+// Get stock lot by barcode (for barcode scanning)
+export const getByBarcode = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { barcode } = req.params;
+    const data = await service.getByBarcode(owner_id, barcode);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    if (err.status) return fail(res, err.status, err.code || 'ERROR', err.message);
+    return fail(res, 500, 'SERVER_ERROR', err.message);
+  }
+};
+
+// Get barcode image (stream from S3)
+export const getBarcodeImage = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { lot_id } = req.params;
+
+    const lot = await prisma.groceryStockLot.findFirst({
+      where: { lot_id, owner_id },
+      select: { barcode_image_url: true },
+    });
+
+    if (!lot || !lot.barcode_image_url) {
+      return fail(res, 404, 'NOT_FOUND', 'Barcode image not found');
+    }
+
+    const stream = await getObject(lot.barcode_image_url);
+
+    res.setHeader('Content-Type', 'image/png');
+    stream.pipe(res);
+  } catch (err) {
     return fail(res, 500, 'SERVER_ERROR', err.message);
   }
 };

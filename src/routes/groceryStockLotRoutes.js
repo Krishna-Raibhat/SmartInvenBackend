@@ -9,8 +9,14 @@ router.post('/', auth, controller.create);
 // Get all stock lots for authenticated owner
 router.get('/', auth, controller.getAll);
 
+// Get lot by barcode scan
+router.get('/scan/:barcode', auth, controller.getByBarcode);
+
 // Get stock lots by product
 router.get('/product/:product_id', auth, controller.getByProduct);
+
+// Preview barcode image
+router.get('/:lot_id/barcode-image', auth, controller.getBarcodeImage);
 
 // Get a single stock lot by ID
 router.get('/:lot_id', auth, controller.getById);
