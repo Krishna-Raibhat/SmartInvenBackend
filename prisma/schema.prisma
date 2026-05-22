@@ -41,6 +41,10 @@ model Owner {
   groceryProducts            GroceryProduct[]
   groceryStockLots           GroceryStockLot[]
   grocerySuppliers           GrocerySupplier[]
+  grocerySupplierReturns     GrocerySupplierReturn[]
+  grocerySales               GrocerySales[]
+  groceryCustomerReturns     GroceryCustomerReturn[]
+  groceryNotifications       GroceryNotification[]
   groceryUnits               GroceryUnit[]
   notifications              HardwareNotification[]
   products                   HardwareProduct[]
@@ -338,16 +342,17 @@ model ClothingSalesItem {
 }
 
 model Customer {
-  customer_id String          @id @default(uuid())
-  owner_id    String
-  full_name   String
-  phone       String?
-  email       String?
-  address     String?
-  created_at  DateTime        @default(now())
-  updated_at  DateTime        @updatedAt
-  sales       ClothingSales[]
-  owner       Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  customer_id   String          @id @default(uuid())
+  owner_id      String
+  full_name     String
+  phone         String?
+  email         String?
+  address       String?
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+  sales         ClothingSales[]
+  grocerySales  GrocerySales[]
+  owner         Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   @@unique([owner_id, phone])
   @@index([owner_id])
@@ -470,15 +475,16 @@ enum OwnerStatus {
 }
 
 model GrocerySupplier {
-  supplier_id   String            @id @default(uuid())
+  supplier_id   String                  @id @default(uuid())
   owner_id      String
-  owner         Owner             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  owner         Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   supplier_name String
   phone         String
   email         String?
   address       String?
-  created_at    DateTime          @default(now())
+  created_at    DateTime                @default(now())
   stockLots     GroceryStockLot[]
+  returns       GrocerySupplierReturn[]
   
   @@unique([owner_id, phone])
   @@map("grocery_suppliers")
@@ -519,14 +525,15 @@ model GroceryUnit {
 }
 
 model GroceryProduct {
-  product_id      String            @id @default(uuid())
-  owner_id        String
-  category_id     String?
-  brand_id        String?
-  unit_id         String
-  product_name    String
-  barcode         String?           @unique
-  description     String?
+  product_id                 String            @id @default(uuid())
+  owner_id                   String
+  category_id                String?
+  brand_id                   String?
+  unit_id                    String
+  product_name               String
+  barcode                    String?           @unique
+  description                String?
+  last_low_stock_notified_at DateTime?
   
   created_at      DateTime          @default(now())
   updated_at      DateTime          @updatedAt
@@ -535,6 +542,8 @@ model GroceryProduct {
   brand           GroceryBrand?     @relation(fields: [brand_id], references: [brand_id])
   unit            GroceryUnit       @relation(fields: [unit_id], references: [unit_id])
   stockLots       GroceryStockLot[]
+  salesItems      GrocerySalesItem[]
+  notifications   GroceryNotification[]
 
   @@unique([owner_id, product_name])
   @@index([owner_id, category_id])
@@ -544,23 +553,154 @@ model GroceryProduct {
 }
 
 model GroceryStockLot {
-  lot_id        String          @id @default(uuid())
-  owner_id      String
-  product_id    String
-  supplier_id   String
-  qty_in        Decimal         @db.Decimal(10, 3)
-  qty_remaining Decimal         @db.Decimal(10, 3)
-  cp            Decimal         @db.Decimal(10, 2)
-  sp            Decimal         @db.Decimal(10, 2)
-  batch_no      String?
-  expiry_date   DateTime?
-  notes         String?
-  created_at    DateTime        @default(now())
-  owner         Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  product       GroceryProduct  @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
-  supplier      GrocerySupplier @relation(fields: [supplier_id], references: [supplier_id])
+  lot_id            String                      @id @default(uuid())
+  owner_id          String
+  product_id        String
+  supplier_id       String
+  qty_in            Decimal                     @db.Decimal(10, 3)
+  qty_remaining     Decimal                     @db.Decimal(10, 3)
+  cp                Decimal                     @db.Decimal(10, 2)
+  sp                Decimal                     @db.Decimal(10, 2)
+  batch_no          String?
+  expiry_date       DateTime?
+  notes             String?
+  barcode           String?                     @unique
+  barcode_image_url String?
+  created_at        DateTime                    @default(now())
+  owner             Owner                         @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  product           GroceryProduct                @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
+  supplier          GrocerySupplier               @relation(fields: [supplier_id], references: [supplier_id])
+  returnItems       GrocerySupplierReturnItem[]
+  salesItems        GrocerySalesItem[]
+  customerReturnItems GroceryCustomerReturnItem[]
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
   @@map("grocery_stock_lots")
+}
+
+model GrocerySupplierReturn {
+  return_id    String                      @id @default(uuid())
+  owner_id     String
+  supplier_id  String
+  total_refund Decimal                     @db.Decimal(10, 2)
+  note         String?
+  created_at   DateTime                    @default(now())
+  owner        Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  supplier     GrocerySupplier             @relation(fields: [supplier_id], references: [supplier_id])
+  items        GrocerySupplierReturnItem[]
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, supplier_id])
+  @@map("grocery_supplier_returns")
+}
+
+model GrocerySupplierReturnItem {
+  return_item_id String                @id @default(uuid())
+  return_id      String
+  lot_id         String
+  qty            Decimal               @db.Decimal(10, 3)
+  refund_amount  Decimal               @db.Decimal(10, 2)
+  reason         String?
+  note           String?
+  created_at     DateTime              @default(now())
+  lot            GroceryStockLot       @relation(fields: [lot_id], references: [lot_id])
+  return         GrocerySupplierReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
+
+  @@index([return_id])
+  @@index([lot_id])
+  @@map("grocery_supplier_return_items")
+}
+
+model GrocerySales {
+  sales_id       String                  @id @default(uuid())
+  owner_id       String
+  customer_id    String?
+  payment_status String                  @default("pending")
+  total_amount   Decimal                 @db.Decimal(10, 2)
+  paid_amount    Decimal                 @db.Decimal(10, 2)
+  note           String?
+  created_at     DateTime                @default(now())
+  owner          Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  customer       Customer?               @relation(fields: [customer_id], references: [customer_id])
+  items          GrocerySalesItem[]
+  returns        GroceryCustomerReturn[]
+
+  @@index([owner_id, created_at])
+  @@index([customer_id])
+  @@map("grocery_sales")
+}
+
+model GrocerySalesItem {
+  sales_item_id String                      @id @default(uuid())
+  sales_id      String
+  product_id    String
+  lot_id        String
+  qty           Decimal                     @db.Decimal(10, 3)
+  returned_qty  Decimal                     @default(0) @db.Decimal(10, 3)
+  cp            Decimal                     @db.Decimal(10, 2)
+  sp            Decimal                     @db.Decimal(10, 2)
+  line_total    Decimal                     @db.Decimal(10, 2)
+  note          String?
+  created_at    DateTime                    @default(now())
+  lot           GroceryStockLot             @relation(fields: [lot_id], references: [lot_id])
+  product       GroceryProduct              @relation(fields: [product_id], references: [product_id])
+  sales         GrocerySales                @relation(fields: [sales_id], references: [sales_id], onDelete: Cascade)
+  returnItems   GroceryCustomerReturnItem[]
+
+  @@index([sales_id])
+  @@index([product_id])
+  @@index([lot_id])
+  @@map("grocery_sales_items")
+}
+
+model GroceryCustomerReturn {
+  return_id     String                      @id @default(uuid())
+  owner_id      String
+  sales_id      String
+  refund_amount Decimal                     @db.Decimal(10, 2)
+  note          String?
+  created_at    DateTime                    @default(now())
+  owner         Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  sales         GrocerySales                @relation(fields: [sales_id], references: [sales_id])
+  items         GroceryCustomerReturnItem[]
+
+  @@index([owner_id, created_at])
+  @@index([sales_id])
+  @@map("grocery_customer_returns")
+}
+
+model GroceryCustomerReturnItem {
+  return_item_id String                @id @default(uuid())
+  return_id      String
+  sales_item_id  String
+  lot_id         String
+  qty            Decimal               @db.Decimal(10, 3)
+  note           String?
+  created_at     DateTime              @default(now())
+  return         GroceryCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
+  salesItem      GrocerySalesItem      @relation(fields: [sales_item_id], references: [sales_item_id])
+  lot            GroceryStockLot       @relation(fields: [lot_id], references: [lot_id])
+
+  @@index([return_id])
+  @@index([sales_item_id])
+  @@index([lot_id])
+  @@map("grocery_customer_return_items")
+}
+
+model GroceryNotification {
+  notification_id String          @id @default(uuid())
+  owner_id        String
+  type            String
+  title           String
+  message         String
+  product_id      String?
+  read_at         DateTime?
+  created_at      DateTime        @default(now())
+  owner           Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  product         GroceryProduct? @relation(fields: [product_id], references: [product_id])
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, read_at])
+  @@map("grocery_notifications")
 }

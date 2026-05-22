@@ -52,6 +52,13 @@ import groceryBrandRoutes from "./routes/groceryBrandRoutes.js";
 import groceryUnitRoutes from "./routes/groceryUnitRoutes.js";
 import groceryProductRoutes from "./routes/groceryProductRoutes.js";
 import groceryStockLotRoutes from "./routes/groceryStockLotRoutes.js";
+import grocerySupplierReturnRoutes from "./routes/grocerySupplierReturnRoutes.js";
+import grocerySalesRoutes from "./routes/grocerySalesRoutes.js";
+import groceryCustomerReturnRoutes from "./routes/groceryCustomerReturnRoutes.js";
+import groceryDashboardRoutes from "./routes/groceryDashboardRoutes.js";
+import groceryLowStockRoutes from "./routes/groceryLowStockRoutes.js";
+import groceryReportRoutes from "./routes/groceryReportRoutes.js";
+import groceryNotificationRoutes from "./routes/groceryNotificationRoutes.js";
 
 
 const app = express();
@@ -94,6 +101,7 @@ app.use("/api/issue-report", issueReportRoutes);
 import "./cron/lowStockCronAll.js";
 import "./cron/subscriptionReminderCron.js";
 import "./cron/subscriptionExpiryCron.js";
+import "./cron/groceryExpiryCron.js";
 
 
 
@@ -126,6 +134,13 @@ app.use("/api/grocery/brands", groceryBrandRoutes);
 app.use("/api/grocery/units", groceryUnitRoutes);
 app.use("/api/grocery/products", groceryProductRoutes);
 app.use("/api/grocery/stock-lots", groceryStockLotRoutes);
+app.use("/api/grocery/supplier-returns", grocerySupplierReturnRoutes);
+app.use("/api/grocery/sales", grocerySalesRoutes);
+app.use("/api/grocery/returns/customer", groceryCustomerReturnRoutes);
+app.use("/api/grocery/dashboard", groceryDashboardRoutes);
+app.use("/api/grocery/low-stock", groceryLowStockRoutes);
+app.use("/api/grocery/reports", groceryReportRoutes);
+app.use("/api/grocery/notifications", groceryNotificationRoutes);
 
 /* ==========================
    SERVER START

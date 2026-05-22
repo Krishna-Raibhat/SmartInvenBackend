@@ -1,5 +1,7 @@
 import prisma from '../config/prisma.js';
 import { Prisma } from '@prisma/client';
+import { generateAndUploadBarcode } from '../utils/barcode.js';
+import { v4 as uuidv4 } from 'uuid';
 
 class GroceryStockLotService {
   /**
@@ -52,9 +54,15 @@ class GroceryStockLotService {
       throw e;
     }
 
-    // Create stock lot
+    // Create stock lot with barcode
+    const lot_id = uuidv4();
+    console.log(`[GROCERY] Generating barcode for lot: ${lot_id}`);
+    const { barcode, barcode_image_url } = await generateAndUploadBarcode(lot_id);
+    console.log(`[GROCERY] Barcode generated: ${barcode}`);
+
     const lot = await prisma.groceryStockLot.create({
       data: {
+        lot_id,
         owner_id,
         product_id,
         supplier_id,
@@ -65,6 +73,8 @@ class GroceryStockLotService {
         batch_no: batch_no || null,
         expiry_date: expiry_date ? new Date(expiry_date) : null,
         notes: notes || null,
+        barcode,
+        barcode_image_url,
       },
       include: {
         product: {
@@ -160,6 +170,43 @@ class GroceryStockLotService {
         },
       },
     });
+  }
+
+  /**
+   * Get stock lot by barcode (for barcode scanning)
+   */
+  async getByBarcode(owner_id, barcode) {
+    const lot = await prisma.groceryStockLot.findFirst({
+      where: { barcode, owner_id },
+      include: {
+        product: {
+          select: {
+            product_id: true,
+            product_name: true,
+            category: { select: { category_id: true, category_name: true } },
+            brand: { select: { brand_id: true, brand_name: true } },
+            unit: { select: { unit_id: true, unit_name: true } },
+          },
+        },
+        supplier: {
+          select: { supplier_id: true, supplier_name: true, phone: true },
+        },
+      },
+    });
+
+    if (!lot) {
+      const e = new Error('Lot not found for this barcode');
+      e.status = 404;
+      e.code = 'LOT_NOT_FOUND';
+      throw e;
+    }
+
+    return {
+      ...lot,
+      barcode_image_url: lot.barcode_image_url
+        ? `https://s3-np1.datahub.com.np/${process.env.AWS_S3_BUCKET}/${lot.barcode_image_url}`
+        : null,
+    };
   }
 
   /**
