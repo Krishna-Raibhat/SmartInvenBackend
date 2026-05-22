@@ -15,15 +15,12 @@ class GrocerySupplierService {
       });
     } catch (err) {
       if (err.code === "P2002") {
-        const targets = err.meta?.target || [];
-        // @@unique([owner_id, phone])
-        if (targets.includes("owner_id") && targets.includes("phone")) {
-          const e = new Error("Supplier phone already in use.");
-          e.status = 409;
-          e.code = "SUPPLIER_PHONE_ALREADY_IN_USE";
-          throw e;
-        }
+        const e = new Error("Supplier phone already in use.");
+        e.status = 409;
+        e.code = "SUPPLIER_PHONE_ALREADY_IN_USE";
+        throw e;
       }
+
       throw err;
     }
   }
