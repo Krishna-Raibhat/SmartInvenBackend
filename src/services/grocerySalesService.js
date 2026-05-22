@@ -301,17 +301,33 @@ class GrocerySalesService {
   }
 
   async list(owner_id) {
-    return prisma.grocerySales.findMany({
-      where: { owner_id },
-      orderBy: { created_at: "desc" },
-      include: {
-        customer: {
-          select: { customer_id: true, full_name: true, phone: true },
+      const sales = await prisma.grocerySales.findMany({
+        where: { owner_id },
+        orderBy: { created_at: "desc" },
+        include: {
+          customer: {
+            select: {
+              customer_id: true,
+              full_name: true,
+              phone: true,
+            },
+          },
+
+          items: {
+            select: {
+              returned_qty: true,
+            },
+          },
         },
-      },
-      take: 200,
-    });
-  }
+        take: 200,
+      });
+
+      return sales.map((sale) => ({
+        ...sale,
+
+        has_return: sale.items.some((it) => Number(it.returned_qty || 0) > 0),
+      }));
+    }
 
   async listCredit(owner_id) {
     return prisma.grocerySales.findMany({
@@ -403,18 +419,30 @@ class GrocerySalesService {
       owner,
       customer: sale.customer,
       items: sale.items.map((it) => ({
-        sales_item_id: it.sales_item_id,
-        product_name: it.product?.product_name,
-        unit: it.product?.unit?.unit_name,
-        batch_no: it.lot?.batch_no,
-        expiry_date: it.lot?.expiry_date,
-        qty: Number(it.qty),
-        cp: Number(it.cp),
-        sp: Number(it.sp),
-        line_total: Number(it.line_total),
-        profit: (Number(it.sp) - Number(it.cp)) * Number(it.qty),
-        note: it.note,
-      })),
+      sales_item_id: it.sales_item_id,
+
+      product_name: it.product?.product_name,
+      unit: it.product?.unit?.unit_name,
+
+      batch_no: it.lot?.batch_no,
+      expiry_date: it.lot?.expiry_date,
+
+      // ── quantities ─────────────────────
+      qty: Number(it.qty),
+      returned_qty: Number(it.returned_qty || 0),
+
+      // ── pricing ────────────────────────
+      cp: Number(it.cp),
+      sp: Number(it.sp),
+      line_total: Number(it.line_total),
+
+      // ── profit ─────────────────────────
+      profit:
+          (Number(it.sp) - Number(it.cp)) *
+          Number(it.qty),
+
+      note: it.note,
+    })),
       note: sale.note,
     };
   }

@@ -101,6 +101,7 @@ app.use("/api/issue-report", issueReportRoutes);
 import "./cron/lowStockCronAll.js";
 import "./cron/subscriptionReminderCron.js";
 import "./cron/subscriptionExpiryCron.js";
+import "./cron/groceryExpiryCron.js";
 
 
 
