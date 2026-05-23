@@ -704,3 +704,16 @@ model GroceryNotification {
   @@index([owner_id, read_at])
   @@map("grocery_notifications")
 }
+
+model SyncIdempotency {
+  id          String   @id @default(uuid())
+  owner_id    String
+  entity_type String
+  local_id    String
+  server_id   String
+  created_at  DateTime @default(now())
+
+  @@unique([owner_id, entity_type, local_id])
+  @@index([owner_id, entity_type])
+  @@map("sync_idempotency")
+}
