@@ -50,3 +50,24 @@ export const getSyncStatus = async (req, res) => {
     });
   }
 };
+
+export const pullChanges = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { since } = req.query; // ISO timestamp
+
+    const result = await groceryBatchSyncService.pullChanges(owner_id, since);
+
+    return res.status(200).json({
+      success: true,
+      message: "Pull sync completed",
+      data: result,
+    });
+  } catch (err) {
+    console.error("❌ Pull sync error:", err);
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Pull sync failed",
+    });
+  }
+};

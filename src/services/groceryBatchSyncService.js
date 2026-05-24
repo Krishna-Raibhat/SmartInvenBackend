@@ -1,6 +1,5 @@
 // src/services/groceryBatchSyncService.js
 import prisma from "../config/prisma.js";
-import { Prisma } from "@prisma/client";
 import groceryCategoryService from "./groceryCategoryService.js";
 import groceryBrandService from "./groceryBrandService.js";
 import groceryUnitService from "./groceryUnitService.js";
@@ -709,13 +708,26 @@ class GroceryBatchSyncService {
   /**
    * Save idempotency key to prevent duplicate syncs
    */
-  async saveIdempotencyKey(owner_id, entity_type, local_id, server_id) {
-    await prisma.syncIdempotency.create({
-      data: {
+  async saveIdempotencyKey(owner_id, entity_type, local_id, server_id, operation = 'create') {
+    await prisma.syncIdempotency.upsert({
+      where: {
+        owner_id_entity_type_local_id: {
+          owner_id,
+          entity_type,
+          local_id,
+        },
+      },
+      update: {
+        server_id,
+        operation,
+        last_synced_at: new Date(),
+      },
+      create: {
         owner_id,
         entity_type,
         local_id,
         server_id,
+        operation,
       },
     });
   }
@@ -798,6 +810,270 @@ class GroceryBatchSyncService {
     }
 
     return result;
+  }
+
+  /**
+   * Pull changes from server since last sync
+   * Returns all created, updated, and deleted records
+   */
+  async pullChanges(owner_id, since = null) {
+    const sinceDate = since ? new Date(since) : new Date(0); // Epoch if no since provided
+
+    const result = {
+      categories: await this.pullEntityChanges('groceryCategory', owner_id, sinceDate, 'category_id'),
+      brands: await this.pullEntityChanges('groceryBrand', owner_id, sinceDate, 'brand_id', false),
+      units: await this.pullEntityChanges('groceryUnit', owner_id, sinceDate, 'unit_id'),
+      suppliers: await this.pullEntityChanges('grocerySupplier', owner_id, sinceDate, 'supplier_id'),
+      products: await this.pullEntityChanges('groceryProduct', owner_id, sinceDate, 'product_id'),
+      stock_lots: await this.pullEntityChanges('groceryStockLot', owner_id, sinceDate, 'lot_id'),
+      sales: await this.pullEntityChanges('grocerySales', owner_id, sinceDate, 'sales_id', true, {
+        include: { items: true }
+      }),
+      returns: await this.pullEntityChanges('groceryCustomerReturn', owner_id, sinceDate, 'return_id', true, {
+        include: { items: true }
+      }),
+      last_sync_timestamp: new Date().toISOString(),
+    };
+
+    return result;
+  }
+
+  /**
+   * Helper to pull changes for a specific entity type
+   */
+  async pullEntityChanges(modelName, owner_id, sinceDate, idField, ownerScoped = true, options = {}) {
+    const model = prisma[modelName];
+    
+    const baseWhere = ownerScoped ? { owner_id } : {};
+    
+    // Get created records
+    const created = await model.findMany({
+      where: {
+        ...baseWhere,
+        created_at: { gte: sinceDate },
+        deleted_at: null,
+      },
+      ...options,
+    });
+
+    // Get updated records (not newly created)
+    const updated = await model.findMany({
+      where: {
+        ...baseWhere,
+        updated_at: { gte: sinceDate },
+        created_at: { lt: sinceDate },
+        deleted_at: null,
+      },
+      ...options,
+    });
+
+    // Get deleted records (soft deleted)
+    const deleted = await model.findMany({
+      where: {
+        ...baseWhere,
+        deleted_at: { gte: sinceDate },
+      },
+      select: {
+        [idField]: true,
+        deleted_at: true,
+      },
+    });
+
+    return {
+      created,
+      updated,
+      deleted: deleted.map(d => ({
+        id: d[idField],
+        deleted_at: d.deleted_at,
+      })),
+    };
+  }
+
+  /**
+   * Process a single entity operation (create, update, delete)
+   */
+  async processEntityOperation(owner_id, entityType, operation, data) {
+    const { local_id, server_id } = data;
+
+    try {
+      switch (operation) {
+        case 'create':
+          return await this.handleCreate(owner_id, entityType, data);
+        
+        case 'update':
+          return await this.handleUpdate(owner_id, entityType, data);
+        
+        case 'delete':
+          return await this.handleDelete(owner_id, entityType, data);
+        
+        default:
+          throw new Error(`Unknown operation: ${operation}`);
+      }
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Handle CREATE operation (existing logic)
+   */
+  async handleCreate(owner_id, entityType, data) {
+    // Existing create logic - already implemented in batchSync
+    // This is a placeholder for refactoring
+    return { status: 'created', local_id: data.local_id };
+  }
+
+  /**
+   * Handle UPDATE operation
+   */
+  async handleUpdate(owner_id, entityType, data) {
+    const { local_id, server_id, ...updateData } = data;
+
+    // Find the server ID from idempotency table if not provided
+    const finalServerId = server_id || (await this.findByIdempotencyKey(owner_id, entityType, local_id))?.[this.getIdField(entityType)];
+
+    if (!finalServerId) {
+      throw new Error(`Cannot update: record not found for local_id ${local_id}`);
+    }
+
+    const entityMap = {
+      category: () => prisma.groceryCategory.update({
+        where: { category_id: finalServerId },
+        data: { category_name: updateData.category_name },
+      }),
+      brand: () => prisma.groceryBrand.update({
+        where: { brand_id: finalServerId },
+        data: { brand_name: updateData.brand_name },
+      }),
+      unit: () => prisma.groceryUnit.update({
+        where: { unit_id: finalServerId, owner_id },
+        data: { unit_name: updateData.unit_name },
+      }),
+      supplier: () => prisma.grocerySupplier.update({
+        where: { supplier_id: finalServerId, owner_id },
+        data: {
+          supplier_name: updateData.supplier_name,
+          phone: updateData.phone,
+          email: updateData.email,
+          address: updateData.address,
+        },
+      }),
+      product: () => prisma.groceryProduct.update({
+        where: { product_id: finalServerId, owner_id },
+        data: {
+          product_name: updateData.product_name,
+          category_id: updateData.category_id,
+          brand_id: updateData.brand_id,
+          unit_id: updateData.unit_id,
+          barcode: updateData.barcode,
+          description: updateData.description,
+        },
+      }),
+      stock_lot: () => prisma.groceryStockLot.update({
+        where: { lot_id: finalServerId, owner_id },
+        data: {
+          qty_remaining: updateData.qty_remaining,
+          sp: updateData.sp,
+          notes: updateData.notes,
+        },
+      }),
+      sale: () => prisma.grocerySales.update({
+        where: { sales_id: finalServerId, owner_id },
+        data: {
+          payment_status: updateData.payment_status,
+          paid_amount: updateData.paid_amount,
+          note: updateData.note,
+        },
+      }),
+    };
+
+    const updated = await entityMap[entityType]();
+    
+    // Update idempotency record
+    await this.saveIdempotencyKey(owner_id, entityType, local_id, finalServerId, 'update');
+
+    return {
+      status: 'updated',
+      local_id,
+      server_id: finalServerId,
+    };
+  }
+
+  /**
+   * Handle DELETE operation (soft delete)
+   */
+  async handleDelete(owner_id, entityType, data) {
+    const { local_id, server_id } = data;
+
+    // Find the server ID from idempotency table if not provided
+    const finalServerId = server_id || (await this.findByIdempotencyKey(owner_id, entityType, local_id))?.[this.getIdField(entityType)];
+
+    if (!finalServerId) {
+      throw new Error(`Cannot delete: record not found for local_id ${local_id}`);
+    }
+
+    const entityMap = {
+      category: () => prisma.groceryCategory.update({
+        where: { category_id: finalServerId },
+        data: { deleted_at: new Date() },
+      }),
+      brand: () => prisma.groceryBrand.update({
+        where: { brand_id: finalServerId },
+        data: { deleted_at: new Date() },
+      }),
+      unit: () => prisma.groceryUnit.update({
+        where: { unit_id: finalServerId, owner_id },
+        data: { deleted_at: new Date() },
+      }),
+      supplier: () => prisma.grocerySupplier.update({
+        where: { supplier_id: finalServerId, owner_id },
+        data: { deleted_at: new Date() },
+      }),
+      product: () => prisma.groceryProduct.update({
+        where: { product_id: finalServerId, owner_id },
+        data: { deleted_at: new Date() },
+      }),
+      stock_lot: () => prisma.groceryStockLot.update({
+        where: { lot_id: finalServerId, owner_id },
+        data: { deleted_at: new Date() },
+      }),
+      sale: () => prisma.grocerySales.update({
+        where: { sales_id: finalServerId, owner_id },
+        data: { deleted_at: new Date() },
+      }),
+      return: () => prisma.groceryCustomerReturn.update({
+        where: { return_id: finalServerId, owner_id },
+        data: { deleted_at: new Date() },
+      }),
+    };
+
+    await entityMap[entityType]();
+    
+    // Update idempotency record
+    await this.saveIdempotencyKey(owner_id, entityType, local_id, finalServerId, 'delete');
+
+    return {
+      status: 'deleted',
+      local_id,
+      server_id: finalServerId,
+    };
+  }
+
+  /**
+   * Get ID field name for entity type
+   */
+  getIdField(entityType) {
+    const idFieldMap = {
+      category: 'category_id',
+      brand: 'brand_id',
+      unit: 'unit_id',
+      supplier: 'supplier_id',
+      product: 'product_id',
+      stock_lot: 'lot_id',
+      sale: 'sales_id',
+      return: 'return_id',
+    };
+    return idFieldMap[entityType];
   }
 }
 
