@@ -942,12 +942,107 @@ class GroceryBatchSyncService {
   }
 
   /**
-   * Handle CREATE operation (existing logic)
+   * Handle CREATE operation
    */
   async handleCreate(owner_id, entityType, data) {
-    // Existing create logic - already implemented in batchSync
-    // This is a placeholder for refactoring
-    return { status: 'created', local_id: data.local_id };
+    const { local_id, ...createData } = data;
+
+    const entityMap = {
+      category: async () => {
+        const duplicate = await prisma.groceryCategory.findFirst({
+          where: {
+            category_name: String(createData.category_name).trim().toLowerCase(),
+            deleted_at: null,
+          },
+        });
+
+        if (duplicate) {
+          await this.saveIdempotencyKey(owner_id, entityType, local_id, duplicate.category_id, 'create');
+          return { server_id: duplicate.category_id, status: 'duplicate_merged' };
+        }
+
+        const created = await groceryCategoryService.create({
+          category_name: createData.category_name,
+        });
+
+        await this.saveIdempotencyKey(owner_id, entityType, local_id, created.category_id, 'create');
+        return { server_id: created.category_id, status: 'created' };
+      },
+
+      brand: async () => {
+        const duplicate = await prisma.groceryBrand.findFirst({
+          where: {
+            brand_name: String(createData.brand_name).trim().toLowerCase(),
+            deleted_at: null,
+          },
+        });
+
+        if (duplicate) {
+          await this.saveIdempotencyKey(owner_id, entityType, local_id, duplicate.brand_id, 'create');
+          return { server_id: duplicate.brand_id, status: 'duplicate_merged' };
+        }
+
+        const created = await groceryBrandService.create({
+          brand_name: createData.brand_name,
+        });
+
+        await this.saveIdempotencyKey(owner_id, entityType, local_id, created.brand_id, 'create');
+        return { server_id: created.brand_id, status: 'created' };
+      },
+
+      unit: async () => {
+        const duplicate = await prisma.groceryUnit.findFirst({
+          where: {
+            owner_id,
+            unit_name: String(createData.unit_name).trim().toLowerCase(),
+            deleted_at: null,
+          },
+        });
+
+        if (duplicate) {
+          await this.saveIdempotencyKey(owner_id, entityType, local_id, duplicate.unit_id, 'create');
+          return { server_id: duplicate.unit_id, status: 'duplicate_merged' };
+        }
+
+        const created = await groceryUnitService.createUnit(owner_id, createData.unit_name);
+        await this.saveIdempotencyKey(owner_id, entityType, local_id, created.unit_id, 'create');
+        return { server_id: created.unit_id, status: 'created' };
+      },
+
+      supplier: async () => {
+        const duplicate = await prisma.grocerySupplier.findFirst({
+          where: {
+            owner_id,
+            supplier_name: String(createData.supplier_name).trim().toLowerCase(),
+            phone: createData.phone || null,
+            deleted_at: null,
+          },
+        });
+
+        if (duplicate) {
+          await this.saveIdempotencyKey(owner_id, entityType, local_id, duplicate.supplier_id, 'create');
+          return { server_id: duplicate.supplier_id, status: 'duplicate_merged' };
+        }
+
+        const created = await grocerySupplierService.create({
+          owner_id,
+          supplier_name: createData.supplier_name,
+          phone: createData.phone,
+          email: createData.email,
+          address: createData.address,
+        });
+
+        await this.saveIdempotencyKey(owner_id, entityType, local_id, created.supplier_id, 'create');
+        return { server_id: created.supplier_id, status: 'created' };
+      },
+    };
+
+    const result = await entityMap[entityType]();
+    return {
+      status: result.status,
+      local_id,
+      server_id: result.server_id,
+    };
   }
 
   /**
