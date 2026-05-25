@@ -765,124 +765,180 @@ class GroceryBatchSyncService {
       if (stock_lots && stock_lots.length > 0) {
         for (const lot of stock_lots) {
           try {
-            // CHECK IDEMPOTENCY
-            const existing = await this.findByIdempotencyKey(
-              owner_id,
-              "stock_lot",
-              lot.local_id,
-            );
+            const operation = lot.operation || "create";
 
-            // ALREADY SYNCED
-            if (existing) {
+            if (operation === "create") {
+              // CHECK IDEMPOTENCY
+              const existing = await this.findByIdempotencyKey(
+                owner_id,
+                "stock_lot",
+                lot.local_id,
+              );
+
+              // ALREADY SYNCED
+              if (existing) {
+                result.synced.stock_lots.push({
+                  local_id: lot.local_id,
+                  server_id: existing.lot_id,
+                  status: "already_synced",
+                });
+
+                result.id_mapping[lot.local_id] = existing.lot_id;
+              } else {
+                // MAP LOCAL IDS
+                const product_id =
+                  result.id_mapping[lot.product_id?.toString()] || lot.product_id;
+
+                const supplier_id =
+                  result.id_mapping[lot.supplier_id?.toString()] ||
+                  lot.supplier_id;
+
+                // VALIDATE PRODUCT
+                const productExists = await prisma.groceryProduct.findFirst({
+                  where: {
+                    product_id,
+                    owner_id,
+                  },
+                });
+
+                if (!productExists) {
+                  throw new Error(`Invalid product mapping: ${product_id}`);
+                }
+
+                // VALIDATE SUPPLIER
+                const supplierExists = await prisma.grocerySupplier.findFirst({
+                  where: {
+                    supplier_id,
+                    owner_id,
+                  },
+                });
+
+                if (!supplierExists) {
+                  throw new Error(`Invalid supplier mapping: ${supplier_id}`);
+                }
+
+                // OPTIONAL DUPLICATE CHECK
+                const duplicate = await prisma.groceryStockLot.findFirst({
+                  where: {
+                    owner_id,
+                    product_id,
+                    supplier_id,
+                    batch_no: lot.batch_no || null,
+                  },
+                });
+
+                // DUPLICATE FOUND
+                if (duplicate) {
+                  await this.saveIdempotencyKey(
+                    owner_id,
+                    "stock_lot",
+                    lot.local_id,
+                    duplicate.lot_id,
+                  );
+
+                  result.synced.stock_lots.push({
+                    local_id: lot.local_id,
+                    server_id: duplicate.lot_id,
+                    status: "duplicate_merged",
+                  });
+
+                  result.id_mapping[lot.local_id] = duplicate.lot_id;
+                } else {
+                  // CREATE LOT
+                  const created = await groceryStockLotService.create({
+                    owner_id,
+
+                    product_id,
+
+                    supplier_id,
+
+                    qty_in: lot.qty_in,
+
+                    cp: lot.cp,
+
+                    sp: lot.sp,
+
+                    batch_no: lot.batch_no,
+
+                    expiry_date: lot.expiry_date,
+
+                    notes: lot.notes,
+                  });
+
+                  // SAVE IDEMPOTENCY
+                  await this.saveIdempotencyKey(
+                    owner_id,
+                    "stock_lot",
+                    lot.local_id,
+                    created.lot.lot_id,
+                  );
+
+                  result.synced.stock_lots.push({
+                    local_id: lot.local_id,
+                    server_id: created.lot.lot_id,
+                    status: "created",
+                  });
+
+                  result.id_mapping[lot.local_id] = created.lot.lot_id;
+                }
+              }
+            } else if (operation === "update") {
+              // UPDATE STOCK LOT
+              const lot_id = lot.lot_id || lot.local_id;
+
+              const updated = await groceryStockLotService.update(
+                owner_id,
+                lot_id,
+                {
+                  cp: lot.cp,
+                  sp: lot.sp,
+                  batch_no: lot.batch_no,
+                  expiry_date: lot.expiry_date,
+                  notes: lot.notes,
+                  qty_remaining: lot.qty_remaining,
+                  qty_in: lot.qty_in,
+                },
+              );
+
+              if (!updated) {
+                throw new Error(`Stock lot not found: ${lot_id}`);
+              }
+
               result.synced.stock_lots.push({
                 local_id: lot.local_id,
-                server_id: existing.lot_id,
-                status: "already_synced",
+                server_id: lot_id,
+                status: "updated",
               });
+            } else if (operation === "delete") {
+              // DELETE STOCK LOT
+              const lot_id = lot.lot_id || lot.local_id;
 
-              result.id_mapping[lot.local_id] = existing.lot_id;
-            } else {
-              // MAP LOCAL IDS
-              const product_id =
-                result.id_mapping[lot.product_id?.toString()] || lot.product_id;
+              const deleted = await groceryStockLotService.remove(
+                owner_id,
+                lot_id,
+              );
 
-              const supplier_id =
-                result.id_mapping[lot.supplier_id?.toString()] ||
-                lot.supplier_id;
-
-              // VALIDATE PRODUCT
-              const productExists = await prisma.groceryProduct.findFirst({
-                where: {
-                  product_id,
-                  owner_id,
-                },
-              });
-
-              if (!productExists) {
-                throw new Error(`Invalid product mapping: ${product_id}`);
+              if (deleted === null) {
+                throw new Error(`Stock lot not found: ${lot_id}`);
               }
 
-              // VALIDATE SUPPLIER
-              const supplierExists = await prisma.grocerySupplier.findFirst({
-                where: {
-                  supplier_id,
-                  owner_id,
-                },
-              });
-
-              if (!supplierExists) {
-                throw new Error(`Invalid supplier mapping: ${supplier_id}`);
-              }
-
-              // OPTIONAL DUPLICATE CHECK
-              const duplicate = await prisma.groceryStockLot.findFirst({
-                where: {
-                  owner_id,
-                  product_id,
-                  supplier_id,
-                  batch_no: lot.batch_no || null,
-                },
-              });
-
-              // DUPLICATE FOUND
-              if (duplicate) {
-                await this.saveIdempotencyKey(
-                  owner_id,
-                  "stock_lot",
-                  lot.local_id,
-                  duplicate.lot_id,
+              if (deleted === false) {
+                throw new Error(
+                  `Cannot delete stock lot because some quantity has been sold`,
                 );
-
-                result.synced.stock_lots.push({
-                  local_id: lot.local_id,
-                  server_id: duplicate.lot_id,
-                  status: "duplicate_merged",
-                });
-
-                result.id_mapping[lot.local_id] = duplicate.lot_id;
-              } else {
-                // CREATE LOT
-                const created = await groceryStockLotService.create({
-                  owner_id,
-
-                  product_id,
-
-                  supplier_id,
-
-                  qty_in: lot.qty_in,
-
-                  cp: lot.cp,
-
-                  sp: lot.sp,
-
-                  batch_no: lot.batch_no,
-
-                  expiry_date: lot.expiry_date,
-
-                  notes: lot.notes,
-                });
-
-                // SAVE IDEMPOTENCY
-                await this.saveIdempotencyKey(
-                  owner_id,
-                  "stock_lot",
-                  lot.local_id,
-                  created.lot.lot_id,
-                );
-
-                result.synced.stock_lots.push({
-                  local_id: lot.local_id,
-                  server_id: created.lot.lot_id,
-                  status: "created",
-                });
-
-                result.id_mapping[lot.local_id] = created.lot.lot_id;
               }
+
+              result.synced.stock_lots.push({
+                local_id: lot.local_id,
+                server_id: lot_id,
+                status: "deleted",
+              });
             }
           } catch (err) {
             result.failed.push({
               type: "stock_lot",
               local_id: lot.local_id,
+              operation: lot.operation || "create",
               error: err.message,
             });
           }
