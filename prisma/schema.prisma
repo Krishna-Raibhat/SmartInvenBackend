@@ -724,12 +724,14 @@ model GroceryNotification {
   message         String
   product_id      String?
   read_at         DateTime?
+  is_enabled      Boolean         @default(true)
   created_at      DateTime        @default(now())
   owner           Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         GroceryProduct? @relation(fields: [product_id], references: [product_id])
 
   @@index([owner_id, created_at])
   @@index([owner_id, read_at])
+  @@index([owner_id, is_enabled])
   @@map("grocery_notifications")
 }
 

@@ -59,6 +59,7 @@ import groceryDashboardRoutes from "./routes/groceryDashboardRoutes.js";
 import groceryLowStockRoutes from "./routes/groceryLowStockRoutes.js";
 import groceryReportRoutes from "./routes/groceryReportRoutes.js";
 import groceryNotificationRoutes from "./routes/groceryNotificationRoutes.js";
+import groceryNotificationPreferenceRoutes from "./routes/groceryNotificationPreferenceRoutes.js";
 import groceryBatchSyncRoutes from "./routes/groceryBatchSyncRoutes.js";
 
 
@@ -142,6 +143,7 @@ app.use("/api/grocery/dashboard", groceryDashboardRoutes);
 app.use("/api/grocery/low-stock", groceryLowStockRoutes);
 app.use("/api/grocery/reports", groceryReportRoutes);
 app.use("/api/grocery/notifications", groceryNotificationRoutes);
+app.use("/api/grocery/notification-preferences", groceryNotificationPreferenceRoutes);
 app.use("/api/grocery/sync", groceryBatchSyncRoutes);
 
 /* ==========================
