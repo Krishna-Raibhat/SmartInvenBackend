@@ -169,7 +169,7 @@ export const update = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
     const { lot_id } = req.params;
-    let { cp, sp, batch_no, expiry_date, notes } = req.body;
+    let { cp, sp, batch_no, expiry_date, notes, qty_remaining, qty_in } = req.body;
 
     // Validate if at least one field is provided
     if (
@@ -177,7 +177,9 @@ export const update = async (req, res) => {
       sp === undefined &&
       batch_no === undefined &&
       expiry_date === undefined &&
-      notes === undefined
+      notes === undefined &&
+      qty_remaining === undefined &&
+      qty_in === undefined
     ) {
       return fail(
         res,
@@ -255,12 +257,42 @@ export const update = async (req, res) => {
       }
     }
 
+    // Quantity validation
+    if (qty_remaining !== undefined) {
+      const qtyNum = Number(qty_remaining);
+      if (!Number.isFinite(qtyNum) || qtyNum < 0) {
+        return fail(
+          res,
+          400,
+          'VALIDATION_QTY_INVALID',
+          'qty_remaining must be a non-negative number'
+        );
+      }
+      qty_remaining = qtyNum;
+    }
+
+    // Initial quantity validation
+    if (qty_in !== undefined) {
+      const qtyNum = Number(qty_in);
+      if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
+        return fail(
+          res,
+          400,
+          'VALIDATION_QTY_IN_INVALID',
+          'qty_in must be a positive number'
+        );
+      }
+      qty_in = qtyNum;
+    }
+
     const updated = await service.update(owner_id, lot_id, {
       cp,
       sp,
       batch_no,
       expiry_date,
       notes,
+      qty_remaining,
+      qty_in,
     });
 
     if (!updated) return fail(res, 404, 'NOT_FOUND', 'Stock lot not found');

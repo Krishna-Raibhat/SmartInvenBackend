@@ -58,9 +58,13 @@ class GroceryNotificationPreferenceService {
   /**
    * Get all notification preferences for a user
    * Returns the latest preference for each notification type
+   * 
+   * Supported types:
+   * - low_stock: Low stock alerts
+   * - expiry: Product expiry warnings
    */
   async getAllPreferences(owner_id) {
-    const types = ['low_stock', 'expiry', 'sale', 'return'];
+    const types = ['low_stock', 'expiry'];
     const preferences = {};
 
     for (const type of types) {
