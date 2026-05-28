@@ -6,7 +6,7 @@ import * as ctrl from "../controllers/groceryBatchSyncController.js";
 const router = express.Router();
 
 // Batch sync endpoint (push changes to server)
-router.post("/batch", auth, ctrl.batchSync);
+router.post("/", auth, ctrl.batchSync);
 
 // Check sync status
 router.post("/status", auth, ctrl.getSyncStatus);

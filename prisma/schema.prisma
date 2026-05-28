@@ -195,12 +195,14 @@ model HardwareNotification {
   message         String
   product_id      String?
   read_at         DateTime?
+  is_enabled      Boolean          @default(true)
   created_at      DateTime         @default(now())
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         HardwareProduct? @relation(fields: [product_id], references: [product_id])
 
   @@index([owner_id, created_at])
   @@index([owner_id, read_at])
+  @@index([owner_id, is_enabled])
   @@map("hardware_notifications")
 }
 
@@ -432,12 +434,14 @@ model ClothingNotification {
   message         String
   product_id      String?
   read_at         DateTime?
+  is_enabled      Boolean          @default(true)
   created_at      DateTime         @default(now())
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         ClothingProduct? @relation(fields: [product_id], references: [product_id])
 
   @@index([owner_id, created_at])
   @@index([owner_id, read_at])
+  @@index([owner_id, is_enabled])
   @@map("clothing_notifications")
 }
 
