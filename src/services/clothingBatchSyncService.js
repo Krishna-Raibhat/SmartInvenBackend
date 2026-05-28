@@ -12,7 +12,8 @@ import clothingCustomerReturnService from "./clothingCustomerReturnService.js";
 class ClothingBatchSyncService {
   /**
    * Batch sync multiple items in correct order
-   * Handles CREATE operations only
+   * Handles CREATE, UPDATE, DELETE operations for master data
+   * Handles CREATE only for transaction data (stock_lots, sales, returns)
    * Handles dependencies automatically
    */
   async batchSync(
@@ -115,6 +116,40 @@ class ClothingBatchSyncService {
                   result.id_mapping[cat.local_id] = created.category_id;
                 }
               }
+            } else if (operation === "update") {
+              const category_id = cat.category_id || cat.local_id;
+
+              const updated = await clothingCategoryService.update(category_id, {
+                category_name: cat.category_name,
+              });
+
+              if (!updated) {
+                throw new Error(`Category not found: ${category_id}`);
+              }
+
+              result.synced.categories.push({
+                local_id: cat.local_id,
+                server_id: category_id,
+                status: "updated",
+              });
+            } else if (operation === "delete") {
+              const category_id = cat.category_id || cat.local_id;
+
+              const deleted = await clothingCategoryService.remove(category_id);
+
+              if (deleted === null) {
+                throw new Error(`Category not found: ${category_id}`);
+              }
+
+              if (deleted === false) {
+                throw new Error(`Category has linked products`);
+              }
+
+              result.synced.categories.push({
+                local_id: cat.local_id,
+                server_id: category_id,
+                status: "deleted",
+              });
             }
           } catch (err) {
             result.failed.push({
@@ -196,6 +231,40 @@ class ClothingBatchSyncService {
                   result.id_mapping[color.local_id] = created.color_id;
                 }
               }
+            } else if (operation === "update") {
+              const color_id = color.color_id || color.local_id;
+
+              const updated = await clothingColorService.update(color_id, {
+                color_name: color.color_name,
+              });
+
+              if (!updated) {
+                throw new Error(`Color not found: ${color_id}`);
+              }
+
+              result.synced.colors.push({
+                local_id: color.local_id,
+                server_id: color_id,
+                status: "updated",
+              });
+            } else if (operation === "delete") {
+              const color_id = color.color_id || color.local_id;
+
+              const deleted = await clothingColorService.remove(color_id);
+
+              if (deleted === null) {
+                throw new Error(`Color not found: ${color_id}`);
+              }
+
+              if (deleted === false) {
+                throw new Error(`Color has linked stock lots`);
+              }
+
+              result.synced.colors.push({
+                local_id: color.local_id,
+                server_id: color_id,
+                status: "deleted",
+              });
             }
           } catch (err) {
             result.failed.push({
@@ -277,6 +346,40 @@ class ClothingBatchSyncService {
                   result.id_mapping[size.local_id] = created.size_id;
                 }
               }
+            } else if (operation === "update") {
+              const size_id = size.size_id || size.local_id;
+
+              const updated = await clothingSizeService.update(size_id, {
+                size_name: size.size_name,
+              });
+
+              if (!updated) {
+                throw new Error(`Size not found: ${size_id}`);
+              }
+
+              result.synced.sizes.push({
+                local_id: size.local_id,
+                server_id: size_id,
+                status: "updated",
+              });
+            } else if (operation === "delete") {
+              const size_id = size.size_id || size.local_id;
+
+              const deleted = await clothingSizeService.remove(size_id);
+
+              if (deleted === null) {
+                throw new Error(`Size not found: ${size_id}`);
+              }
+
+              if (deleted === false) {
+                throw new Error(`Size has linked stock lots`);
+              }
+
+              result.synced.sizes.push({
+                local_id: size.local_id,
+                server_id: size_id,
+                status: "deleted",
+              });
             }
           } catch (err) {
             result.failed.push({
@@ -366,6 +469,50 @@ class ClothingBatchSyncService {
                   result.id_mapping[supplier.local_id] = created.supplier_id;
                 }
               }
+            } else if (operation === "update") {
+              const supplier_id = supplier.supplier_id || supplier.local_id;
+
+              const updated = await clothingSupplierService.update(
+                owner_id,
+                supplier_id,
+                {
+                  supplier_name: supplier.supplier_name,
+                  phone: supplier.phone,
+                  email: supplier.email,
+                  address: supplier.address,
+                },
+              );
+
+              if (!updated) {
+                throw new Error(`Supplier not found: ${supplier_id}`);
+              }
+
+              result.synced.suppliers.push({
+                local_id: supplier.local_id,
+                server_id: supplier_id,
+                status: "updated",
+              });
+            } else if (operation === "delete") {
+              const supplier_id = supplier.supplier_id || supplier.local_id;
+
+              const deleted = await clothingSupplierService.remove(
+                owner_id,
+                supplier_id,
+              );
+
+              if (deleted === null) {
+                throw new Error(`Supplier not found: ${supplier_id}`);
+              }
+
+              if (deleted === false) {
+                throw new Error(`Supplier has linked stock lots`);
+              }
+
+              result.synced.suppliers.push({
+                local_id: supplier.local_id,
+                server_id: supplier_id,
+                status: "deleted",
+              });
             }
           } catch (err) {
             result.failed.push({
@@ -463,6 +610,48 @@ class ClothingBatchSyncService {
                   result.id_mapping[product.local_id] = created.product_id;
                 }
               }
+            } else if (operation === "update") {
+              const product_id = product.product_id || product.local_id;
+
+              const updated = await clothingProductService.update(
+                owner_id,
+                product_id,
+                {
+                  category_id: product.category_id,
+                  product_name: product.product_name,
+                },
+              );
+
+              if (!updated) {
+                throw new Error(`Product not found: ${product_id}`);
+              }
+
+              result.synced.products.push({
+                local_id: product.local_id,
+                server_id: product_id,
+                status: "updated",
+              });
+            } else if (operation === "delete") {
+              const product_id = product.product_id || product.local_id;
+
+              const deleted = await clothingProductService.remove(
+                owner_id,
+                product_id,
+              );
+
+              if (deleted === null) {
+                throw new Error(`Product not found: ${product_id}`);
+              }
+
+              if (deleted === false) {
+                throw new Error(`Product has linked stock lots/sales`);
+              }
+
+              result.synced.products.push({
+                local_id: product.local_id,
+                server_id: product_id,
+                status: "deleted",
+              });
             }
           } catch (err) {
             result.failed.push({
