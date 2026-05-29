@@ -225,7 +225,7 @@ class HardwareBatchSyncService {
                   result.id_mapping[supplier.local_id] = duplicate.supplier_id;
                 } else {
                   // CREATE NEW SUPPLIER
-                  const created = await hardwareSupplierService.create({
+                  const created = await hardwareSupplierService.createSupplier({
                     owner_id,
                     supplier_name: supplier.supplier_name,
                     phone: supplier.phone,
@@ -253,9 +253,9 @@ class HardwareBatchSyncService {
             } else if (operation === "update") {
               const supplier_id = supplier.supplier_id || supplier.local_id;
 
-              const updated = await hardwareSupplierService.update(
-                owner_id,
+              const updated = await hardwareSupplierService.updateSupplier(
                 supplier_id,
+                owner_id,
                 {
                   supplier_name: supplier.supplier_name,
                   phone: supplier.phone,
@@ -276,9 +276,9 @@ class HardwareBatchSyncService {
             } else if (operation === "delete") {
               const supplier_id = supplier.supplier_id || supplier.local_id;
 
-              const deleted = await hardwareSupplierService.remove(
-                owner_id,
+              const deleted = await hardwareSupplierService.deleteSupplier(
                 supplier_id,
+                owner_id,
               );
 
               if (deleted === null) {
@@ -390,7 +390,7 @@ class HardwareBatchSyncService {
             } else if (operation === "update") {
               const product_id = product.product_id || product.local_id;
 
-              const updated = await hardwareProductService.updateProductMaster(
+              const updated = await hardwareProductService.updateProduct(
                 owner_id,
                 product_id,
                 {
