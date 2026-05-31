@@ -20,6 +20,7 @@ import hardwareDashboardRoutes from "./routes/hardwareDashboardRoutes.js";
 import hardwareProfitLossRoutes from "./routes/hardwareProfitLossRoutes.js";
 import hardwareTopSelligRoutes from "./routes/hardwareTopSellingRoutes.js";
 import hardwareReportRoutes from "./routes/hardwareReportRoutes.js";
+import hardwareActivityRoutes from "./routes/hardwareActivityRoutes.js";
 import stockOutCreditRoutes from "./routes/stockOutCreditRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import issueReportRoutes from "./routes/issueReportRoutes.js";
@@ -96,6 +97,7 @@ app.use("/api/hardware/inventory", hardwareInventoryRoutes);
 app.use("/api/hardware/dashboard", hardwareDashboardRoutes);
 
 app.use("/api/hardware/reports", hardwareReportRoutes);
+app.use("/api/hardware/activities", hardwareActivityRoutes);
 app.use("/api/stock-out", stockOutCreditRoutes);
 
 app.use("/api/hardware/profit-loss", hardwareProfitLossRoutes);

@@ -94,7 +94,7 @@ class HardwareProfitService {
         totalPaid += Number(stock.paid_amount || 0);
       }
 
-      const totalProfit = totalPaid - totalCost;
+      const totalProfit = totalSales - totalCost;
 
       // Return profit/loss response
       return {
