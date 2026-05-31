@@ -10,6 +10,7 @@ class HardwareStockOutService {
     customer_address,
     payment_status,
     paid_amount,
+    discount_amount, // ✅ NEW
     note,
     items,
   }) {
@@ -31,7 +32,7 @@ class HardwareStockOutService {
       }
     }
 
-    // ✅ compute here (safe)
+    // ✅ Validate paid amount
     const paid = Number(paid_amount || 0);
     if (!Number.isFinite(paid) || paid < 0) {
       const err = new Error("paid_amount must be a valid number >= 0");
@@ -40,8 +41,16 @@ class HardwareStockOutService {
       throw err;
     }
 
+    // ✅ Validate discount
+    const discount = Number(discount_amount || 0);
+    if (!Number.isFinite(discount) || discount < 0) {
+      const err = new Error("discount_amount must be a valid number >= 0");
+      err.status = 400;
+      err.code = "VALIDATION_DISCOUNT_INVALID";
+      throw err;
+    }
+
     return prisma.$transaction(async (tx) => {
-      // ✅ total_amount is REQUIRED in schema, so set it now
       const header = await tx.hardwareStockOut.create({
         data: {
           owner_id,
@@ -49,8 +58,9 @@ class HardwareStockOutService {
           customer_phn_number: customer_phn_number ?? null,
           customer_address: customer_address ?? null,
           payment_status: payment_status || "pending",
-          total_amount: 0,     // ✅ required
-          paid_amount: paid,   // ✅ store paid initially
+          total_amount: 0,
+          discount: discount,  // ✅ save discount
+          paid_amount: paid,
           note: note ?? null,
         },
       });
@@ -121,17 +131,36 @@ class HardwareStockOutService {
         createdItems.push(created);
       }
 
-      // ✅ final payment status based on paid & total
+      // ✅ effective total = total - discount
+      // Example: total=12900, discount=900 → effectiveTotal=12000
+      // paid=10000 → due=2000 (not 2900)
+      const effectiveTotal = totalAmount - discount;
+
+      // ✅ validate discount doesn't exceed total
+      if (discount > totalAmount) {
+        const err = new Error("Discount cannot exceed total amount");
+        err.status = 400;
+        err.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL";
+        throw err;
+      }
+
+      // ✅ payment status based on effectiveTotal
       let finalStatus = "pending";
-      if (paid >= totalAmount && totalAmount > 0) finalStatus = "paid";
-      else if (paid > 0 && paid < totalAmount) finalStatus = "partial";
+      if (payment_status === "paid") {
+        finalStatus = "paid";  // owner explicitly marked as completed
+      } else if (paid >= effectiveTotal && effectiveTotal > 0) {
+        finalStatus = "paid";
+      } else if (paid > 0 && paid < effectiveTotal) {
+        finalStatus = "partial";
+      }
 
       const updatedHeader = await tx.hardwareStockOut.update({
         where: { stockout_id: header.stockout_id },
         data: {
-          total_amount: totalAmount,
-          paid_amount: paid,        // ✅ keep consistent
-          payment_status: finalStatus,
+          total_amount: totalAmount,   // gross total (12900)
+          discount: discount,          // discount given (900)
+          paid_amount: paid,           // what customer paid (10000)
+          payment_status: finalStatus, // partial (due=2000)
         },
       });
 
@@ -160,6 +189,7 @@ class HardwareStockOutService {
     });
   }
 
+  // ✅ addPayment uses effectiveTotal (total - discount) for status
   async addPayment(owner_id, stockout_id, add_amount) {
     const add = Number(add_amount);
     if (!Number.isFinite(add) || add <= 0) {
@@ -172,7 +202,12 @@ class HardwareStockOutService {
     return prisma.$transaction(async (tx) => {
       const stockOut = await tx.hardwareStockOut.findFirst({
         where: { owner_id, stockout_id },
-        select: { stockout_id: true, total_amount: true, paid_amount: true },
+        select: {
+          stockout_id: true,
+          total_amount: true,
+          discount: true,      // ✅ fetch discount too
+          paid_amount: true,
+        },
       });
 
       if (!stockOut) {
@@ -182,12 +217,14 @@ class HardwareStockOutService {
         throw err;
       }
 
-      const total = Number(stockOut.total_amount);
+      const total       = Number(stockOut.total_amount);
+      const discount    = Number(stockOut.discount || 0);
+      const effectiveTotal = total - discount; // ✅ use effective total
       const currentPaid = Number(stockOut.paid_amount);
-      const newPaid = currentPaid + add;
+      const newPaid     = currentPaid + add;
 
       let status = "pending";
-      if (newPaid >= total && total > 0) status = "paid";
+      if (newPaid >= effectiveTotal && effectiveTotal > 0) status = "paid";
       else if (newPaid > 0) status = "partial";
 
       return tx.hardwareStockOut.update({

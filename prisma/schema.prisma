@@ -152,6 +152,7 @@ model HardwareStockOut {
   payment_status      String                 @default("pending")
   total_amount        Decimal                @db.Decimal(10, 2)
   paid_amount         Decimal                @db.Decimal(10, 2)
+  discount            Decimal                @default(0) @db.Decimal(10, 2)
   note                String?
   created_at          DateTime               @default(now())
   customer_address    String?

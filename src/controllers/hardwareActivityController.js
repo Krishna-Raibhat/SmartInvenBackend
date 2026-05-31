@@ -1,6 +1,6 @@
 // src/controllers/hardwareActivityController.js
 import hardwareActivityService from "../services/hardwareActivityService.js";
-import { sendOk, sendFail } from "../utils/apiResponse.js";
+import { sendSuccess, sendError } from "../utils/apiResponse.js";
 
 export const getRecentActivities = async (req, res) => {
   try {
@@ -9,8 +9,8 @@ export const getRecentActivities = async (req, res) => {
 
     const activities = await hardwareActivityService.listRecent(owner_id, limit);
 
-    return sendOk(res, 200, { activities });
+    return sendSuccess(res, 200,"OK", { activities });
   } catch (err) {
-    return sendFail(res, 500, "SERVER_ERROR", err.message);
+    return sendError(res, 500, "SERVER_ERROR", err.message);
   }
 };
