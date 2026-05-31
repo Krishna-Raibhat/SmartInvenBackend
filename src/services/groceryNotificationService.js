@@ -1,5 +1,6 @@
 import admin from "../firebase/firebase-admin.js";
 import prisma from "../config/prisma.js";
+import groceryNotificationPreferenceService from "./groceryNotificationPreferenceService.js";
 
 export const sendGroceryLowStockNotification = async ({
   owner_id,
@@ -9,6 +10,17 @@ export const sendGroceryLowStockNotification = async ({
   remainingQty,
   unitName,
 }) => {
+  // ✅ Check if user has enabled low_stock notifications
+  const shouldSend = await groceryNotificationPreferenceService.shouldSendNotification(
+    owner_id,
+    "low_stock"
+  );
+
+  if (!shouldSend) {
+    console.log(`⏭️  Low stock notification skipped for owner ${owner_id} (disabled)`);
+    return null;
+  }
+
   const title = "Low Stock Alert 🚨";
   const messageText = `${productName} is low (${remainingQty} ${unitName} left)`;
 
@@ -67,6 +79,17 @@ export const sendGroceryExpiryNotification = async ({
   expiryDate,
   daysUntilExpiry,
 }) => {
+  // ✅ Check if user has enabled expiry notifications
+  const shouldSend = await groceryNotificationPreferenceService.shouldSendNotification(
+    owner_id,
+    "expiry"
+  );
+
+  if (!shouldSend) {
+    console.log(`⏭️  Expiry notification skipped for owner ${owner_id} (disabled)`);
+    return null;
+  }
+
   const title = "Product Expiring Soon ⚠️";
   const expiryDateStr = new Date(expiryDate).toLocaleDateString();
   const messageText = `${productName}${batchNo ? ` (Batch: ${batchNo})` : ''} expires in ${daysUntilExpiry} days (${expiryDateStr})`;

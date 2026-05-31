@@ -1,5 +1,6 @@
 import admin from "../firebase/firebase-admin.js";
 import { prisma } from "../prisma/client.js";
+import clothingNotificationPreferenceService from "./clothingNotificationPreferenceService.js";
 
 export const sendClothingLowStockNotification = async ({
   owner_id,
@@ -8,6 +9,17 @@ export const sendClothingLowStockNotification = async ({
   productName,
   remainingQty,
 }) => {
+  // ✅ Check if user has enabled low_stock notifications
+  const shouldSend = await clothingNotificationPreferenceService.shouldSendNotification(
+    owner_id,
+    "low_stock"
+  );
+
+  if (!shouldSend) {
+    console.log(`⏭️  Low stock notification skipped for owner ${owner_id} (disabled)`);
+    return null;
+  }
+
   const title = "Low Stock Alert 🚨";
   const messageText = `${productName} is low (${remainingQty} left)`;
 

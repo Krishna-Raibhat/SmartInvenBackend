@@ -59,6 +59,12 @@ import groceryDashboardRoutes from "./routes/groceryDashboardRoutes.js";
 import groceryLowStockRoutes from "./routes/groceryLowStockRoutes.js";
 import groceryReportRoutes from "./routes/groceryReportRoutes.js";
 import groceryNotificationRoutes from "./routes/groceryNotificationRoutes.js";
+import clothingNotificationPreferenceRoutes from "./routes/clothingNotificationPreferenceRoutes.js";
+import hardwareNotificationPreferenceRoutes from "./routes/hardwareNotificationPreferenceRoutes.js";
+import groceryNotificationPreferenceRoutes from "./routes/groceryNotificationPreferenceRoutes.js";
+import groceryBatchSyncRoutes from "./routes/groceryBatchSyncRoutes.js";
+import clothingBatchSyncRoutes from "./routes/clothingBatchSyncRoutes.js";
+import hardwareBatchSyncRoutes from "./routes/hardwareBatchSyncRoutes.js";
 
 
 const app = express();
@@ -94,6 +100,8 @@ app.use("/api/stock-out", stockOutCreditRoutes);
 
 app.use("/api/hardware/profit-loss", hardwareProfitLossRoutes);
 app.use("/api/hardware/top-selling-products", hardwareTopSelligRoutes);
+app.use("/api/hardware/notification-preferences", hardwareNotificationPreferenceRoutes);
+app.use("/api/hardware/sync", hardwareBatchSyncRoutes);
 
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/issue-report", issueReportRoutes);
@@ -118,10 +126,12 @@ app.use("/api/clothing/returns/customer", clothingCustomerReturnRoutes);
 app.use("/api/clothing/returns/supplier", clothingSupplierReturnRoutes);
 app.use("/api/clothing/low-stock", clothingLowStockRoutes);
 app.use("/api/clothing/notifications", clothingNotificationRoutes);
+app.use("/api/clothing/notification-preferences", clothingNotificationPreferenceRoutes);
 app.use("/api/clothing/reports", clothingReportRoutes);
 app.use("/api/clothing/dashboard", clothingDashboardRoutes);
 app.use("/api/clothing/inventory", clothingInventoryRoutes);
 app.use("/api/clothing/activities", clothingActivityRoutes);
+app.use("/api/clothing/sync", clothingBatchSyncRoutes);
 app.use("/api/payment-qr", paymentQRStoreRoutes);
 app.use("/api/payment-proof", paymentProofRoutes);
 app.use("/api/packages", packageRoutes);
@@ -141,6 +151,8 @@ app.use("/api/grocery/dashboard", groceryDashboardRoutes);
 app.use("/api/grocery/low-stock", groceryLowStockRoutes);
 app.use("/api/grocery/reports", groceryReportRoutes);
 app.use("/api/grocery/notifications", groceryNotificationRoutes);
+app.use("/api/grocery/notification-preferences", groceryNotificationPreferenceRoutes);
+app.use("/api/grocery/sync", groceryBatchSyncRoutes);
 
 /* ==========================
    SERVER START

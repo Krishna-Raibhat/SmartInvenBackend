@@ -157,6 +157,27 @@ class HardwareProductService {
   }
 }
 
+  async deleteProduct(owner_id, product_id) {
+    const product = await prisma.hardwareProduct.findFirst({
+      where: { owner_id, product_id },
+      select: { product_id: true },
+    });
+    if (!product) return null;
+
+    // Check if product has linked stock
+    const linkedStock = await prisma.hardwareStockLot.count({
+      where: { product_id },
+    });
+
+    if (linkedStock > 0) return false;
+
+    await prisma.hardwareProduct.delete({
+      where: { product_id },
+    });
+
+    return true;
+  }
+
 }
 
 export default new HardwareProductService();

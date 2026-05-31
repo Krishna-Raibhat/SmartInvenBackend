@@ -195,12 +195,14 @@ model HardwareNotification {
   message         String
   product_id      String?
   read_at         DateTime?
+  is_enabled      Boolean          @default(true)
   created_at      DateTime         @default(now())
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         HardwareProduct? @relation(fields: [product_id], references: [product_id])
 
   @@index([owner_id, created_at])
   @@index([owner_id, read_at])
+  @@index([owner_id, is_enabled])
   @@map("hardware_notifications")
 }
 
@@ -432,12 +434,14 @@ model ClothingNotification {
   message         String
   product_id      String?
   read_at         DateTime?
+  is_enabled      Boolean          @default(true)
   created_at      DateTime         @default(now())
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         ClothingProduct? @relation(fields: [product_id], references: [product_id])
 
   @@index([owner_id, created_at])
   @@index([owner_id, read_at])
+  @@index([owner_id, is_enabled])
   @@map("clothing_notifications")
 }
 
@@ -483,10 +487,14 @@ model GrocerySupplier {
   email         String?
   address       String?
   created_at    DateTime                @default(now())
+  updated_at    DateTime                @updatedAt
+  deleted_at    DateTime?
   stockLots     GroceryStockLot[]
   returns       GrocerySupplierReturn[]
   
   @@unique([owner_id, phone])
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_suppliers")
 }
 
@@ -495,8 +503,11 @@ model GroceryCategory {
   category_name String           @unique
   created_at    DateTime         @default(now())
   updated_at    DateTime         @updatedAt
+  deleted_at    DateTime?
   products      GroceryProduct[]
 
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_categories")
 }
 
@@ -505,8 +516,11 @@ model GroceryBrand {
   brand_name String           @unique
   created_at DateTime         @default(now())
   updated_at DateTime         @updatedAt
+  deleted_at DateTime?
   products   GroceryProduct[]
 
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_brands")
 }
 
@@ -516,11 +530,14 @@ model GroceryUnit {
   unit_name  String
   created_at DateTime         @default(now())
   updated_at DateTime         @updatedAt
+  deleted_at DateTime?
   owner      Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   products   GroceryProduct[]
 
   @@unique([owner_id, unit_name])
   @@index([owner_id])
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_units")
 }
 
@@ -537,6 +554,7 @@ model GroceryProduct {
   
   created_at      DateTime          @default(now())
   updated_at      DateTime          @updatedAt
+  deleted_at      DateTime?
   owner           Owner             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   category        GroceryCategory?  @relation(fields: [category_id], references: [category_id])
   brand           GroceryBrand?     @relation(fields: [brand_id], references: [brand_id])
@@ -549,6 +567,8 @@ model GroceryProduct {
   @@index([owner_id, category_id])
   @@index([owner_id, brand_id])
   @@index([owner_id, unit_id])
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_products")
 }
 
@@ -567,6 +587,8 @@ model GroceryStockLot {
   barcode           String?                     @unique
   barcode_image_url String?
   created_at        DateTime                    @default(now())
+  updated_at        DateTime                    @updatedAt
+  deleted_at        DateTime?
   owner             Owner                         @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product           GroceryProduct                @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
   supplier          GrocerySupplier               @relation(fields: [supplier_id], references: [supplier_id])
@@ -576,6 +598,8 @@ model GroceryStockLot {
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_stock_lots")
 }
 
@@ -621,6 +645,8 @@ model GrocerySales {
   paid_amount    Decimal                 @db.Decimal(10, 2)
   note           String?
   created_at     DateTime                @default(now())
+  updated_at     DateTime                @updatedAt
+  deleted_at     DateTime?
   owner          Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   customer       Customer?               @relation(fields: [customer_id], references: [customer_id])
   items          GrocerySalesItem[]
@@ -628,6 +654,8 @@ model GrocerySales {
 
   @@index([owner_id, created_at])
   @@index([customer_id])
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_sales")
 }
 
@@ -661,12 +689,16 @@ model GroceryCustomerReturn {
   refund_amount Decimal                     @db.Decimal(10, 2)
   note          String?
   created_at    DateTime                    @default(now())
+  updated_at    DateTime                    @updatedAt
+  deleted_at    DateTime?
   owner         Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   sales         GrocerySales                @relation(fields: [sales_id], references: [sales_id])
   items         GroceryCustomerReturnItem[]
 
   @@index([owner_id, created_at])
   @@index([sales_id])
+  @@index([deleted_at])
+  @@index([updated_at])
   @@map("grocery_customer_returns")
 }
 
@@ -696,11 +728,29 @@ model GroceryNotification {
   message         String
   product_id      String?
   read_at         DateTime?
+  is_enabled      Boolean         @default(true)
   created_at      DateTime        @default(now())
   owner           Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         GroceryProduct? @relation(fields: [product_id], references: [product_id])
 
   @@index([owner_id, created_at])
   @@index([owner_id, read_at])
+  @@index([owner_id, is_enabled])
   @@map("grocery_notifications")
+}
+
+model SyncIdempotency {
+  id             String   @id @default(uuid())
+  owner_id       String
+  entity_type    String
+  local_id       String
+  server_id      String
+  operation      String   @default("create")
+  created_at     DateTime @default(now())
+  last_synced_at DateTime @default(now()) @updatedAt
+
+  @@unique([owner_id, entity_type, local_id])
+  @@index([owner_id, entity_type])
+  @@index([last_synced_at])
+  @@map("sync_idempotency")
 }

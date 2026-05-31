@@ -1,6 +1,7 @@
 // src/services/notificationService.js
 import admin from "../firebase/firebase-admin.js";
 import { prisma } from "../prisma/client.js";
+import hardwareNotificationPreferenceService from "./hardwareNotificationPreferenceService.js";
 
 export const sendLowStockNotification = async ({
   owner_id,
@@ -9,6 +10,17 @@ export const sendLowStockNotification = async ({
   productName,
   remainingQty,
 }) => {
+  // ✅ Check if user has enabled low_stock notifications
+  const shouldSend = await hardwareNotificationPreferenceService.shouldSendNotification(
+    owner_id,
+    "low_stock"
+  );
+
+  if (!shouldSend) {
+    console.log(`⏭️  Low stock notification skipped for owner ${owner_id} (disabled)`);
+    return null;
+  }
+
   const title = "Low Stock Alert 🚨";
   const messageText = `${productName} is low (${remainingQty} left)`;
 

@@ -212,14 +212,56 @@ class GroceryStockLotService {
   /**
    * Update a stock lot
    */
-  async update(owner_id, lot_id, { cp, sp, batch_no, expiry_date, notes }) {
+  async update(owner_id, lot_id, { cp, sp, batch_no, expiry_date, notes, qty_remaining, qty_in }) {
     // Check if lot exists and belongs to owner
     const existing = await prisma.groceryStockLot.findFirst({
       where: { lot_id, owner_id },
-      select: { lot_id: true },
+      select: { lot_id: true, qty_in: true, qty_remaining: true },
     });
 
     if (!existing) return null;
+
+    const currentQtyIn = parseFloat(existing.qty_in.toString());
+    const currentQtyRemaining = parseFloat(existing.qty_remaining.toString());
+    const qtySold = currentQtyIn - currentQtyRemaining;
+
+    // Determine the new qty_in (use provided value or keep existing)
+    const newQtyIn = qty_in !== undefined ? qty_in : currentQtyIn;
+
+    // Determine the new qty_remaining (use provided value or keep existing)
+    const newQtyRemaining = qty_remaining !== undefined ? qty_remaining : currentQtyRemaining;
+
+    // Validate qty_in is not less than qty_sold
+    if (newQtyIn < qtySold) {
+      const e = new Error(
+        `qty_in cannot be less than qty_sold (${qtySold}). ` +
+        `You've already sold ${qtySold} units, so qty_in must be at least ${qtySold}`
+      );
+      e.status = 400;
+      e.code = 'VALIDATION_QTY_IN_LESS_THAN_SOLD';
+      throw e;
+    }
+
+    // Validate qty_remaining doesn't exceed new qty_in
+    if (newQtyRemaining > newQtyIn) {
+      const e = new Error(
+        `qty_remaining (${newQtyRemaining}) cannot exceed qty_in (${newQtyIn})`
+      );
+      e.status = 400;
+      e.code = 'VALIDATION_QTY_REMAINING_EXCEEDS_QTY_IN';
+      throw e;
+    }
+
+    // Validate qty_remaining is not less than qty_sold
+    if (newQtyRemaining < qtySold) {
+      const e = new Error(
+        `qty_remaining cannot be less than qty_sold (${qtySold}). ` +
+        `Current: qty_in=${currentQtyIn}, qty_sold=${qtySold}, qty_remaining=${currentQtyRemaining}`
+      );
+      e.status = 400;
+      e.code = 'VALIDATION_QTY_REMAINING_LESS_THAN_SOLD';
+      throw e;
+    }
 
     // Build update data
     const data = {};
@@ -230,6 +272,8 @@ class GroceryStockLotService {
       data.expiry_date = expiry_date ? new Date(expiry_date) : null;
     }
     if (notes !== undefined) data.notes = notes || null;
+    if (qty_remaining !== undefined) data.qty_remaining = new Prisma.Decimal(qty_remaining);
+    if (qty_in !== undefined) data.qty_in = new Prisma.Decimal(qty_in);
 
     return await prisma.groceryStockLot.update({
       where: { lot_id },

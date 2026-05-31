@@ -87,8 +87,12 @@ class ClothingProductService {
     if (!existing) return null;
 
     // block delete if linked stock lots or sales items exist
-    const linkedLots = await prisma.clothingStockLot.count({ where: { product_id } });
-    const linkedSales = await prisma.clothingSalesItem.count({ where: { product_id } });
+    const linkedLots = await prisma.clothingStockLot.count({
+      where: { product_id },
+    });
+    const linkedSales = await prisma.clothingSalesItem.count({
+      where: { product_id },
+    });
 
     if (linkedLots > 0 || linkedSales > 0) return false;
 
