@@ -10,6 +10,9 @@ router.get("/", authMiddleware, ctrl.listInventory);
 // Low stock MUST come before /:product_id
 router.get("/low-stock", authMiddleware, ctrl.lowStock);
 
+// Get product average cost
+router.get("/:product_id/average-cost", authMiddleware, ctrl.getProductAverageCost);
+
 // Product detail page
 router.get("/:product_id", authMiddleware, ctrl.getInventoryDetail);
 

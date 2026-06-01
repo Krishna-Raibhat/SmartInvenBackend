@@ -373,6 +373,14 @@ export async function updateMe(req, res) {
       );
     }
 
+    // Validate email format if provided
+    if (normalizedEmail) {
+      const emailError = validateEmail(normalizedEmail);
+      if (emailError) {
+        return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
+      }
+    }
+
     const existingOwner = await prisma.owner.findUnique({
       where: { owner_id: ownerId },
       select: { owner_id: true, email: true, phone: true, package_id: true },

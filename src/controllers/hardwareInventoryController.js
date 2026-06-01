@@ -92,3 +92,17 @@ export const deleteProduct = async (req, res) => {
     return fail(res, err.status || 500, err.code || "SERVER_ERROR", err.message);
   }
 };
+
+export const getProductAverageCost = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { product_id } = req.params;
+
+    const result = await inventoryService.getProductAverageCost(owner_id, product_id);
+    if (!result) return fail(res, 404, "NOT_FOUND", "Product not found");
+
+    return res.status(200).json({ success: true, data: result });
+  } catch (err) {
+    return fail(res, err.status || 500, err.code || "SERVER_ERROR", err.message);
+  }
+};

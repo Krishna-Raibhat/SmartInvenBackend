@@ -47,9 +47,37 @@ class HardwareSupplierService {
   }
 
   async getSupplierById(supplier_id, owner_id) {
-    return await prisma.hardwareSupplier.findFirst({
+    const supplier = await prisma.hardwareSupplier.findFirst({
       where: { supplier_id, owner_id },
     });
+
+    if (!supplier) return null;
+
+    // Calculate total purchase amount from this supplier
+    const stockLots = await prisma.hardwareStockLot.findMany({
+      where: { supplier_id, owner_id },
+      select: {
+        cp: true,
+        qty_in: true,
+      },
+    });
+
+    let totalPurchaseAmount = 0;
+    let totalQuantityPurchased = 0;
+
+    for (const lot of stockLots) {
+      const cp = Number(lot.cp);
+      const qty = lot.qty_in;
+      totalPurchaseAmount += cp * qty;
+      totalQuantityPurchased += qty;
+    }
+
+    return {
+      ...supplier,
+      total_purchase_amount: Number(totalPurchaseAmount.toFixed(2)),
+      total_quantity_purchased: totalQuantityPurchased,
+      total_stock_lots: stockLots.length,
+    };
   }
 
   async updateSupplier(supplier_id, owner_id, data) {

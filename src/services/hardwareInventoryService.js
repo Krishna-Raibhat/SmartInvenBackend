@@ -236,6 +236,72 @@ class HardwareInventoryService {
     return true;
   }
 
+  async getProductAverageCost(owner_id, product_id) {
+    const product = await prisma.hardwareProduct.findFirst({
+      where: { owner_id, product_id },
+      select: { product_id: true, product_name: true },
+    });
+    if (!product) return null;
+
+    // Get all lots with remaining stock
+    const lots = await prisma.hardwareStockLot.findMany({
+      where: { 
+        owner_id, 
+        product_id,
+        qty_remaining: { gt: 0 }
+      },
+      select: {
+        lot_id: true,
+        cp: true,
+        qty_remaining: true,
+        created_at: true,
+      },
+      orderBy: { created_at: "desc" },
+    });
+
+    if (lots.length === 0) {
+      return {
+        product_id,
+        product_name: product.product_name,
+        total_qty_remaining: 0,
+        weighted_average_cp: 0,
+        lots: [],
+      };
+    }
+
+    // Calculate weighted average CP
+    let totalCost = 0;
+    let totalQty = 0;
+
+    const lotDetails = lots.map(lot => {
+      const cp = Number(lot.cp);
+      const qty = lot.qty_remaining;
+      const lotCost = cp * qty;
+
+      totalCost += lotCost;
+      totalQty += qty;
+
+      return {
+        lot_id: lot.lot_id,
+        cp,
+        qty_remaining: qty,
+        total_cost: lotCost,
+        created_at: lot.created_at,
+      };
+    });
+
+    const weightedAverageCp = totalQty > 0 ? totalCost / totalQty : 0;
+
+    return {
+      product_id,
+      product_name: product.product_name,
+      total_qty_remaining: totalQty,
+      weighted_average_cp: Number(weightedAverageCp.toFixed(2)),
+      total_inventory_value: Number(totalCost.toFixed(2)),
+      lots: lotDetails,
+    };
+  }
+
 }
 
 export default new HardwareInventoryService();

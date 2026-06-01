@@ -21,9 +21,13 @@ class HardwareProfitService {
         throw err;
       }
 
+      // const start = new Date(start_date);
+      // const end = new Date(end_date);
       const start = new Date(start_date);
-      const end = new Date(end_date);
+      start.setHours(0, 0, 0, 0);
 
+      const end = new Date(end_date);
+      end.setHours(23, 59, 59, 999);
 
       if (start > end) {
         const err = new Error("Start date cannot be after end date");
@@ -94,7 +98,7 @@ class HardwareProfitService {
         totalPaid += Number(stock.paid_amount || 0);
       }
 
-      const totalProfit = totalSales - totalCost;
+      const totalProfit = totalPaid - totalCost;
 
       // Return profit/loss response
       return {
