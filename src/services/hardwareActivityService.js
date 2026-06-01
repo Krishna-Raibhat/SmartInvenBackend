@@ -84,7 +84,7 @@ class HardwareActivityService {
         type: "STOCK_OUT",
         created_at: s.created_at,
         title: "Stock out (Sale)",
-        message: `Bill ${s.stockout_id} • Customer: ${customerInfo} • Total: ${Number(s.total_amount)} • Paid: ${Number(s.paid_amount)} • ${s.payment_status}`,
+        message: `Customer: ${customerInfo} • Total: ${Number(s.total_amount)} • Paid: ${Number(s.paid_amount)} • ${s.payment_status}`,
         ref: { stockout_id: s.stockout_id },
       });
     }
