@@ -203,7 +203,9 @@ class ClothingSalesService {
       } else if (payment_status === "partial") {
         finalStatus = "partial";
       } else {
-        if (paid >= effectiveTotal && effectiveTotal > 0) finalStatus = "paid";
+        // Use small tolerance (0.01) for floating-point comparison
+        const remaining = effectiveTotal - paid;
+        if (remaining <= 0.01 && effectiveTotal > 0) finalStatus = "paid";
         else if (paid > 0) finalStatus = "partial";
       }
 
@@ -290,7 +292,7 @@ class ClothingSalesService {
     return prisma.$transaction(async (tx) => {
       const sale = await tx.clothingSales.findFirst({
         where: { owner_id, sales_id },
-        select: { sales_id: true, total_amount: true, paid_amount: true },
+        select: { sales_id: true, total_amount: true, discount: true, paid_amount: true },
       });
       if (!sale) {
         const e = new Error("Sale not found");
@@ -300,18 +302,22 @@ class ClothingSalesService {
       }
 
       const total = Number(sale.total_amount);
+      const discount = Number(sale.discount || 0);
+      const effectiveTotal = total - discount;
       const currentPaid = Number(sale.paid_amount);
       const newPaid = currentPaid + add;
 
-      if (newPaid > total) {
-        const e = new Error("Payment exceeds total amount");
+      if (newPaid > effectiveTotal) {
+        const e = new Error("Payment exceeds effective total amount");
         e.status = 400;
         e.code = "PAYMENT_EXCEEDS_TOTAL";
         throw e;
       }
 
       let status = "pending";
-      if (newPaid >= total && total > 0) status = "paid";
+      // Use small tolerance (0.01) for floating-point comparison
+      const remaining = effectiveTotal - newPaid;
+      if (remaining <= 0.01 && effectiveTotal > 0) status = "paid";
       else if (newPaid > 0) status = "partial";
 
       return tx.clothingSales.update({
@@ -337,8 +343,10 @@ class ClothingSalesService {
     });
 
     const total = Number(sale.total_amount);
+    const discount = Number(sale.discount || 0);
     const paid = Number(sale.paid_amount);
-    const remaining = total - paid;
+    const effectiveTotal = total - discount;
+    const remaining = effectiveTotal - paid;
 
     return {
       sale_id: sale.sales_id,
@@ -346,6 +354,8 @@ class ClothingSalesService {
       payment_status: sale.payment_status,
       totals: {
         total_amount: total,
+        discount: discount,
+        effective_total: effectiveTotal,
         paid_amount: paid,
         remaining_amount: remaining,
       },
@@ -560,8 +570,9 @@ class ClothingSalesService {
 
     // Totals card
     const totalsX = left + noteW + sectionGap;
+    const totalsHeight = bill.totals.discount > 0 ? 112 : 90; // Taller if discount exists
     doc
-      .roundedRect(totalsX, sectionTop, totalsW, 90, 8)
+      .roundedRect(totalsX, sectionTop, totalsW, totalsHeight, 8)
       .fillAndStroke("white", lightGray);
 
     const row = (label, value, yy, color = dark, bold = false) => {
@@ -578,12 +589,23 @@ class ClothingSalesService {
         });
     };
 
-    row("Total", money(bill.totals.total_amount), sectionTop + 12, dark, true);
-    row("Paid", money(bill.totals.paid_amount), sectionTop + 34, success, true);
+    let rowY = sectionTop + 12;
+    row("Total", money(bill.totals.total_amount), rowY, dark, true);
+    rowY += 22;
+
+    // Show discount if it exists
+    if (bill.totals.discount > 0) {
+      row("Discount", `- ${money(bill.totals.discount)}`, rowY, danger, false);
+      rowY += 22;
+    }
+
+    row("Paid", money(bill.totals.paid_amount), rowY, success, true);
+    rowY += 22;
+    
     row(
       "Remaining",
       money(bill.totals.remaining_amount),
-      sectionTop + 56,
+      rowY,
       Number(bill.totals.remaining_amount || 0) > 0 ? danger : success,
       true,
     );
