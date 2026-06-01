@@ -33,9 +33,46 @@ class ClothingSupplierService {
   }
 
   async getById(owner_id, supplier_id) {
-    return prisma.clothingSupplier.findFirst({
+    const supplier = await prisma.clothingSupplier.findFirst({
       where: { owner_id, supplier_id },
     });
+
+    if (!supplier) return null;
+
+    // Calculate total purchase amount and quantity from this supplier
+    const stockLots = await prisma.clothingStockLot.findMany({
+      where: { 
+        supplier_id,
+        product: { owner_id } // owner-safe
+      },
+      select: {
+        cp: true,
+        qty_in: true,
+        qty_remaining: true,
+      },
+    });
+
+    let totalPurchaseAmount = 0;
+    let totalQuantityPurchased = 0;
+    let totalQuantityRemaining = 0;
+
+    for (const lot of stockLots) {
+      const cp = Number(lot.cp);
+      const qtyIn = lot.qty_in;
+      const qtyRemaining = lot.qty_remaining;
+      
+      totalPurchaseAmount += cp * qtyIn;
+      totalQuantityPurchased += qtyIn;
+      totalQuantityRemaining += qtyRemaining;
+    }
+
+    return {
+      ...supplier,
+      total_purchase_amount: Number(totalPurchaseAmount.toFixed(2)),
+      total_quantity_purchased: totalQuantityPurchased,
+      total_quantity_remaining: totalQuantityRemaining,
+      total_stock_lots: stockLots.length,
+    };
   }
 
   async update(owner_id, supplier_id, data) {

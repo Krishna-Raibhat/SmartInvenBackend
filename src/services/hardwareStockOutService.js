@@ -186,6 +186,21 @@ class HardwareStockOutService {
     return prisma.hardwareStockOut.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
+      include: {
+        items: {
+          select: {
+            product_id: true,
+            qty: true,
+            sp: true,
+            line_total: true,
+            product: {
+              select: {
+                product_name: true,
+              },
+            },
+          },
+        },
+      },
     });
   }
 

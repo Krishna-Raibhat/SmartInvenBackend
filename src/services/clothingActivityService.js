@@ -108,7 +108,8 @@ class ClothingActivityService {
         type: "STOCK_OUT",
         created_at: s.created_at,
         title: "Sale (stock out)",
-        message: `Bill ${s.sales_id} • Total ${Number(s.total_amount)} • Paid ${Number(s.paid_amount)} • ${s.payment_status}`,
+        // TO THIS:
+        message: `${s.customer?.full_name || "Walk-in"} • Total Rs.${Number(s.total_amount)} • Paid Rs.${Number(s.paid_amount)} • ${s.payment_status}`,
         ref: { sales_id: s.sales_id },
       });
     }

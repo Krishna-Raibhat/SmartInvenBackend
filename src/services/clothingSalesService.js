@@ -6,7 +6,7 @@ import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
 class ClothingSalesService {
   // ✅ CREATE SALE (can auto create customer)
   async createSale(owner_id, payload) {
-    const { customer_id, customer, paid_amount, payment_status, note, items } =
+    const { customer_id, customer, paid_amount, payment_status, note, discount, items } =
       payload;
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -17,10 +17,19 @@ class ClothingSalesService {
     }
 
     const paid = Number(paid_amount ?? 0);
+    const disc = Number(discount ?? 0);
+
     if (!Number.isFinite(paid) || paid < 0) {
       const e = new Error("paid_amount must be a valid number");
       e.status = 400;
       e.code = "VALIDATION_PAID_INVALID";
+      throw e;
+    }
+
+    if (!Number.isFinite(disc) || disc < 0) {
+      const e = new Error("discount must be a valid number >= 0");
+      e.status = 400;
+      e.code = "VALIDATION_DISCOUNT_INVALID";
       throw e;
     }
 
@@ -37,29 +46,36 @@ class ClothingSalesService {
         e.code = "CUSTOMER_NOT_FOUND";
         throw e;
       }
-    } else if (customer?.phone) {
-      const phone = normalizeNepalPhone(String(customer.phone).trim());
-      
-      if (!isValidNepalPhone(phone)) {
-        const e = new Error("Invalid phone number. Please enter a valid 10-digit Nepali number.");
-        e.status = 400;
-        e.code = "VALIDATION_PHONE_INVALID";
-        throw e;
+    // WITH THIS:
+} else if (customer?.full_name || customer?.phone) {
+      let phone = null;
+
+      if (customer?.phone) {
+        phone = normalizeNepalPhone(String(customer.phone).trim());
+
+        if (!isValidNepalPhone(phone)) {
+          const e = new Error("Invalid phone number. Please enter a valid 10-digit Nepali number.");
+          e.status = 400;
+          e.code = "VALIDATION_PHONE_INVALID";
+          throw e;
+        }
+
+        const existing = await prisma.customer.findFirst({
+          where: { owner_id, phone },
+          select: { customer_id: true },
+        });
+
+        if (existing) {
+          finalCustomerId = existing.customer_id;
+        }
       }
 
-      const existing = await prisma.customer.findFirst({
-        where: { owner_id, phone },
-        select: { customer_id: true },
-      });
-
-      if (existing) {
-        finalCustomerId = existing.customer_id;
-      } else {
+      if (!finalCustomerId) {
         const created = await prisma.customer.create({
           data: {
             owner_id,
             full_name: String(customer.full_name || "Walk-in Customer").trim(),
-            phone,
+            phone: phone ?? null,
             email: customer.email ? String(customer.email).trim() : null,
             address: customer.address ? String(customer.address).trim() : null,
           },
@@ -79,6 +95,7 @@ class ClothingSalesService {
           customer_id: finalCustomerId,
           payment_status: payment_status || "pending",
           total_amount: 0,
+          discount: disc,
           paid_amount: paid,
           note: note ?? null,
         },
@@ -161,8 +178,19 @@ class ClothingSalesService {
         createdItems.push(created);
       }
 
-      if (paid > totalAmount && payment_status !== "paid") {
-        const e = new Error("paid_amount cannot be greater than total_amount");
+      // ✅ Calculate effective total (total - discount)
+      const effectiveTotal = totalAmount - disc;
+
+      // ✅ Validate discount doesn't exceed total
+      if (disc > totalAmount) {
+        const e = new Error("Discount cannot exceed total amount");
+        e.status = 400;
+        e.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL";
+        throw e;
+      }
+
+      if (paid > effectiveTotal && payment_status !== "paid") {
+        const e = new Error("paid_amount cannot be greater than effective total");
         e.status = 400;
         e.code = "VALIDATION_PAID_GT_TOTAL";
         throw e;
@@ -175,7 +203,7 @@ class ClothingSalesService {
       } else if (payment_status === "partial") {
         finalStatus = "partial";
       } else {
-        if (paid >= totalAmount && totalAmount > 0) finalStatus = "paid";
+        if (paid >= effectiveTotal && effectiveTotal > 0) finalStatus = "paid";
         else if (paid > 0) finalStatus = "partial";
       }
 
@@ -183,6 +211,7 @@ class ClothingSalesService {
         where: { sales_id: header.sales_id },
         data: {
           total_amount: totalAmount,
+          discount: disc,
           paid_amount: paid,
           payment_status: finalStatus,
         },

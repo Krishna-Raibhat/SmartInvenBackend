@@ -36,13 +36,12 @@ class HardwareProfitService {
       }
 
       // Fetch stockout headers(paid_amount)
+      // WITH this:
       const stockouts = await prisma.hardwareStockOut.findMany({
         where: {
           owner_id,
-          created_at: {
-            gte: start,
-            lte: end,
-          },
+          payment_status: "paid", // ✅ only fully paid
+          created_at: { gte: start, lte: end },
         },
         select: {
           stockout_id: true,

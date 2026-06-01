@@ -38,13 +38,13 @@ model Owner {
   clothingSupplierReturns    ClothingSupplierReturn[]
   clothingSuppliers          ClothingSupplier[]
   customers                  Customer[]
-  groceryProducts            GroceryProduct[]
-  groceryStockLots           GroceryStockLot[]
-  grocerySuppliers           GrocerySupplier[]
-  grocerySupplierReturns     GrocerySupplierReturn[]
-  grocerySales               GrocerySales[]
   groceryCustomerReturns     GroceryCustomerReturn[]
   groceryNotifications       GroceryNotification[]
+  groceryProducts            GroceryProduct[]
+  grocerySales               GrocerySales[]
+  groceryStockLots           GroceryStockLot[]
+  grocerySupplierReturns     GrocerySupplierReturn[]
+  grocerySuppliers           GrocerySupplier[]
   groceryUnits               GroceryUnit[]
   notifications              HardwareNotification[]
   products                   HardwareProduct[]
@@ -152,12 +152,12 @@ model HardwareStockOut {
   payment_status      String                 @default("pending")
   total_amount        Decimal                @db.Decimal(10, 2)
   paid_amount         Decimal                @db.Decimal(10, 2)
-  discount            Decimal                @default(0) @db.Decimal(10, 2)
   note                String?
   created_at          DateTime               @default(now())
   customer_address    String?
   customer_name       String?
   customer_phn_number String?
+  discount            Decimal                @default(0) @db.Decimal(10, 2)
   owner               Owner                  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   items               HardwareStockOutItem[]
 
@@ -196,8 +196,8 @@ model HardwareNotification {
   message         String
   product_id      String?
   read_at         DateTime?
-  is_enabled      Boolean          @default(true)
   created_at      DateTime         @default(now())
+  is_enabled      Boolean          @default(true)
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         HardwareProduct? @relation(fields: [product_id], references: [product_id])
 
@@ -304,9 +304,11 @@ model ClothingSales {
   customer_id     String?
   payment_status  String                   @default("pending")
   total_amount    Decimal                  @db.Decimal(10, 2)
+  discount        Decimal                  @default(0) @db.Decimal(10, 2)
   paid_amount     Decimal                  @db.Decimal(10, 2)
   note            String?
   created_at      DateTime                 @default(now())
+  updated_at      DateTime                 @updatedAt
   customerReturns ClothingCustomerReturn[]
   customer        Customer?                @relation(fields: [customer_id], references: [customer_id])
   owner           Owner                    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
@@ -345,17 +347,17 @@ model ClothingSalesItem {
 }
 
 model Customer {
-  customer_id   String          @id @default(uuid())
-  owner_id      String
-  full_name     String
-  phone         String?
-  email         String?
-  address       String?
-  created_at    DateTime        @default(now())
-  updated_at    DateTime        @updatedAt
-  sales         ClothingSales[]
-  grocerySales  GrocerySales[]
-  owner         Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  customer_id  String          @id @default(uuid())
+  owner_id     String
+  full_name    String
+  phone        String?
+  email        String?
+  address      String?
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+  sales        ClothingSales[]
+  owner        Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  grocerySales GrocerySales[]
 
   @@unique([owner_id, phone])
   @@index([owner_id])
@@ -435,8 +437,8 @@ model ClothingNotification {
   message         String
   product_id      String?
   read_at         DateTime?
-  is_enabled      Boolean          @default(true)
   created_at      DateTime         @default(now())
+  is_enabled      Boolean          @default(true)
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         ClothingProduct? @relation(fields: [product_id], references: [product_id])
 
@@ -471,18 +473,9 @@ model PaymentProof {
   @@map("payment_proofs")
 }
 
-enum OwnerStatus {
-  trial
-  active
-  inactive
-
-  @@map("owner_status")
-}
-
 model GrocerySupplier {
   supplier_id   String                  @id @default(uuid())
   owner_id      String
-  owner         Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   supplier_name String
   phone         String
   email         String?
@@ -492,7 +485,8 @@ model GrocerySupplier {
   deleted_at    DateTime?
   stockLots     GroceryStockLot[]
   returns       GrocerySupplierReturn[]
-  
+  owner         Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
   @@unique([owner_id, phone])
   @@index([deleted_at])
   @@index([updated_at])
@@ -532,8 +526,8 @@ model GroceryUnit {
   created_at DateTime         @default(now())
   updated_at DateTime         @updatedAt
   deleted_at DateTime?
-  owner      Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   products   GroceryProduct[]
+  owner      Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   @@unique([owner_id, unit_name])
   @@index([owner_id])
@@ -543,26 +537,25 @@ model GroceryUnit {
 }
 
 model GroceryProduct {
-  product_id                 String            @id @default(uuid())
+  product_id                 String                @id @default(uuid())
   owner_id                   String
   category_id                String?
   brand_id                   String?
   unit_id                    String
   product_name               String
-  barcode                    String?           @unique
+  barcode                    String?               @unique
   description                String?
+  created_at                 DateTime              @default(now())
+  updated_at                 DateTime              @updatedAt
   last_low_stock_notified_at DateTime?
-  
-  created_at      DateTime          @default(now())
-  updated_at      DateTime          @updatedAt
-  deleted_at      DateTime?
-  owner           Owner             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  category        GroceryCategory?  @relation(fields: [category_id], references: [category_id])
-  brand           GroceryBrand?     @relation(fields: [brand_id], references: [brand_id])
-  unit            GroceryUnit       @relation(fields: [unit_id], references: [unit_id])
-  stockLots       GroceryStockLot[]
-  salesItems      GrocerySalesItem[]
-  notifications   GroceryNotification[]
+  deleted_at                 DateTime?
+  notifications              GroceryNotification[]
+  brand                      GroceryBrand?         @relation(fields: [brand_id], references: [brand_id])
+  category                   GroceryCategory?      @relation(fields: [category_id], references: [category_id])
+  owner                      Owner                 @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  unit                       GroceryUnit           @relation(fields: [unit_id], references: [unit_id])
+  salesItems                 GrocerySalesItem[]
+  stockLots                  GroceryStockLot[]
 
   @@unique([owner_id, product_name])
   @@index([owner_id, category_id])
@@ -574,28 +567,28 @@ model GroceryProduct {
 }
 
 model GroceryStockLot {
-  lot_id            String                      @id @default(uuid())
-  owner_id          String
-  product_id        String
-  supplier_id       String
-  qty_in            Decimal                     @db.Decimal(10, 3)
-  qty_remaining     Decimal                     @db.Decimal(10, 3)
-  cp                Decimal                     @db.Decimal(10, 2)
-  sp                Decimal                     @db.Decimal(10, 2)
-  batch_no          String?
-  expiry_date       DateTime?
-  notes             String?
-  barcode           String?                     @unique
-  barcode_image_url String?
-  created_at        DateTime                    @default(now())
-  updated_at        DateTime                    @updatedAt
-  deleted_at        DateTime?
-  owner             Owner                         @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  product           GroceryProduct                @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
-  supplier          GrocerySupplier               @relation(fields: [supplier_id], references: [supplier_id])
-  returnItems       GrocerySupplierReturnItem[]
-  salesItems        GrocerySalesItem[]
+  lot_id              String                      @id @default(uuid())
+  owner_id            String
+  product_id          String
+  supplier_id         String
+  qty_in              Decimal                     @db.Decimal(10, 3)
+  qty_remaining       Decimal                     @db.Decimal(10, 3)
+  cp                  Decimal                     @db.Decimal(10, 2)
+  sp                  Decimal                     @db.Decimal(10, 2)
+  batch_no            String?
+  expiry_date         DateTime?
+  notes               String?
+  created_at          DateTime                    @default(now())
+  barcode             String?                     @unique
+  barcode_image_url   String?
+  updated_at          DateTime                    @updatedAt
+  deleted_at          DateTime?
   customerReturnItems GroceryCustomerReturnItem[]
+  salesItems          GrocerySalesItem[]
+  owner               Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  product             GroceryProduct              @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
+  supplier            GrocerySupplier             @relation(fields: [supplier_id], references: [supplier_id])
+  returnItems         GrocerySupplierReturnItem[]
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
@@ -611,9 +604,9 @@ model GrocerySupplierReturn {
   total_refund Decimal                     @db.Decimal(10, 2)
   note         String?
   created_at   DateTime                    @default(now())
+  items        GrocerySupplierReturnItem[]
   owner        Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   supplier     GrocerySupplier             @relation(fields: [supplier_id], references: [supplier_id])
-  items        GrocerySupplierReturnItem[]
 
   @@index([owner_id, created_at])
   @@index([owner_id, supplier_id])
@@ -648,10 +641,10 @@ model GrocerySales {
   created_at     DateTime                @default(now())
   updated_at     DateTime                @updatedAt
   deleted_at     DateTime?
-  owner          Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  customer       Customer?               @relation(fields: [customer_id], references: [customer_id])
-  items          GrocerySalesItem[]
   returns        GroceryCustomerReturn[]
+  customer       Customer?               @relation(fields: [customer_id], references: [customer_id])
+  owner          Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  items          GrocerySalesItem[]
 
   @@index([owner_id, created_at])
   @@index([customer_id])
@@ -666,16 +659,16 @@ model GrocerySalesItem {
   product_id    String
   lot_id        String
   qty           Decimal                     @db.Decimal(10, 3)
-  returned_qty  Decimal                     @default(0) @db.Decimal(10, 3)
   cp            Decimal                     @db.Decimal(10, 2)
   sp            Decimal                     @db.Decimal(10, 2)
   line_total    Decimal                     @db.Decimal(10, 2)
   note          String?
   created_at    DateTime                    @default(now())
+  returned_qty  Decimal                     @default(0) @db.Decimal(10, 3)
+  returnItems   GroceryCustomerReturnItem[]
   lot           GroceryStockLot             @relation(fields: [lot_id], references: [lot_id])
   product       GroceryProduct              @relation(fields: [product_id], references: [product_id])
   sales         GrocerySales                @relation(fields: [sales_id], references: [sales_id], onDelete: Cascade)
-  returnItems   GroceryCustomerReturnItem[]
 
   @@index([sales_id])
   @@index([product_id])
@@ -692,9 +685,9 @@ model GroceryCustomerReturn {
   created_at    DateTime                    @default(now())
   updated_at    DateTime                    @updatedAt
   deleted_at    DateTime?
+  items         GroceryCustomerReturnItem[]
   owner         Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   sales         GrocerySales                @relation(fields: [sales_id], references: [sales_id])
-  items         GroceryCustomerReturnItem[]
 
   @@index([owner_id, created_at])
   @@index([sales_id])
@@ -711,9 +704,9 @@ model GroceryCustomerReturnItem {
   qty            Decimal               @db.Decimal(10, 3)
   note           String?
   created_at     DateTime              @default(now())
+  lot            GroceryStockLot       @relation(fields: [lot_id], references: [lot_id])
   return         GroceryCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
   salesItem      GrocerySalesItem      @relation(fields: [sales_item_id], references: [sales_item_id])
-  lot            GroceryStockLot       @relation(fields: [lot_id], references: [lot_id])
 
   @@index([return_id])
   @@index([sales_item_id])
@@ -729,8 +722,8 @@ model GroceryNotification {
   message         String
   product_id      String?
   read_at         DateTime?
-  is_enabled      Boolean         @default(true)
   created_at      DateTime        @default(now())
+  is_enabled      Boolean         @default(true)
   owner           Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         GroceryProduct? @relation(fields: [product_id], references: [product_id])
 
@@ -746,12 +739,20 @@ model SyncIdempotency {
   entity_type    String
   local_id       String
   server_id      String
-  operation      String   @default("create")
   created_at     DateTime @default(now())
+  operation      String   @default("create")
   last_synced_at DateTime @default(now()) @updatedAt
 
   @@unique([owner_id, entity_type, local_id])
   @@index([owner_id, entity_type])
   @@index([last_synced_at])
   @@map("sync_idempotency")
+}
+
+enum OwnerStatus {
+  trial
+  active
+  inactive
+
+  @@map("owner_status")
 }
