@@ -46,7 +46,8 @@ export const getByBarcode = async (req, res) => {
     const data = await service.getByBarcode(owner_id, barcode);
     return res.status(200).json({ success: true, data });
   } catch (err) {
-    if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+    if (err.status)
+      return fail(res, err.status, err.code || "ERROR", err.message);
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
@@ -62,7 +63,7 @@ export const bulkCreate = async (req, res) => {
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "product_id and supplier_id are required"
+        "product_id and supplier_id are required",
       );
     }
 
@@ -75,9 +76,43 @@ export const bulkCreate = async (req, res) => {
       variants,
     });
 
-    return res.status(201).json({ success: true, data, count: data.lots.length });
+    return res
+      .status(201)
+      .json({ success: true, data, count: data.lots.length });
   } catch (err) {
-    if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+    if (err.status)
+      return fail(res, err.status, err.code || "ERROR", err.message);
     return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
+export const getSupplierLots = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+
+    const { supplier_id, only_in_stock } = req.query;
+
+    if (!supplier_id) {
+      return fail(res, 400, "SUPPLIER_ID_REQUIRED", "supplier_id is required");
+    }
+
+    const data = await service.getSupplierLots(
+      owner_id,
+      supplier_id,
+      only_in_stock === "1",
+    );
+
+    return res.status(200).json({
+      success: true,
+      data,
+      count: data.length,
+    });
+  } catch (err) {
+    return fail(
+      res,
+      err.status || 500,
+      err.code || "SERVER_ERROR",
+      err.message,
+    );
   }
 };

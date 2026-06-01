@@ -15,7 +15,9 @@ class ClothingStockLotService {
             category: { select: { category_id: true, category_name: true } },
           },
         },
-        supplier: { select: { supplier_id: true, supplier_name: true, phone: true } },
+        supplier: {
+          select: { supplier_id: true, supplier_name: true, phone: true },
+        },
         color: { select: { color_id: true, color_name: true } },
         size: { select: { size_id: true, size_name: true } },
       },
@@ -64,6 +66,62 @@ class ClothingStockLotService {
     }));
   }
 
+  async getSupplierLots(owner_id, supplier_id, only_in_stock = false) {
+    const where = {
+      supplier_id,
+      product: {
+        owner_id,
+      },
+    };
+
+    if (only_in_stock) {
+      where.qty_remaining = {
+        gt: 0,
+      };
+    }
+
+    const lots = await prisma.clothingStockLot.findMany({
+      where,
+      include: {
+        product: {
+          select: {
+            product_id: true,
+            product_name: true,
+            category: {
+              select: {
+                category_id: true,
+                category_name: true,
+              },
+            },
+          },
+        },
+        supplier: {
+          select: {
+            supplier_id: true,
+            supplier_name: true,
+          },
+        },
+        color: {
+          select: {
+            color_id: true,
+            color_name: true,
+          },
+        },
+        size: {
+          select: {
+            size_id: true,
+            size_name: true,
+          },
+        },
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+    });
+
+    return lots;
+  }
+
   async bulkCreate(owner_id, payload) {
     const { product_id, supplier_id, cp, sp, notes, variants } = payload;
 
@@ -83,7 +141,12 @@ class ClothingStockLotService {
 
     const cpNum = Number(cp);
     const spNum = Number(sp);
-    if (!Number.isFinite(cpNum) || !Number.isFinite(spNum) || cpNum < 0 || spNum < 0) {
+    if (
+      !Number.isFinite(cpNum) ||
+      !Number.isFinite(spNum) ||
+      cpNum < 0 ||
+      spNum < 0
+    ) {
       const e = new Error("cp and sp must be valid numbers");
       e.status = 400;
       e.code = "VALIDATION_PRICE_INVALID";
@@ -184,18 +247,24 @@ class ClothingStockLotService {
     // -------------------------
     // 2) Validate colors & sizes in ONE query each (outside tx)
     // -------------------------
-    const colorIds = [...new Set(rows.map(r => r.color_id))];
-    const sizeIds = [...new Set(rows.map(r => r.size_id))];
+    const colorIds = [...new Set(rows.map((r) => r.color_id))];
+    const sizeIds = [...new Set(rows.map((r) => r.size_id))];
 
     const [colors, sizesFound] = await Promise.all([
-      prisma.clothingColor.findMany({ where: { color_id: { in: colorIds } }, select: { color_id: true } }),
-      prisma.clothingSize.findMany({ where: { size_id: { in: sizeIds } }, select: { size_id: true } }),
+      prisma.clothingColor.findMany({
+        where: { color_id: { in: colorIds } },
+        select: { color_id: true },
+      }),
+      prisma.clothingSize.findMany({
+        where: { size_id: { in: sizeIds } },
+        select: { size_id: true },
+      }),
     ]);
 
-    const colorSet = new Set(colors.map(c => c.color_id));
-    const sizeSet = new Set(sizesFound.map(s => s.size_id));
+    const colorSet = new Set(colors.map((c) => c.color_id));
+    const sizeSet = new Set(sizesFound.map((s) => s.size_id));
 
-    const missingColor = colorIds.find(id => !colorSet.has(id));
+    const missingColor = colorIds.find((id) => !colorSet.has(id));
     if (missingColor) {
       const e = new Error(`Color not found: ${missingColor}`);
       e.status = 404;
@@ -203,7 +272,7 @@ class ClothingStockLotService {
       throw e;
     }
 
-    const missingSize = sizeIds.find(id => !sizeSet.has(id));
+    const missingSize = sizeIds.find((id) => !sizeSet.has(id));
     if (missingSize) {
       const e = new Error(`Size not found: ${missingSize}`);
       e.status = 404;
@@ -218,9 +287,10 @@ class ClothingStockLotService {
     const rowsWithBarcodes = await Promise.all(
       rows.map(async (row) => {
         const lot_id = uuidv4();
-        const { barcode, barcode_image_url } = await generateAndUploadBarcode(lot_id);
+        const { barcode, barcode_image_url } =
+          await generateAndUploadBarcode(lot_id);
         return { lot_id, ...row, barcode, barcode_image_url };
-      })
+      }),
     );
     console.log(`[SERVICE] All barcodes generated successfully`);
 
@@ -236,11 +306,16 @@ class ClothingStockLotService {
     // -------------------------
     // 6) Return created lots
     // -------------------------
-    const lotIds = rowsWithBarcodes.map(r => r.lot_id);
+    const lotIds = rowsWithBarcodes.map((r) => r.lot_id);
     const createdLots = await prisma.clothingStockLot.findMany({
       where: { lot_id: { in: lotIds } },
       include: {
-        product: { select: { product_name: true, category: { select: { category_name: true } } } },
+        product: {
+          select: {
+            product_name: true,
+            category: { select: { category_name: true } },
+          },
+        },
         supplier: { select: { supplier_name: true, phone: true } },
         color: { select: { color_name: true } },
         size: { select: { size_name: true } },
