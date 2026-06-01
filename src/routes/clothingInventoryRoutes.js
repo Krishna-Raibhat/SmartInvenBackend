@@ -7,6 +7,9 @@ const router = express.Router();
 // Inventory list: products with category + total qty
 router.get("/products", auth, ctrl.listProducts);
 
+// Get overall average cost across all products
+router.get("/average-cost", auth, ctrl.getAverageCost);
+
 // Product details: lots grouped by variants
 router.get("/products/:product_id", auth, ctrl.getProductDetails);
 

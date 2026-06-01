@@ -451,6 +451,70 @@ class ClothingInventoryService {
       { timeout: 20000 },
     );
   }
+
+  async getAverageCost(owner_id) {
+    // Get all products for this owner
+    const products = await prisma.clothingProduct.findMany({
+      where: { owner_id },
+      select: { product_id: true, product_name: true },
+    });
+
+    if (products.length === 0) {
+      return null;
+    }
+
+    const productIds = products.map(p => p.product_id);
+
+    // Get all lots with remaining stock across all products
+    const lots = await prisma.clothingStockLot.findMany({
+      where: { 
+        product_id: { in: productIds },
+        product: { owner_id },
+        qty_remaining: { gt: 0 }
+      },
+      select: {
+        lot_id: true,
+        product_id: true,
+        cp: true,
+        qty_remaining: true,
+      },
+    });
+
+    if (lots.length === 0) {
+      return {
+        total_products: products.length,
+        total_products_with_stock: 0,
+        total_qty_remaining: 0,
+        weighted_average_cp: 0,
+        total_inventory_value: 0,
+      };
+    }
+
+    // Calculate weighted average CP across all products
+    let totalCost = 0;
+    let totalQty = 0;
+    const productsWithStock = new Set();
+
+    lots.forEach(lot => {
+      const cp = Number(lot.cp);
+      const qty = lot.qty_remaining;
+      const lotCost = cp * qty;
+
+      totalCost += lotCost;
+      totalQty += qty;
+      productsWithStock.add(lot.product_id);
+    });
+
+    const weightedAverageCp = totalQty > 0 ? totalCost / totalQty : 0;
+
+    return {
+      total_products: products.length,
+      total_products_with_stock: productsWithStock.size,
+      total_qty_remaining: totalQty,
+      weighted_average_cp: Number(weightedAverageCp.toFixed(2)),
+      total_inventory_value: Number(totalCost.toFixed(2)),
+    };
+  }
 }
 
 export default new ClothingInventoryService();
