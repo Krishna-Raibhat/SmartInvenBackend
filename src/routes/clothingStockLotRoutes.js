@@ -16,10 +16,6 @@ router.get("/scan/:barcode", auth, ctrl.getByBarcode);
 // preview barcode image
 router.get("/:lot_id/barcode-image", auth, ctrl.getBarcodeImage);
 
-router.get(
-  "/stock-lots",
-  authenticateOwner,
-  clothingStockLotController.getSupplierLots,
-);
+router.get("/stock-lots", auth, ctrl.getSupplierLots);
 
 export default router;
