@@ -123,8 +123,8 @@ class ClothingDashboardService {
         -- Revenue = sum of all effective_totals minus all refund amounts
         COALESCE(SUM(s.effective_total) - SUM(COALESCE(r.total_refund, 0)), 0) AS actual_revenue,
 
-        -- Cost = sold cost minus returned cost (for good condition items that go back to stock)
-        COALESCE(SUM(s.sold_cost) - SUM(COALESCE(r.returned_cost, 0)), 0) AS total_cost,
+        -- Cost = sold cost (DO NOT subtract returned cost - returns are a loss, not a cost reduction)
+        COALESCE(SUM(s.sold_cost), 0) AS total_cost,
 
         COALESCE(SUM(COALESCE(r.returned_good_qty, 0)), 0) AS returned_good_qty,
         (SELECT returned_all_qty FROM all_returns) AS returned_all_qty

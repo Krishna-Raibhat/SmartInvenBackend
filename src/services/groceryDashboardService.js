@@ -39,55 +39,67 @@ class GroceryDashboardService {
       ? { gte: startDate, lte: endDate }
       : undefined;
 
-    // 1) Sales Stats
-    const salesAgg = await prisma.grocerySales.aggregate({
-      where: {
-        owner_id,
-        ...(dateFilter && { created_at: dateFilter }),
-      },
-      _sum: {
-        total_amount: true,
-        discount: true,
-        paid_amount: true,
-      },
-      _count: { sales_id: true },
-    });
+    // 1) Header totals - Calculate effective_total properly (per-sale: total_amount - discount)
+    const salesTotals = await prisma.$queryRaw`
+      SELECT 
+        COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
+        COALESCE(SUM(discount), 0)::numeric AS total_discount,
+        COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
+        COALESCE(SUM(GREATEST(total_amount - COALESCE(discount, 0), 0)), 0)::numeric AS effective_total,
+        COUNT(sales_id)::int AS sales_count
+      FROM grocery_sales
+      WHERE owner_id = ${owner_id}
+        ${dateFilter ? prisma.Prisma.sql`AND created_at >= ${startDate} AND created_at <= ${endDate}` : prisma.Prisma.empty}
+    `;
 
-    const totalSales = Number(salesAgg._sum.total_amount || 0);
-    const totalDiscount = Number(salesAgg._sum.discount || 0);
-    const totalPaid = Number(salesAgg._sum.paid_amount || 0);
-    const effectiveTotal = totalSales - totalDiscount;
-    const creditRemaining = Math.max(0, effectiveTotal - totalPaid);
-    const salesCount = Number(salesAgg._count.sales_id || 0);
+    const row = salesTotals[0];
+    const totalSales = Number(row.total_amount || 0);
+    const totalDiscount = Number(row.total_discount || 0);
+    const totalPaid = Number(row.total_paid || 0);
+    const effectiveTotal = Number(row.effective_total || 0); // Correctly calculated per-sale
+    const salesCount = Number(row.sales_count || 0);
 
-    // 2) Profit Calculation (Revenue - Cost)
-    // Cost = sum(cp * qty) for all sold items
-    const salesItems = await prisma.grocerySalesItem.findMany({
-      where: {
-        sales: {
-          owner_id,
-          ...(dateFilter && { created_at: dateFilter }),
-        },
-      },
-      select: {
-        qty: true,
-        cp: true,
-        sp: true,
-      },
-    });
+    // 2) ✅ ACCRUAL BASIS: Revenue = effective_total - refund_amount
+    //    Profit = (effective_total - refund_amount) - cost
+    //    Cost = sum(cp * qty sold) - sum(cp * qty returned)
+    const rows = await prisma.$queryRaw`
+      WITH sold AS (
+        SELECT
+          gs.sales_id,
+          -- effective_total = revenue before returns
+          GREATEST(gs.total_amount - COALESCE(gs.discount, 0), 0) AS effective_total,
+          COALESCE(SUM(gsi.cp * gsi.qty), 0) AS sold_cost
+        FROM grocery_sales_items gsi
+        JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
+        WHERE gs.owner_id = ${owner_id}
+          ${dateFilter ? prisma.Prisma.sql`AND gs.created_at >= ${startDate} AND gs.created_at <= ${endDate}` : prisma.Prisma.empty}
+        GROUP BY gs.sales_id, gs.total_amount, gs.discount
+      ),
+      returns AS (
+        SELECT
+          gs.sales_id,
+          COALESCE(SUM(gcr.refund_amount), 0) AS total_refund,
+          COALESCE(SUM(gsi.cp * gcri.qty), 0) AS returned_cost
+        FROM grocery_customer_returns gcr
+        LEFT JOIN grocery_customer_return_items gcri ON gcri.return_id = gcr.return_id
+        LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
+        LEFT JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
+        WHERE gcr.owner_id = ${owner_id}
+          ${dateFilter ? prisma.Prisma.sql`AND gcr.created_at >= ${startDate} AND gcr.created_at <= ${endDate}` : prisma.Prisma.empty}
+        GROUP BY gs.sales_id
+      )
+      SELECT
+        -- Revenue = sum of all effective_totals minus all refund amounts
+        COALESCE(SUM(s.effective_total) - SUM(COALESCE(r.total_refund, 0)), 0) AS actual_revenue,
+        -- Cost = sold cost (DO NOT subtract returned cost - returns are a loss, not a cost reduction)
+        COALESCE(SUM(s.sold_cost), 0) AS total_cost
+      FROM sold s
+      LEFT JOIN returns r ON r.sales_id = s.sales_id
+    `;
 
-    let totalCost = 0;
-    let totalRevenue = 0;
-
-    salesItems.forEach((item) => {
-      const qty = Number(item.qty);
-      const cp = Number(item.cp);
-      const sp = Number(item.sp);
-      totalCost += cp * qty;
-      totalRevenue += sp * qty;
-    });
-
-    const profit = totalRevenue - totalCost;
+    const actualRevenue = Number(rows?.[0]?.actual_revenue || 0);
+    const totalCost = Number(rows?.[0]?.total_cost || 0);
+    const profitOrLoss = actualRevenue - totalCost;
 
     // 3) Product Count (All Time only, not filtered by date)
     const productCount = dateFilter
@@ -98,15 +110,15 @@ class GroceryDashboardService {
       sales: {
         total_amount: totalSales,
         total_discount: totalDiscount,
-        effective_total: effectiveTotal,
+        effective_total: actualRevenue, // ✅ Use actual_revenue (after discount AND refunds) - matches clothing
         paid_amount: totalPaid,
-        credit_remaining: creditRemaining,
+        credit_remaining: Math.max(0, actualRevenue - totalPaid), // ✅ Based on actual revenue
         count: salesCount,
       },
       profit: {
-        total_revenue: totalRevenue,    // Gross revenue (sp × qty)
+        actual_revenue: actualRevenue,   // ✅ Final revenue (after discount AND refunds)
         total_cost: totalCost,
-        profit: profit,                 // Revenue - Cost (discount doesn't affect this)
+        profit: profitOrLoss,            // ✅ Accrual basis: actual_revenue - cost
       },
       products: {
         count: productCount,
@@ -119,29 +131,35 @@ class GroceryDashboardService {
     const startFinal = startDate || startOfDay(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
     const endFinal = endDate || endOfDay(new Date());
 
-    // Query grouped by day
+    // Query grouped by day - matching clothing logic
     const rows = await prisma.$queryRaw`
-      WITH sales_items AS (
+      WITH sales_with_effective AS (
         SELECT
           date_trunc('day', gs.created_at) AS period,
-          SUM(gsi.line_total)::numeric AS gross_sales,
-          SUM((gsi.cp * gsi.qty))::numeric AS cost,
-          SUM((gsi.sp * gsi.qty))::numeric AS sales_value
+          gs.sales_id,
+          -- Effective total = total_amount - discount for each sale
+          GREATEST(gs.total_amount - COALESCE(gs.discount, 0), 0) AS effective_total
+        FROM grocery_sales gs
+        WHERE gs.owner_id = ${owner_id}
+          AND gs.created_at >= ${startFinal}
+          AND gs.created_at <= ${endFinal}
+      ),
+      sales_grouped AS (
+        SELECT
+          period,
+          SUM(effective_total)::numeric AS total_effective_sales
+        FROM sales_with_effective
+        GROUP BY period
+      ),
+      cost_grouped AS (
+        SELECT
+          date_trunc('day', gs.created_at) AS period,
+          SUM((gsi.cp * gsi.qty))::numeric AS cost
         FROM grocery_sales_items gsi
         JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
         WHERE gs.owner_id = ${owner_id}
           AND gs.created_at >= ${startFinal}
           AND gs.created_at <= ${endFinal}
-        GROUP BY 1
-      ),
-      discounts AS (
-        SELECT
-          date_trunc('day', created_at) AS period,
-          SUM(discount)::numeric AS discount_total
-        FROM grocery_sales
-        WHERE owner_id = ${owner_id}
-          AND created_at >= ${startFinal}
-          AND created_at <= ${endFinal}
         GROUP BY 1
       ),
       paid AS (
@@ -157,47 +175,43 @@ class GroceryDashboardService {
       returns AS (
         SELECT
           date_trunc('day', gcr.created_at) AS period,
-          SUM((gsi.sp * gcri.qty))::numeric AS return_value,
           SUM(COALESCE(gcr.refund_amount, 0))::numeric AS refund_total
-        FROM grocery_customer_return_items gcri
-        JOIN grocery_customer_returns gcr ON gcr.return_id = gcri.return_id
-        LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
+        FROM grocery_customer_returns gcr
         WHERE gcr.owner_id = ${owner_id}
           AND gcr.created_at >= ${startFinal}
           AND gcr.created_at <= ${endFinal}
         GROUP BY 1
       )
       SELECT
-        COALESCE(si.period, d.period, p.period, r.period) AS period,
-        COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0) AS sales,
-        COALESCE(d.discount_total, 0) AS discount,
-        COALESCE(si.cost, 0) AS cost,
-        (COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0)) - COALESCE(si.cost, 0) AS profit,
+        COALESCE(sg.period, cg.period, p.period, r.period) AS period,
+        COALESCE(sg.total_effective_sales, 0) AS effective_sales,
+        COALESCE(cg.cost, 0) AS cost,
         COALESCE(p.paid_total, 0) AS paid,
         COALESCE(r.refund_total, 0) AS refund_total
-      FROM sales_items si
-      FULL OUTER JOIN discounts d ON d.period = si.period
-      FULL OUTER JOIN paid p ON p.period = COALESCE(si.period, d.period)
-      FULL OUTER JOIN returns r ON r.period = COALESCE(si.period, d.period, p.period)
+      FROM sales_grouped sg
+      FULL OUTER JOIN cost_grouped cg ON cg.period = sg.period
+      FULL OUTER JOIN paid p ON p.period = COALESCE(sg.period, cg.period)
+      FULL OUTER JOIN returns r ON r.period = COALESCE(sg.period, cg.period, p.period)
       ORDER BY period ASC;
     `;
 
     return rows.map((r) => {
-      const sales = Number(r.sales || 0);
-      const discount = Number(r.discount || 0);
-      const effectiveSales = sales - discount;
+      const effectiveSales = Number(r.effective_sales || 0);
+      const refund = Number(r.refund_total || 0);
+      const revenue = effectiveSales - refund; // Revenue after refunds
       const cost = Number(r.cost || 0);
       const paid = Number(r.paid || 0);
-      const refund = Number(r.refund_total || 0);
-      const due = effectiveSales - paid - refund;
+      const profit = revenue - cost;
+      const due = revenue - paid;
+      
       return {
         period: new Date(r.period).toISOString(),
-        sales,
-        discount,
-        effective_sales: effectiveSales,
+        sales: revenue, // Net revenue (effective sales - refunds)
+        effective_sales: effectiveSales, // Before refunds
+        refund,
         cost,
         paid,
-        profit: Number(r.profit || 0),
+        profit,
         balance: due > 0 ? due : 0,
       };
     });
