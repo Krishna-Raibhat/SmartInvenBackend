@@ -47,7 +47,7 @@ class ClothingSalesService {
         throw e;
       }
     // WITH THIS:
-} else if (customer?.full_name || customer?.phone) {
+} else if (customer?.full_name?.trim() || customer?.phone?.trim()) {
       let phone = null;
 
       if (customer?.phone) {
@@ -74,7 +74,7 @@ class ClothingSalesService {
         const created = await prisma.customer.create({
           data: {
             owner_id,
-            full_name: String(customer.full_name || "Walk-in Customer").trim(),
+            full_name: String(customer.full_name ?? "").trim() || "Walk-in Customer",
             phone: phone ?? null,
             email: customer.email ? String(customer.email).trim() : null,
             address: customer.address ? String(customer.address).trim() : null,
@@ -307,7 +307,8 @@ class ClothingSalesService {
       const currentPaid = Number(sale.paid_amount);
       const newPaid = currentPaid + add;
 
-      if (newPaid > effectiveTotal) {
+      // Use tolerance (0.01) for floating-point comparison
+      if (newPaid > effectiveTotal + 0.01) {
         const e = new Error("Payment exceeds effective total amount");
         e.status = 400;
         e.code = "PAYMENT_EXCEEDS_TOTAL";

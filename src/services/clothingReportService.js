@@ -44,7 +44,8 @@ class ClothingReportService {
       paid AS (
         SELECT
           date_trunc(${g}, created_at) AS period,
-          SUM(paid_amount)::numeric AS paid_total
+          SUM(paid_amount)::numeric AS paid_total,
+          SUM(discount)::numeric AS discount_total  -- ← add this line
         FROM clothing_sales
         WHERE owner_id = ${owner_id}
           AND created_at >= ${startFinal}
@@ -70,6 +71,7 @@ class ClothingReportService {
         COALESCE(si.cost, 0) AS cost,
         (COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0)) - COALESCE(si.cost, 0) AS profit,
         COALESCE(p.paid_total, 0) AS paid,
+        COALESCE(p.discount_total, 0) AS discount_total, 
         COALESCE(r.refund_total, 0) AS refund_total
       FROM sales_items si
       FULL OUTER JOIN paid p ON p.period = si.period
@@ -82,12 +84,15 @@ class ClothingReportService {
       const cost = Number(r.cost || 0);
       const paid = Number(r.paid || 0);
       const refund = Number(r.refund_total || 0);
-      const due = sales - paid - refund;
+      const discount = Number(r.discount_total || 0);
+      const effectiveSales = sales - discount;
+      const due = effectiveSales - paid - refund
       return {
         period: new Date(r.period).toISOString(),
         sales,
         cost,
         paid,
+        discount,
         profit: Number(r.profit || 0),
         balance: due > 0 ? due : 0,
       };
@@ -178,6 +183,7 @@ class ClothingReportService {
           AND csl.created_at <= ${endFinal}
         GROUP BY 1
       ),
+      
       qty_out AS (
         SELECT
           date_trunc(${g}, cs.created_at) AS period,

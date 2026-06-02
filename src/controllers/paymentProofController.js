@@ -9,7 +9,7 @@ const fail = (res, status, code, message) =>
 // POST /api/payment-proof
 export const upload = async (req, res) => {
   try {
-    const owner_id = req.body.owner_id || req.owner?.owner_id;
+    const owner_id = req.owner?.owner_id || req.body.owner_id;
 
     if (!owner_id) {
       return fail(res, 400, "OWNER_ID_REQUIRED", "owner_id is required.");

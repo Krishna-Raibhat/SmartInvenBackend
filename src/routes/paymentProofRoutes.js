@@ -12,7 +12,7 @@ const upload = multer({
 });
 
 // Owner routes - no auth required, owner_id sent as form field
-router.post("/", (req, res, next) => {
+router.post("/", auth, (req, res, next) => {
   upload.single("image")(req, res, (err) => {
     if (err) return res.status(400).json({ success: false, error_code: "FILE_ERROR", message: err.message });
     next();
