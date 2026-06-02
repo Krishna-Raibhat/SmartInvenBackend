@@ -194,55 +194,29 @@ class ClothingCustomerReturnService {
       }
 
       /* =========================
-         4️⃣ Update Sale Totals
+         4️⃣ Calculate Refund (Don't modify sale totals)
       ========================= */
-      const oldTotal = Number(sale.total_amount);
-      const oldPaid = Number(sale.paid_amount);
-
-      const newTotal = Math.max(0, oldTotal - returnValue);
-
-      let refund = 0;
-      let newPaid = oldPaid;
-
-      if (oldPaid > newTotal) {
-        refund = oldPaid - newTotal;
-        newPaid = newTotal;
-      }
-
-      let status = "pending";
-      if (newTotal === 0 || newPaid >= newTotal) status = "paid";
-      else if (newPaid > 0) status = "partial";
-
-      await tx.clothingSales.update({
-        where: { sales_id },
-        data: {
-          total_amount: newTotal,
-          paid_amount: newPaid,
-          payment_status: status,
-        },
-      });
+      // The sale record stays unchanged
+      // We only track the refund amount in the return record
+      const refundAmount = returnValue;
 
       /* =========================
-         5️⃣ Update Return Header
+         5️⃣ Update Return Header with Refund
       ========================= */
       const updatedReturn = await tx.clothingCustomerReturn.update({
         where: { return_id: ret.return_id },
-        data: { refund_amount: refund },
+        data: { refund_amount: refundAmount },
         include: { items: true },
       });
 
       return {
         return: updatedReturn,
-        sale_after_return: {
+        sale_info: {
           sales_id,
-          old_total: oldTotal,
-          old_paid: oldPaid,
-          return_value: returnValue,
-          new_total: newTotal,
-          new_paid: newPaid,
-          refund_amount: refund,
-          remaining_amount: Math.max(0, newTotal - newPaid),
-          payment_status: status,
+          original_total: Number(sale.total_amount),
+          original_paid: Number(sale.paid_amount),
+          refund_amount: refundAmount,
+          note: "Sale totals remain unchanged. Revenue calculation done at reporting level.",
         },
       };
     });

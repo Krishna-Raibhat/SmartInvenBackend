@@ -165,60 +165,34 @@ class GroceryCustomerReturnService {
           },
         });
 
-        const sp = new Decimal(salesItem.sp);
-        returnValue = returnValue.add(sp.mul(qty));
+        // Add item amount to return value
+        returnValue = returnValue.add(new Decimal(itemAmount));
       }
 
       /* =========================
-         4️⃣ Update Sale Totals
+         4️⃣ Calculate Refund (Don't modify sale totals)
       ========================= */
-      const oldTotal = new Decimal(sale.total_amount);
-      const oldPaid = new Decimal(sale.paid_amount);
-
-      const newTotal = Decimal.max(0, oldTotal.sub(returnValue));
-
-      let refund = new Decimal(0);
-      let newPaid = oldPaid;
-
-      if (oldPaid.gt(newTotal)) {
-        refund = oldPaid.sub(newTotal);
-        newPaid = newTotal;
-      }
-
-      let status = "pending";
-      if (newTotal.eq(0) || newPaid.gte(newTotal)) status = "paid";
-      else if (newPaid.gt(0)) status = "partial";
-
-      await tx.grocerySales.update({
-        where: { sales_id },
-        data: {
-          total_amount: newTotal,
-          paid_amount: newPaid,
-          payment_status: status,
-        },
-      });
+      // The sale record stays unchanged
+      // We only track the refund amount in the return record
+      const refundAmount = returnValue;
 
       /* =========================
-         5️⃣ Update Return Header
+         5️⃣ Update Return Header with Refund
       ========================= */
       const updatedReturn = await tx.groceryCustomerReturn.update({
         where: { return_id: ret.return_id },
-        data: { refund_amount: refund },
+        data: { refund_amount: refundAmount },
         include: { items: true },
       });
 
       return {
         return: updatedReturn,
-        sale_after_return: {
+        sale_info: {
           sales_id,
-          old_total: oldTotal.toNumber(),
-          old_paid: oldPaid.toNumber(),
-          return_value: returnValue.toNumber(),
-          new_total: newTotal.toNumber(),
-          new_paid: newPaid.toNumber(),
-          refund_amount: refund.toNumber(),
-          remaining_amount: Math.max(0, newTotal.sub(newPaid).toNumber()),
-          payment_status: status,
+          original_total: Number(sale.total_amount),
+          original_paid: Number(sale.paid_amount),
+          refund_amount: refundAmount.toNumber(),
+          note: "Sale totals remain unchanged. Revenue calculation done at reporting level.",
         },
       };
     });
