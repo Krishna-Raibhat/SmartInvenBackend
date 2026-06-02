@@ -146,13 +146,13 @@ class ClothingDashboardService {
       range: { start: startFinal, end: endFinal },
 
       totals: {
-        total_sales: totalSales,
+        total_sales: effectiveTotal, // ✅ Use effective_total (after discount, before refunds)
         total_discount: totalDiscount,
-        effective_total: actualRevenue, // ✅ Use actual_revenue (which subtracts refunds)
+        effective_total: actualRevenue, // ✅ Use actual_revenue (after discount AND refunds)
         total_paid: totalPaid,
         credit_remaining: Math.max(0, actualRevenue - totalPaid), // ✅ Recalculate based on actual revenue
 
-        actual_revenue: actualRevenue, // ✅ Effective total (after discount and refunds)
+        actual_revenue: actualRevenue, // ✅ Final revenue (after discount and refunds)
         total_cost: totalCost,
         profit_or_loss: profitOrLoss, // ✅ Accrual basis: actual_revenue - cost
       },
