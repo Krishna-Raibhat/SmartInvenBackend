@@ -28,12 +28,28 @@ class ClothingReportService {
     const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
 
     const rows = await prisma.$queryRaw`
-      WITH sales_items AS (
+      WITH sales_with_effective AS (
         SELECT
           date_trunc(${g}, cs.created_at) AS period,
-          SUM(csi.line_total)::numeric AS gross_sales,
-          SUM((csi.cp * csi.qty))::numeric AS cost,
-          SUM((csi.sp * csi.qty))::numeric AS sales_value
+          cs.sales_id,
+          -- Effective total = total_amount - discount for each sale
+          GREATEST(cs.total_amount - COALESCE(cs.discount, 0), 0) AS effective_total
+        FROM clothing_sales cs
+        WHERE cs.owner_id = ${owner_id}
+          AND cs.created_at >= ${startFinal}
+          AND cs.created_at <= ${endFinal}
+      ),
+      sales_grouped AS (
+        SELECT
+          period,
+          SUM(effective_total)::numeric AS total_effective_sales
+        FROM sales_with_effective
+        GROUP BY period
+      ),
+      cost_grouped AS (
+        SELECT
+          date_trunc(${g}, cs.created_at) AS period,
+          SUM((csi.cp * csi.qty))::numeric AS cost
         FROM clothing_sales_items csi
         JOIN clothing_sales cs ON cs.sales_id = csi.sales_id
         WHERE cs.owner_id = ${owner_id}
@@ -44,8 +60,7 @@ class ClothingReportService {
       paid AS (
         SELECT
           date_trunc(${g}, created_at) AS period,
-          SUM(paid_amount)::numeric AS paid_total,
-          SUM(discount)::numeric AS discount_total  -- ← add this line
+          SUM(paid_amount)::numeric AS paid_total
         FROM clothing_sales
         WHERE owner_id = ${owner_id}
           AND created_at >= ${startFinal}
@@ -55,45 +70,43 @@ class ClothingReportService {
       returns AS (
         SELECT
           date_trunc(${g}, ccr.created_at) AS period,
-          SUM((csi.sp * ccri.qty))::numeric AS return_value,
           SUM(COALESCE(ccr.refund_amount, 0))::numeric AS refund_total
-        FROM clothing_customer_return_items ccri
-        JOIN clothing_customer_returns ccr ON ccr.return_id = ccri.return_id
-        LEFT JOIN clothing_sales_items csi ON csi.sales_item_id = ccri.sales_item_id
+        FROM clothing_customer_returns ccr
         WHERE ccr.owner_id = ${owner_id}
           AND ccr.created_at >= ${startFinal}
           AND ccr.created_at <= ${endFinal}
         GROUP BY 1
       )
       SELECT
-        COALESCE(si.period, p.period, r.period) AS period,
-        COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0) AS sales,
-        COALESCE(si.cost, 0) AS cost,
-        (COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0)) - COALESCE(si.cost, 0) AS profit,
+        COALESCE(sg.period, cg.period, p.period, r.period) AS period,
+        COALESCE(sg.total_effective_sales, 0) AS effective_sales,
+        COALESCE(cg.cost, 0) AS cost,
         COALESCE(p.paid_total, 0) AS paid,
-        COALESCE(p.discount_total, 0) AS discount_total, 
         COALESCE(r.refund_total, 0) AS refund_total
-      FROM sales_items si
-      FULL OUTER JOIN paid p ON p.period = si.period
-      FULL OUTER JOIN returns r ON r.period = COALESCE(si.period, p.period)
+      FROM sales_grouped sg
+      FULL OUTER JOIN cost_grouped cg ON cg.period = sg.period
+      FULL OUTER JOIN paid p ON p.period = COALESCE(sg.period, cg.period)
+      FULL OUTER JOIN returns r ON r.period = COALESCE(sg.period, cg.period, p.period)
       ORDER BY period ASC;
     `;
 
     return rows.map((r) => {
-      const sales = Number(r.sales || 0);
+      const effectiveSales = Number(r.effective_sales || 0);
+      const refund = Number(r.refund_total || 0);
+      const revenue = effectiveSales - refund; // Revenue after refunds
       const cost = Number(r.cost || 0);
       const paid = Number(r.paid || 0);
-      const refund = Number(r.refund_total || 0);
-      const discount = Number(r.discount_total || 0);
-      const effectiveSales = sales - discount;
-      const due = effectiveSales - paid - refund
+      const profit = revenue - cost;
+      const due = revenue - paid;
+      
       return {
         period: new Date(r.period).toISOString(),
-        sales,
+        sales: revenue, // Net revenue (effective sales - refunds)
+        effective_sales: effectiveSales, // Before refunds
+        refund,
         cost,
         paid,
-        discount,
-        profit: Number(r.profit || 0),
+        profit,
         balance: due > 0 ? due : 0,
       };
     });
@@ -197,6 +210,16 @@ class ClothingReportService {
           AND cs.created_at <= ${endFinal}
         GROUP BY 1
       ),
+      discounts AS (
+        SELECT
+          date_trunc(${g}, created_at) AS period,
+          SUM(discount)::numeric AS discount_total
+        FROM clothing_sales
+        WHERE owner_id = ${owner_id}
+          AND created_at >= ${startFinal}
+          AND created_at <= ${endFinal}
+        GROUP BY 1
+      ),
       returns AS (
         SELECT
           date_trunc(${g}, ccr.created_at) AS period,
@@ -211,15 +234,17 @@ class ClothingReportService {
         GROUP BY 1
       )
       SELECT
-        COALESCE(i.period, o.period, r.period) AS period,
+        COALESCE(i.period, o.period, d.period, r.period) AS period,
         COALESCE(i.qty_in, 0) AS qty_in,
         (COALESCE(o.qty_out, 0) - COALESCE(r.qty_returned, 0)) AS net_qty_out,
-        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0)) AS net_sales,
+        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0)) AS gross_sales,
+        COALESCE(d.discount_total, 0) AS discount,
         COALESCE(o.cost, 0) AS cost,
-        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0)) - COALESCE(o.cost, 0) AS profit
+        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - COALESCE(o.cost, 0) AS profit
       FROM qty_in i
       FULL OUTER JOIN qty_out o ON o.period = i.period
-      FULL OUTER JOIN returns r ON r.period = COALESCE(i.period, o.period)
+      FULL OUTER JOIN discounts d ON d.period = COALESCE(i.period, o.period)
+      FULL OUTER JOIN returns r ON r.period = COALESCE(i.period, o.period, d.period)
       WHERE (COALESCE(o.qty_out, 0) > 0 OR COALESCE(r.qty_returned, 0) > 0)
       ORDER BY period ASC;
     `;
@@ -228,9 +253,11 @@ class ClothingReportService {
       period: new Date(r.period).toISOString(),
       qty_in: Number(r.qty_in || 0),
       qty_out: Number(r.net_qty_out || 0),
-      sales: Number(r.net_sales || 0),
+      gross_sales: Number(r.gross_sales || 0),
+      discount: Number(r.discount || 0),
+      sales: Number(r.gross_sales || 0) - Number(r.discount || 0), // Effective total
       cost: Number(r.cost || 0),
-      profit: Number(r.profit || 0),
+      profit: Number(r.profit || 0), // Effective total - cost
     }));
   }
 

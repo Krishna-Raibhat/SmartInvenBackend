@@ -23,24 +23,27 @@ class ClothingDashboardService {
 
     const endFinal = endDate || new Date();
 
-    // 1) Header totals (for display purposes)
-    const salesAgg = await prisma.clothingSales.aggregate({
-      where: {
-        owner_id,
-        created_at: { gte: startFinal, lte: endFinal },
-      },
-      _sum: {
-        total_amount: true,
-        discount: true,
-        paid_amount: true,
-      },
-      _count: { sales_id: true },
-    });
+    // 1) Header totals - Calculate effective_total properly
+    // Use raw query to sum (total_amount - discount) for each sale
+    const salesTotals = await prisma.$queryRaw`
+      SELECT 
+        COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
+        COALESCE(SUM(discount), 0)::numeric AS total_discount,
+        COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
+        COALESCE(SUM(GREATEST(total_amount - COALESCE(discount, 0), 0)), 0)::numeric AS effective_total,
+        COUNT(sales_id)::int AS sales_count
+      FROM clothing_sales
+      WHERE owner_id = ${owner_id}
+        AND created_at >= ${startFinal}
+        AND created_at <= ${endFinal}
+    `;
 
-    const totalSales = Number(salesAgg._sum.total_amount || 0);
-    const totalDiscount = Number(salesAgg._sum.discount || 0);
-    const totalPaid = Number(salesAgg._sum.paid_amount || 0);
-    const effectiveTotal = totalSales - totalDiscount;
+    const row = salesTotals[0];
+    const totalSales = Number(row.total_amount || 0);
+    const totalDiscount = Number(row.total_discount || 0);
+    const totalPaid = Number(row.total_paid || 0);
+    const effectiveTotal = Number(row.effective_total || 0); // Correctly calculated per-sale
+    const salesCount = Number(row.sales_count || 0);
     const creditRemaining = Math.max(0, effectiveTotal - totalPaid);
 
     // 2) Total products count
@@ -74,44 +77,42 @@ class ClothingDashboardService {
 
     const stockOutQtySold = Number(stockOutAgg._sum.qty || 0);
 
-    // 5) ✅ CASH BASIS: Revenue = paid_amount - discount (proportional)
+    // 5) ✅ ACCRUAL BASIS: Revenue = effective_total - refund_amount
+    //    Profit = (effective_total - refund_amount) - cost
     //    Cost = sum(cp * qty sold) - sum(cp * qty returned where condition='good')
     const rows = await prisma.$queryRaw`
       WITH sold AS (
         SELECT
           cs.sales_id,
-          cs.total_amount,
-          cs.discount,
-          cs.paid_amount,
-          -- effective = post-discount total; this is the correct denominator
-          GREATEST(cs.total_amount - cs.discount, 0) AS effective_total,
-          COALESCE(SUM(csi.cp * csi.qty), 0) AS sold_cost,
-          COALESCE(SUM(csi.sp * csi.qty), 0) AS sold_sp_total
+          -- effective_total = revenue before returns
+          GREATEST(cs.total_amount - COALESCE(cs.discount, 0), 0) AS effective_total,
+          COALESCE(SUM(csi.cp * csi.qty), 0) AS sold_cost
         FROM clothing_sales_items csi
         JOIN clothing_sales cs ON cs.sales_id = csi.sales_id
         WHERE cs.owner_id = ${owner_id}
           AND cs.created_at >= ${startFinal}
           AND cs.created_at <= ${endFinal}
-        GROUP BY cs.sales_id, cs.total_amount, cs.discount, cs.paid_amount
+        GROUP BY cs.sales_id, cs.total_amount, cs.discount
       ),
-      returned_good AS (
+      returns AS (
         SELECT
           cs.sales_id,
+          COALESCE(SUM(ccr.refund_amount), 0) AS total_refund,
           COALESCE(SUM(csi.cp * ccri.qty), 0) AS returned_cost,
-          COALESCE(SUM(csi.sp * ccri.qty), 0) AS returned_sp_total,
-          COALESCE(SUM(ccri.qty), 0)           AS returned_good_qty
-        FROM clothing_customer_return_items ccri
-        JOIN clothing_customer_returns ccr ON ccr.return_id = ccri.return_id
-        JOIN clothing_sales_items csi       ON csi.sales_item_id = ccri.sales_item_id
-        JOIN clothing_sales cs              ON cs.sales_id = csi.sales_id
+          COALESCE(SUM(CASE WHEN ccri.condition = 'good' THEN ccri.qty ELSE 0 END), 0) AS returned_good_qty,
+          COALESCE(SUM(ccri.qty), 0) AS returned_all_qty
+        FROM clothing_customer_returns ccr
+        LEFT JOIN clothing_customer_return_items ccri ON ccri.return_id = ccr.return_id
+        LEFT JOIN clothing_sales_items csi ON csi.sales_item_id = ccri.sales_item_id
+        LEFT JOIN clothing_sales cs ON cs.sales_id = csi.sales_id
         WHERE ccr.owner_id = ${owner_id}
           AND ccr.created_at >= ${startFinal}
           AND ccr.created_at <= ${endFinal}
-          AND ccri.condition = 'good'
         GROUP BY cs.sales_id
       ),
-      returned_all AS (
-        SELECT COALESCE(SUM(ccri.qty), 0) AS returned_all_qty
+      all_returns AS (
+        SELECT 
+          COALESCE(SUM(ccri.qty), 0) AS returned_all_qty
         FROM clothing_customer_return_items ccri
         JOIN clothing_customer_returns ccr ON ccr.return_id = ccri.return_id
         WHERE ccr.owner_id = ${owner_id}
@@ -119,23 +120,16 @@ class ClothingDashboardService {
           AND ccr.created_at <= ${endFinal}
       )
       SELECT
-        -- Bug 1 + 2 fix: use effective_total as denominator, apply same ratio to returns
-        COALESCE(SUM(
-          CASE
-            WHEN s.effective_total > 0
-            THEN (s.paid_amount / s.effective_total)
-                * (s.sold_sp_total - COALESCE(rg.returned_sp_total, 0))
-            ELSE 0
-          END
-        ), 0) AS actual_revenue,
+        -- Revenue = sum of all effective_totals minus all refund amounts
+        COALESCE(SUM(s.effective_total) - SUM(COALESCE(r.total_refund, 0)), 0) AS actual_revenue,
 
-        -- Cost: full COGS minus returned-good items (cost is not credit-dependent)
-        COALESCE(SUM(s.sold_cost - COALESCE(rg.returned_cost, 0)), 0) AS total_cost,
+        -- Cost = sold cost minus returned cost (for good condition items that go back to stock)
+        COALESCE(SUM(s.sold_cost) - SUM(COALESCE(r.returned_cost, 0)), 0) AS total_cost,
 
-        COALESCE(SUM(COALESCE(rg.returned_good_qty, 0)), 0) AS returned_good_qty,
-        (SELECT returned_all_qty FROM returned_all)          AS returned_all_qty
+        COALESCE(SUM(COALESCE(r.returned_good_qty, 0)), 0) AS returned_good_qty,
+        (SELECT returned_all_qty FROM all_returns) AS returned_all_qty
       FROM sold s
-      LEFT JOIN returned_good rg ON rg.sales_id = s.sales_id
+      LEFT JOIN returns r ON r.sales_id = s.sales_id
     `;
 
     const actualRevenue = Number(rows?.[0]?.actual_revenue || 0);
@@ -154,18 +148,18 @@ class ClothingDashboardService {
       totals: {
         total_sales: totalSales,
         total_discount: totalDiscount,
-        effective_total: effectiveTotal,
+        effective_total: actualRevenue, // ✅ Use actual_revenue (which subtracts refunds)
         total_paid: totalPaid,
-        credit_remaining: creditRemaining,
+        credit_remaining: Math.max(0, actualRevenue - totalPaid), // ✅ Recalculate based on actual revenue
 
-        actual_revenue: actualRevenue, // ✅ Only paid portion
+        actual_revenue: actualRevenue, // ✅ Effective total (after discount and refunds)
         total_cost: totalCost,
-        profit_or_loss: profitOrLoss, // ✅ Cash basis
+        profit_or_loss: profitOrLoss, // ✅ Accrual basis: actual_revenue - cost
       },
 
       counts: {
         total_products: totalProducts,
-        total_sales_bills: Number(salesAgg._count.sales_id || 0),
+        total_sales_bills: salesCount,
 
         stock_in_lots: stockInLots,
         stock_in_qty: stockInQty,

@@ -35,14 +35,17 @@ class GroceryReportService {
       },
       _sum: {
         total_amount: true,
+        discount: true,
         paid_amount: true,
       },
       _count: { sales_id: true },
     });
 
     const totalSales = Number(salesAgg._sum.total_amount || 0);
+    const totalDiscount = Number(salesAgg._sum.discount || 0);
     const totalPaid = Number(salesAgg._sum.paid_amount || 0);
-    const dueBalance = Math.max(0, totalSales - totalPaid);
+    const effectiveTotal = totalSales - totalDiscount;
+    const dueBalance = Math.max(0, effectiveTotal - totalPaid);
     const salesCount = Number(salesAgg._count.sales_id || 0);
 
     // 2) Cost and Profit calculation
@@ -105,9 +108,13 @@ class GroceryReportService {
 
     // Net values after returns
     const netSales = totalSales - returnValue;
+    const netDiscount = totalDiscount; // Discount is on the original sale
+    const effectiveNetSales = netSales - netDiscount;
     const netCost = totalCost - returnCost;
     const netPaid = totalPaid - totalRefund;
-    const netDueBalance = Math.max(0, netSales - netPaid);
+    const netDueBalance = Math.max(0, effectiveNetSales - netPaid);
+    // ✅ Profit = Revenue - Cost (discount is NOT subtracted from profit)
+    // Discount affects what customer pays, not the profit margin on items
     const estimatedProfit = netSales - netCost;
 
     return {
@@ -117,6 +124,8 @@ class GroceryReportService {
       },
       summary: {
         total_sales: netSales,
+        total_discount: netDiscount,
+        effective_sales: effectiveNetSales,
         total_cost: netCost,
         total_paid: netPaid,
         due_balance: netDueBalance,
@@ -126,6 +135,7 @@ class GroceryReportService {
       },
       breakdown: {
         gross_sales: totalSales,
+        gross_discount: totalDiscount,
         gross_cost: totalCost,
         gross_paid: totalPaid,
         return_value: returnValue,

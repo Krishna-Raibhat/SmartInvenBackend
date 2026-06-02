@@ -385,6 +385,7 @@ model ClothingCustomerReturnItem {
   sales_item_id  String?
   lot_id         String
   qty            Int
+  amount         Decimal?               @db.Decimal(10, 2)
   condition      String                 @default("good")
   note           String?
   created_at     DateTime               @default(now())
@@ -636,6 +637,7 @@ model GrocerySales {
   customer_id    String?
   payment_status String                  @default("pending")
   total_amount   Decimal                 @db.Decimal(10, 2)
+  discount       Decimal                 @default(0) @db.Decimal(10, 2)
   paid_amount    Decimal                 @db.Decimal(10, 2)
   note           String?
   created_at     DateTime                @default(now())

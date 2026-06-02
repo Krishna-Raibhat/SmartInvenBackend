@@ -8,7 +8,7 @@ const Decimal = Prisma.Decimal;
 class GrocerySalesService {
   // ✅ CREATE SALE (with optional lot_id or FIFO, auto-create customer)
   async createSale(owner_id, payload) {
-    const { customer_id, customer, paid_amount, payment_status, note, items } =
+    const { customer_id, customer, paid_amount, payment_status, note, discount, items } =
       payload;
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -23,6 +23,14 @@ class GrocerySalesService {
       const e = new Error("paid_amount must be a valid number");
       e.status = 400;
       e.code = "VALIDATION_PAID_INVALID";
+      throw e;
+    }
+
+    const disc = Number(discount ?? 0);
+    if (!Number.isFinite(disc) || disc < 0) {
+      const e = new Error("discount must be a valid number >= 0");
+      e.status = 400;
+      e.code = "VALIDATION_DISCOUNT_INVALID";
       throw e;
     }
 
@@ -84,6 +92,7 @@ class GrocerySalesService {
           customer_id: finalCustomerId,
           payment_status: payment_status || "pending",
           total_amount: 0,
+          discount: disc,
           paid_amount: paid,
           note: note ?? null,
         },
@@ -238,6 +247,17 @@ class GrocerySalesService {
         throw e;
       }
 
+      // ✅ Calculate effective total (total - discount)
+      const effectiveTotal = totalAmount.sub(disc);
+
+      // ✅ Validate discount doesn't exceed total
+      if (disc > totalAmount.toNumber()) {
+        const e = new Error("Discount cannot exceed total amount");
+        e.status = 400;
+        e.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL";
+        throw e;
+      }
+
       let finalStatus = "pending";
 
       if (payment_status === "paid") {
@@ -245,7 +265,7 @@ class GrocerySalesService {
       } else if (payment_status === "partial") {
         finalStatus = "partial";
       } else {
-        if (paid >= totalAmount.toNumber() && totalAmount.gt(0))
+        if (paid >= effectiveTotal.toNumber() && effectiveTotal.gt(0))
           finalStatus = "paid";
         else if (paid > 0) finalStatus = "partial";
       }
@@ -254,6 +274,7 @@ class GrocerySalesService {
         where: { sales_id: header.sales_id },
         data: {
           total_amount: totalAmount,
+          discount: disc,
           paid_amount: paid,
           payment_status: finalStatus,
         },
@@ -357,7 +378,7 @@ class GrocerySalesService {
     return prisma.$transaction(async (tx) => {
       const sale = await tx.grocerySales.findFirst({
         where: { owner_id, sales_id },
-        select: { sales_id: true, total_amount: true, paid_amount: true },
+        select: { sales_id: true, total_amount: true, discount: true, paid_amount: true },
       });
       if (!sale) {
         const e = new Error("Sale not found");
@@ -367,18 +388,20 @@ class GrocerySalesService {
       }
 
       const total = Number(sale.total_amount);
+      const discount = Number(sale.discount || 0);
+      const effectiveTotal = total - discount;
       const currentPaid = Number(sale.paid_amount);
       const newPaid = currentPaid + add;
 
-      if (newPaid > total) {
-        const e = new Error("Payment exceeds total amount");
+      if (newPaid > effectiveTotal) {
+        const e = new Error("Payment exceeds total amount after discount");
         e.status = 400;
         e.code = "PAYMENT_EXCEEDS_TOTAL";
         throw e;
       }
 
       let status = "pending";
-      if (newPaid >= total && total > 0) status = "paid";
+      if (newPaid >= effectiveTotal && effectiveTotal > 0) status = "paid";
       else if (newPaid > 0) status = "partial";
 
       return tx.grocerySales.update({
@@ -404,8 +427,10 @@ class GrocerySalesService {
     });
 
     const total = Number(sale.total_amount);
+    const discount = Number(sale.discount || 0);
+    const effectiveTotal = total - discount;
     const paid = Number(sale.paid_amount);
-    const remaining = total - paid;
+    const remaining = effectiveTotal - paid;
 
     return {
       sale_id: sale.sales_id,
@@ -413,8 +438,10 @@ class GrocerySalesService {
       payment_status: sale.payment_status,
       totals: {
         total_amount: total,
+        discount: discount,
+        effective_total: effectiveTotal,
         paid_amount: paid,
-        remaining_amount: remaining,
+        remaining_amount: remaining > 0 ? remaining : 0,
       },
       owner,
       customer: sale.customer,

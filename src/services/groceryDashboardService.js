@@ -47,14 +47,17 @@ class GroceryDashboardService {
       },
       _sum: {
         total_amount: true,
+        discount: true,
         paid_amount: true,
       },
       _count: { sales_id: true },
     });
 
     const totalSales = Number(salesAgg._sum.total_amount || 0);
+    const totalDiscount = Number(salesAgg._sum.discount || 0);
     const totalPaid = Number(salesAgg._sum.paid_amount || 0);
-    const creditRemaining = Math.max(0, totalSales - totalPaid);
+    const effectiveTotal = totalSales - totalDiscount;
+    const creditRemaining = Math.max(0, effectiveTotal - totalPaid);
     const salesCount = Number(salesAgg._count.sales_id || 0);
 
     // 2) Profit Calculation (Revenue - Cost)
@@ -94,14 +97,16 @@ class GroceryDashboardService {
     return {
       sales: {
         total_amount: totalSales,
+        total_discount: totalDiscount,
+        effective_total: effectiveTotal,
         paid_amount: totalPaid,
         credit_remaining: creditRemaining,
         count: salesCount,
       },
       profit: {
-        total_revenue: totalRevenue,
+        total_revenue: totalRevenue,    // Gross revenue (sp × qty)
         total_cost: totalCost,
-        profit: profit,
+        profit: profit,                 // Revenue - Cost (discount doesn't affect this)
       },
       products: {
         count: productCount,
@@ -129,6 +134,16 @@ class GroceryDashboardService {
           AND gs.created_at <= ${endFinal}
         GROUP BY 1
       ),
+      discounts AS (
+        SELECT
+          date_trunc('day', created_at) AS period,
+          SUM(discount)::numeric AS discount_total
+        FROM grocery_sales
+        WHERE owner_id = ${owner_id}
+          AND created_at >= ${startFinal}
+          AND created_at <= ${endFinal}
+        GROUP BY 1
+      ),
       paid AS (
         SELECT
           date_trunc('day', created_at) AS period,
@@ -153,27 +168,33 @@ class GroceryDashboardService {
         GROUP BY 1
       )
       SELECT
-        COALESCE(si.period, p.period, r.period) AS period,
+        COALESCE(si.period, d.period, p.period, r.period) AS period,
         COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0) AS sales,
+        COALESCE(d.discount_total, 0) AS discount,
         COALESCE(si.cost, 0) AS cost,
         (COALESCE(si.gross_sales, 0) - COALESCE(r.return_value, 0)) - COALESCE(si.cost, 0) AS profit,
         COALESCE(p.paid_total, 0) AS paid,
         COALESCE(r.refund_total, 0) AS refund_total
       FROM sales_items si
-      FULL OUTER JOIN paid p ON p.period = si.period
-      FULL OUTER JOIN returns r ON r.period = COALESCE(si.period, p.period)
+      FULL OUTER JOIN discounts d ON d.period = si.period
+      FULL OUTER JOIN paid p ON p.period = COALESCE(si.period, d.period)
+      FULL OUTER JOIN returns r ON r.period = COALESCE(si.period, d.period, p.period)
       ORDER BY period ASC;
     `;
 
     return rows.map((r) => {
       const sales = Number(r.sales || 0);
+      const discount = Number(r.discount || 0);
+      const effectiveSales = sales - discount;
       const cost = Number(r.cost || 0);
       const paid = Number(r.paid || 0);
       const refund = Number(r.refund_total || 0);
-      const due = sales - paid - refund;
+      const due = effectiveSales - paid - refund;
       return {
         period: new Date(r.period).toISOString(),
         sales,
+        discount,
+        effective_sales: effectiveSales,
         cost,
         paid,
         profit: Number(r.profit || 0),
@@ -231,6 +252,7 @@ class GroceryDashboardService {
         select: {
           sales_id: true,
           total_amount: true,
+          discount: true,
           paid_amount: true,
           payment_status: true,
           created_at: true,
@@ -277,11 +299,14 @@ class GroceryDashboardService {
     }
 
     for (const s of sales) {
+      const discount = Number(s.discount || 0);
+      const effectiveTotal = Number(s.total_amount) - discount;
+      const discountMsg = discount > 0 ? ` (Disc: ${discount})` : '';
       activities.push({
         type: "STOCK_OUT",
         created_at: s.created_at,
         title: "Sale (stock out)",
-        message: `Bill ${s.sales_id} • Total ${Number(s.total_amount)} • Paid ${Number(s.paid_amount)} • ${s.payment_status}`,
+        message: `Bill ${s.sales_id} • Total ${effectiveTotal}${discountMsg} • Paid ${Number(s.paid_amount)} • ${s.payment_status}`,
         ref: { sales_id: s.sales_id },
       });
     }

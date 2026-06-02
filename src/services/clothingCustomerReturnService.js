@@ -19,6 +19,23 @@ class ClothingCustomerReturnService {
       throw e;
     }
 
+    // Validate that each item has an amount
+    for (const item of items) {
+      if (item.amount === undefined || item.amount === null) {
+        const e = new Error("Each return item must have an amount specified");
+        e.status = 400;
+        e.code = "VALIDATION_AMOUNT_REQUIRED";
+        throw e;
+      }
+      const amt = Number(item.amount);
+      if (!Number.isFinite(amt) || amt < 0) {
+        const e = new Error("Item amount must be a valid non-negative number");
+        e.status = 400;
+        e.code = "VALIDATION_AMOUNT_INVALID";
+        throw e;
+      }
+    }
+
     return prisma.$transaction(async (tx) => {
       /* =========================
          1️⃣ Load Sale
@@ -136,12 +153,15 @@ class ClothingCustomerReturnService {
         /* =========================
            3.3 Create Return Item
         ========================= */
+        const itemAmount = Number(it.amount || 0);
+        
         await tx.clothingCustomerReturnItem.create({
           data: {
             return_id: ret.return_id,
             sales_item_id,
             lot_id: salesItem.lot_id,
             qty,
+            amount: itemAmount,
             condition,
             note: it.note ?? null,
           },
@@ -169,7 +189,8 @@ class ClothingCustomerReturnService {
           });
         }
 
-        returnValue += Number(salesItem.sp) * qty;
+        // Add item amount to total refund
+        returnValue += itemAmount;
       }
 
       /* =========================
