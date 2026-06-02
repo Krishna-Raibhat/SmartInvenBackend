@@ -377,7 +377,8 @@ class ClothingSalesService {
           returned_qty: returnedQty,
           remaining_qty: remainingQty,
 
-          sp: Number(it.sp),
+          cp: Number(it.cp), // ✅ Cost price
+          sp: Number(it.sp), // ✅ Selling price
           line_total: Number(it.line_total),
           note: it.note,
         };
