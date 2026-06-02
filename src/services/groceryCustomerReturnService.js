@@ -132,12 +132,15 @@ class GroceryCustomerReturnService {
         /* =========================
            3.3 Create Return Item
         ========================= */
+        const itemAmount = Number(it.amount || 0);
+        
         await tx.groceryCustomerReturnItem.create({
           data: {
             return_id: ret.return_id,
             sales_item_id,
             lot_id: salesItem.lot_id,
             qty,
+            amount: itemAmount,
             note: it.note ?? null,
           },
         });

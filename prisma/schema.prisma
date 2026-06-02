@@ -704,6 +704,7 @@ model GroceryCustomerReturnItem {
   sales_item_id  String
   lot_id         String
   qty            Decimal               @db.Decimal(10, 3)
+  amount         Decimal?              @db.Decimal(10, 2)
   note           String?
   created_at     DateTime              @default(now())
   lot            GroceryStockLot       @relation(fields: [lot_id], references: [lot_id])
