@@ -158,12 +158,24 @@ class GroceryCustomerReturnService {
         /* =========================
            3.5 Always Restock (add back to lot)
         ========================= */
+        const beforeUpdate = await tx.groceryStockLot.findFirst({
+          where: { lot_id: salesItem.lot_id },
+          select: { qty_remaining: true },
+        });
+
         await tx.groceryStockLot.update({
           where: { lot_id: salesItem.lot_id },
           data: {
             qty_remaining: { increment: qty },
           },
         });
+
+        const afterUpdate = await tx.groceryStockLot.findFirst({
+          where: { lot_id: salesItem.lot_id },
+          select: { qty_remaining: true },
+        });
+
+        console.log(`[GROCERY RETURN] Lot ${salesItem.lot_id}: qty_remaining ${beforeUpdate.qty_remaining} → ${afterUpdate.qty_remaining} (returned ${qty})`);
 
         // Add item amount to return value
         returnValue = returnValue.add(new Decimal(itemAmount));

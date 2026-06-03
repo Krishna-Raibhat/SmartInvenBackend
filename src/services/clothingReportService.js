@@ -7,7 +7,6 @@ function parseDateOrNull(x) {
   return d;
 }
 
-// group: day|week|month|year
 function normalizeGroup(group) {
   const g = String(group || "day").toLowerCase();
   if (!["day", "week", "month", "year"].includes(g)) return "day";
@@ -32,7 +31,6 @@ class ClothingReportService {
         SELECT
           date_trunc(${g}, cs.created_at) AS period,
           cs.sales_id,
-          -- Effective total = total_amount - discount for each sale
           GREATEST(cs.total_amount - COALESCE(cs.discount, 0), 0) AS effective_total
         FROM clothing_sales cs
         WHERE cs.owner_id = ${owner_id}
@@ -70,8 +68,11 @@ class ClothingReportService {
       returns AS (
         SELECT
           date_trunc(${g}, ccr.created_at) AS period,
-          SUM(COALESCE(ccr.refund_amount, 0))::numeric AS refund_total
+          SUM(COALESCE(ccr.refund_amount, 0))::numeric AS refund_total,
+          COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN csi.cp * ccri.qty ELSE 0 END), 0)::numeric AS returned_cost_good
         FROM clothing_customer_returns ccr
+        LEFT JOIN clothing_customer_return_items ccri ON ccri.return_id = ccr.return_id
+        LEFT JOIN clothing_sales_items csi ON csi.sales_item_id = ccri.sales_item_id
         WHERE ccr.owner_id = ${owner_id}
           AND ccr.created_at >= ${startFinal}
           AND ccr.created_at <= ${endFinal}
@@ -82,7 +83,8 @@ class ClothingReportService {
         COALESCE(sg.total_effective_sales, 0) AS effective_sales,
         COALESCE(cg.cost, 0) AS cost,
         COALESCE(p.paid_total, 0) AS paid,
-        COALESCE(r.refund_total, 0) AS refund_total
+        COALESCE(r.refund_total, 0) AS refund_total,
+        COALESCE(r.returned_cost_good, 0) AS returned_cost_good
       FROM sales_grouped sg
       FULL OUTER JOIN cost_grouped cg ON cg.period = sg.period
       FULL OUTER JOIN paid p ON p.period = COALESCE(sg.period, cg.period)
@@ -93,16 +95,17 @@ class ClothingReportService {
     return rows.map((r) => {
       const effectiveSales = Number(r.effective_sales || 0);
       const refund = Number(r.refund_total || 0);
-      const revenue = effectiveSales - refund; // Revenue after refunds
-      const cost = Number(r.cost || 0);
+      const revenue = effectiveSales - refund;
+      const returnedCostGood = Number(r.returned_cost_good || 0);
+      const cost = Number(r.cost || 0) - returnedCostGood; // ✅ Recover CP of good-condition returns
       const paid = Number(r.paid || 0);
       const profit = revenue - cost;
       const due = revenue - paid;
       
       return {
         period: new Date(r.period).toISOString(),
-        sales: revenue, // Net revenue (effective sales - refunds)
-        effective_sales: effectiveSales, // Before refunds
+        sales: revenue,
+        effective_sales: effectiveSales,
         refund,
         cost,
         paid,
@@ -196,7 +199,6 @@ class ClothingReportService {
           AND csl.created_at <= ${endFinal}
         GROUP BY 1
       ),
-      
       qty_out AS (
         SELECT
           date_trunc(${g}, cs.created_at) AS period,
@@ -224,7 +226,8 @@ class ClothingReportService {
         SELECT
           date_trunc(${g}, ccr.created_at) AS period,
           SUM(ccri.qty)::int AS qty_returned,
-          SUM((csi.sp * ccri.qty))::numeric AS return_value
+          SUM((csi.sp * ccri.qty))::numeric AS return_value,
+          COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN csi.cp * ccri.qty ELSE 0 END), 0)::numeric AS returned_cost_good
         FROM clothing_customer_return_items ccri
         JOIN clothing_customer_returns ccr ON ccr.return_id = ccri.return_id
         LEFT JOIN clothing_sales_items csi ON csi.sales_item_id = ccri.sales_item_id
@@ -239,8 +242,8 @@ class ClothingReportService {
         (COALESCE(o.qty_out, 0) - COALESCE(r.qty_returned, 0)) AS net_qty_out,
         (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0)) AS gross_sales,
         COALESCE(d.discount_total, 0) AS discount,
-        COALESCE(o.cost, 0) AS cost,
-        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - COALESCE(o.cost, 0) AS profit
+        COALESCE(o.cost, 0) - COALESCE(r.returned_cost_good, 0) AS cost,
+        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - (COALESCE(o.cost, 0) - COALESCE(r.returned_cost_good, 0)) AS profit
       FROM qty_in i
       FULL OUTER JOIN qty_out o ON o.period = i.period
       FULL OUTER JOIN discounts d ON d.period = COALESCE(i.period, o.period)
@@ -255,9 +258,9 @@ class ClothingReportService {
       qty_out: Number(r.net_qty_out || 0),
       gross_sales: Number(r.gross_sales || 0),
       discount: Number(r.discount || 0),
-      sales: Number(r.gross_sales || 0) - Number(r.discount || 0), // Effective total
+      sales: Number(r.gross_sales || 0) - Number(r.discount || 0),
       cost: Number(r.cost || 0),
-      profit: Number(r.profit || 0), // Effective total - cost
+      profit: Number(r.profit || 0),
     }));
   }
 

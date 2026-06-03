@@ -3,27 +3,31 @@ import prisma from "../config/prisma.js";
 
 class GroceryDashboardService {
   async getDashboard(owner_id) {
-    const now = new Date();
+    const nowUTC = new Date();
+    const NPT_OFFSET_MS = 5 * 60 * 60 * 1000 + 45 * 60 * 1000; // 5h45m
+    const nowNPT = new Date(nowUTC.getTime() + NPT_OFFSET_MS);
 
-    // Today: 00:00:00 to now
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
+    // Today start in NPT, converted back to UTC for DB query
+    const todayStartNPT = new Date(
+      Date.UTC(nowNPT.getUTCFullYear(), nowNPT.getUTCMonth(), nowNPT.getUTCDate(), 0, 0, 0, 0) - NPT_OFFSET_MS
+    );
 
-    // This Month: First day of month 00:00:00 to now
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    // This Month start in NPT, converted back to UTC
+    const monthStartNPT = new Date(
+      Date.UTC(nowNPT.getUTCFullYear(), nowNPT.getUTCMonth(), 1, 0, 0, 0, 0) - NPT_OFFSET_MS
+    );
 
-    // Last 7 days: 7 days ago 00:00:00 to now
-    const last7DaysStart = new Date(now);
-    last7DaysStart.setDate(last7DaysStart.getDate() - 6); // 6 days ago + today = 7 days
-    last7DaysStart.setHours(0, 0, 0, 0);
-
-    // All Time: No filter
+    // Last 7 days start in NPT
+    const last7NPT = new Date(nowNPT.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const last7StartNPT = new Date(
+      Date.UTC(last7NPT.getUTCFullYear(), last7NPT.getUTCMonth(), last7NPT.getUTCDate(), 0, 0, 0, 0) - NPT_OFFSET_MS
+    );
 
     const [today, thisMonth, allTime, salesReport] = await Promise.all([
-      this.getStats(owner_id, todayStart, now),
-      this.getStats(owner_id, monthStart, now),
+      this.getStats(owner_id, todayStartNPT, nowUTC),
+      this.getStats(owner_id, monthStartNPT, nowUTC),
       this.getStats(owner_id, null, null),
-      this.getSalesReport(owner_id, last7DaysStart, now),
+      this.getSalesReport(owner_id, last7StartNPT, nowUTC),
     ]);
 
     return {
@@ -35,90 +39,120 @@ class GroceryDashboardService {
   }
 
   async getStats(owner_id, startDate, endDate) {
-    const dateFilter = startDate && endDate
-      ? { gte: startDate, lte: endDate }
-      : undefined;
+    const hasDate = startDate && endDate;
 
-    // 1) Header totals - Calculate effective_total properly (per-sale: total_amount - discount)
-    const salesTotals = await prisma.$queryRaw`
-      SELECT 
-        COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
-        COALESCE(SUM(discount), 0)::numeric AS total_discount,
-        COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
-        COALESCE(SUM(GREATEST(total_amount - COALESCE(discount, 0), 0)), 0)::numeric AS effective_total,
-        COUNT(sales_id)::int AS sales_count
-      FROM grocery_sales
-      WHERE owner_id = ${owner_id}
-        ${dateFilter ? prisma.Prisma.sql`AND created_at >= ${startDate} AND created_at <= ${endDate}` : prisma.Prisma.empty}
-    `;
+    const salesTotals = hasDate
+      ? await prisma.$queryRaw`
+          SELECT 
+            COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
+            COALESCE(SUM(discount), 0)::numeric AS total_discount,
+            COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
+            COALESCE(SUM(GREATEST(total_amount - COALESCE(discount, 0), 0)), 0)::numeric AS effective_total,
+            COUNT(sales_id)::int AS sales_count
+          FROM grocery_sales
+          WHERE owner_id = ${owner_id}
+            AND created_at >= ${startDate}
+            AND created_at <= ${endDate}
+        `
+      : await prisma.$queryRaw`
+          SELECT 
+            COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
+            COALESCE(SUM(discount), 0)::numeric AS total_discount,
+            COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
+            COALESCE(SUM(GREATEST(total_amount - COALESCE(discount, 0), 0)), 0)::numeric AS effective_total,
+            COUNT(sales_id)::int AS sales_count
+          FROM grocery_sales
+          WHERE owner_id = ${owner_id}
+        `;
 
     const row = salesTotals[0];
     const totalSales = Number(row.total_amount || 0);
     const totalDiscount = Number(row.total_discount || 0);
     const totalPaid = Number(row.total_paid || 0);
-    const effectiveTotal = Number(row.effective_total || 0); // Correctly calculated per-sale
+    const effectiveTotal = Number(row.effective_total || 0);
     const salesCount = Number(row.sales_count || 0);
 
-    // 2) ✅ ACCRUAL BASIS: Revenue = effective_total - refund_amount
-    //    Profit = (effective_total - refund_amount) - cost
-    //    Cost = sum(cp * qty sold) - sum(cp * qty returned)
-    const rows = await prisma.$queryRaw`
-      WITH sold AS (
-        SELECT
-          gs.sales_id,
-          -- effective_total = revenue before returns
-          GREATEST(gs.total_amount - COALESCE(gs.discount, 0), 0) AS effective_total,
-          COALESCE(SUM(gsi.cp * gsi.qty), 0) AS sold_cost
-        FROM grocery_sales_items gsi
-        JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
-        WHERE gs.owner_id = ${owner_id}
-          ${dateFilter ? prisma.Prisma.sql`AND gs.created_at >= ${startDate} AND gs.created_at <= ${endDate}` : prisma.Prisma.empty}
-        GROUP BY gs.sales_id, gs.total_amount, gs.discount
-      ),
-      returns AS (
-        SELECT
-          gs.sales_id,
-          COALESCE(SUM(gcr.refund_amount), 0) AS total_refund,
-          COALESCE(SUM(gsi.cp * gcri.qty), 0) AS returned_cost
-        FROM grocery_customer_returns gcr
-        LEFT JOIN grocery_customer_return_items gcri ON gcri.return_id = gcr.return_id
-        LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
-        LEFT JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
-        WHERE gcr.owner_id = ${owner_id}
-          ${dateFilter ? prisma.Prisma.sql`AND gcr.created_at >= ${startDate} AND gcr.created_at <= ${endDate}` : prisma.Prisma.empty}
-        GROUP BY gs.sales_id
-      )
-      SELECT
-        -- Revenue = sum of all effective_totals minus all refund amounts
-        COALESCE(SUM(s.effective_total) - SUM(COALESCE(r.total_refund, 0)), 0) AS actual_revenue,
-        -- Cost = sold cost (DO NOT subtract returned cost - returns are a loss, not a cost reduction)
-        COALESCE(SUM(s.sold_cost), 0) AS total_cost
-      FROM sold s
-      LEFT JOIN returns r ON r.sales_id = s.sales_id
-    `;
+    const profitRows = hasDate
+      ? await prisma.$queryRaw`
+          WITH sold AS (
+            SELECT
+              gs.sales_id,
+              GREATEST(gs.total_amount - COALESCE(gs.discount, 0), 0) AS effective_total,
+              COALESCE(SUM(gsi.cp * gsi.qty), 0) AS sold_cost
+            FROM grocery_sales_items gsi
+            JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
+            WHERE gs.owner_id = ${owner_id}
+              AND gs.created_at >= ${startDate}
+              AND gs.created_at <= ${endDate}
+            GROUP BY gs.sales_id, gs.total_amount, gs.discount
+          ),
+          returns AS (
+            SELECT
+              gcr.sales_id,
+              COALESCE(SUM(gcr.refund_amount), 0) AS total_refund,
+              COALESCE(SUM(gsi.cp * gcri.qty), 0) AS returned_cost
+            FROM grocery_customer_returns gcr
+            INNER JOIN sold s ON s.sales_id = gcr.sales_id
+            LEFT JOIN grocery_customer_return_items gcri ON gcri.return_id = gcr.return_id
+            LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
+            WHERE gcr.owner_id = ${owner_id}
+            GROUP BY gcr.sales_id
+          )
+          SELECT
+            COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund), 0) AS actual_revenue,
+            COALESCE(SUM(s.sold_cost), 0) - COALESCE(SUM(r.returned_cost), 0) AS net_cost
+          FROM sold s
+          LEFT JOIN returns r ON r.sales_id = s.sales_id
+        `
+      : await prisma.$queryRaw`
+          WITH sold AS (
+            SELECT
+              gs.sales_id,
+              GREATEST(gs.total_amount - COALESCE(gs.discount, 0), 0) AS effective_total,
+              COALESCE(SUM(gsi.cp * gsi.qty), 0) AS sold_cost
+            FROM grocery_sales_items gsi
+            JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
+            WHERE gs.owner_id = ${owner_id}
+            GROUP BY gs.sales_id, gs.total_amount, gs.discount
+          ),
+          returns AS (
+            SELECT
+              gcr.sales_id,
+              COALESCE(SUM(gcr.refund_amount), 0) AS total_refund,
+              COALESCE(SUM(gsi.cp * gcri.qty), 0) AS returned_cost
+            FROM grocery_customer_returns gcr
+            INNER JOIN sold s ON s.sales_id = gcr.sales_id
+            LEFT JOIN grocery_customer_return_items gcri ON gcri.return_id = gcr.return_id
+            LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
+            WHERE gcr.owner_id = ${owner_id}
+            GROUP BY gcr.sales_id
+          )
+          SELECT
+            COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund), 0) AS actual_revenue,
+            COALESCE(SUM(s.sold_cost), 0) - COALESCE(SUM(r.returned_cost), 0) AS net_cost
+          FROM sold s
+          LEFT JOIN returns r ON r.sales_id = s.sales_id
+        `;
 
-    const actualRevenue = Number(rows?.[0]?.actual_revenue || 0);
-    const totalCost = Number(rows?.[0]?.total_cost || 0);
-    const profitOrLoss = actualRevenue - totalCost;
+    const actualRevenue = Number(profitRows?.[0]?.actual_revenue || 0);
+    const netCost = Number(profitRows?.[0]?.net_cost || 0);
+    const profitOrLoss = actualRevenue - netCost;
 
-    // 3) Product Count (All Time only, not filtered by date)
-    const productCount = dateFilter
-      ? null
-      : await prisma.groceryProduct.count({ where: { owner_id } });
+    const productCount = await prisma.groceryProduct.count({ where: { owner_id } });
 
     return {
       sales: {
         total_amount: totalSales,
         total_discount: totalDiscount,
-        effective_total: actualRevenue, // ✅ Use actual_revenue (after discount AND refunds) - matches clothing
+        effective_total: actualRevenue,
         paid_amount: totalPaid,
-        credit_remaining: Math.max(0, actualRevenue - totalPaid), // ✅ Based on actual revenue
+        credit_remaining: Math.max(0, actualRevenue - totalPaid),
         count: salesCount,
       },
       profit: {
-        actual_revenue: actualRevenue,   // ✅ Final revenue (after discount AND refunds)
-        total_cost: totalCost,
-        profit: profitOrLoss,            // ✅ Accrual basis: actual_revenue - cost
+        actual_revenue: actualRevenue,
+        total_cost: netCost,
+        profit: profitOrLoss,
       },
       products: {
         count: productCount,
@@ -283,6 +317,16 @@ class GroceryDashboardService {
           sales_id: true,
           refund_amount: true,
           created_at: true,
+          sales: {
+            select: {
+              customer: {
+                select: {
+                  full_name: true,
+                  phone: true,
+                },
+              },
+            },
+          },
         },
       }),
     ]);
@@ -326,11 +370,12 @@ class GroceryDashboardService {
     }
 
     for (const r of custReturns) {
+      const customerName = r.sales?.customer?.full_name || "Walk-in customer";
       activities.push({
         type: "CUSTOMER_RETURN",
         created_at: r.created_at,
         title: "Customer return",
-        message: `Return ${r.return_id} • Sale ${r.sales_id || "-"} • Refund ${Number(r.refund_amount || 0)}`,
+        message: `${customerName} • Bill #${r.sales_id?.slice(-8) || "-"} • Refund Rs.${Number(r.refund_amount || 0)}`,
         ref: { return_id: r.return_id, sales_id: r.sales_id },
       });
     }

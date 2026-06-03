@@ -62,6 +62,16 @@ class ClothingActivityService {
           sales_id: true,
           refund_amount: true,
           created_at: true,
+          sales: {
+            select: {
+              customer: {
+                select: {
+                  full_name: true,
+                  phone: true,
+                },
+              },
+            },
+          },
         },
       }),
 
@@ -115,11 +125,12 @@ class ClothingActivityService {
     }
 
     for (const r of custReturns) {
+      const customerName = r.sales?.customer?.full_name || "Walk-in customer";
       activities.push({
         type: "CUSTOMER_RETURN",
         created_at: r.created_at,
         title: "Customer return",
-        message: `Return ${r.return_id} • Sale ${r.sales_id || "-"} • Refund ${Number(r.refund_amount || 0)}`,
+        message: `${customerName} • Bill #${r.sales_id?.slice(-8) || "-"} • Refund Rs.${Number(r.refund_amount || 0)}`,
         ref: { return_id: r.return_id, sales_id: r.sales_id },
       });
     }

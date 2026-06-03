@@ -254,3 +254,17 @@ export const remove = async (req, res) => {
     return fail(res, 500, 'SERVER_ERROR', err.message);
   }
 };
+
+export const getAverageCost = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const result = await service.getAverageCost(owner_id);
+    
+    if (!result) return fail(res, 404, 'NOT_FOUND', 'No products found');
+    
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('Error getting average cost:', err);
+    return fail(res, 500, 'SERVER_ERROR', err.message);
+  }
+};

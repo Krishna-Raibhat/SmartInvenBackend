@@ -16,7 +16,7 @@ function normalizeGroup(group) {
 
 class GroceryReportService {
   // ✅ Sales Summary Report with Date Filter
-  async salesSummary(owner_id, { start, end }) {
+ async salesSummary(owner_id, { start, end }) {
     const startDate = parseDateOrNull(start);
     const endDate = parseDateOrNull(end);
 
@@ -24,7 +24,6 @@ class GroceryReportService {
     const startFinal = startDate
       ? startOfDay(startDate)
       : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
-
     const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
 
     // 1) Calculate effective_total properly (per-sale: total_amount - discount)
@@ -48,9 +47,10 @@ class GroceryReportService {
     const effectiveTotal = Number(row.effective_total || 0);
     const salesCount = Number(row.sales_count || 0);
 
-    // 2) ✅ ACCRUAL BASIS: Revenue = effective_total - refund_amount
-    //    Profit = (effective_total - refund_amount) - cost
-    //    Cost = sum(cp * qty sold) - sum(cp * qty returned)
+    // 2) ✅ CORRECT PROFIT CALCULATION
+    //    Revenue = effective_total - refund_amount (for returns of sales in this period)
+    //    Cost = sold_cost - returned_cost (returned items go back to stock, cost is recovered)
+    //    Profit = revenue - net_cost
     const rows = await prisma.$queryRaw`
       WITH sold AS (
         SELECT
@@ -67,33 +67,34 @@ class GroceryReportService {
       ),
       returns AS (
         SELECT
-          gs.sales_id,
+          gcr.sales_id,
           COALESCE(SUM(gcr.refund_amount), 0) AS total_refund,
           COALESCE(SUM(gsi.cp * gcri.qty), 0) AS returned_cost,
           COUNT(DISTINCT gcr.return_id)::int AS return_count
         FROM grocery_customer_returns gcr
+        INNER JOIN sold s ON s.sales_id = gcr.sales_id
         LEFT JOIN grocery_customer_return_items gcri ON gcri.return_id = gcr.return_id
         LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
-        LEFT JOIN grocery_sales gs ON gs.sales_id = gsi.sales_id
         WHERE gcr.owner_id = ${owner_id}
-          AND gcr.created_at >= ${startFinal}
-          AND gcr.created_at <= ${endFinal}
-        GROUP BY gs.sales_id
+        GROUP BY gcr.sales_id
       )
       SELECT
         -- Revenue = sum of all effective_totals minus all refund amounts
-        COALESCE(SUM(s.effective_total) - SUM(COALESCE(r.total_refund, 0)), 0) AS actual_revenue,
-        -- Cost = sold cost (DO NOT subtract returned cost - returns are a loss, not a cost reduction)
-        COALESCE(SUM(s.sold_cost), 0) AS total_cost,
-        COALESCE(SUM(COALESCE(r.return_count, 0)), 0) AS return_count
+        COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund), 0) AS actual_revenue,
+        
+        -- Cost = sold cost minus returned cost (returned items go back to stock)
+        COALESCE(SUM(s.sold_cost), 0) - COALESCE(SUM(r.returned_cost), 0) AS net_cost,
+        
+        COALESCE(SUM(r.return_count), 0) AS return_count
       FROM sold s
       LEFT JOIN returns r ON r.sales_id = s.sales_id
     `;
 
+
     const actualRevenue = Number(rows?.[0]?.actual_revenue || 0);
-    const totalCost = Number(rows?.[0]?.total_cost || 0);
+    const netCost = Number(rows?.[0]?.net_cost || 0);
     const returnCount = Number(rows?.[0]?.return_count || 0);
-    const profitOrLoss = actualRevenue - totalCost;
+    const profitOrLoss = actualRevenue - netCost;
 
     return {
       date_range: {
@@ -101,26 +102,27 @@ class GroceryReportService {
         end: endFinal.toISOString(),
       },
       summary: {
-        total_sales: effectiveTotal, // ✅ Effective total (after discount, before refunds)
+        total_sales: effectiveTotal,        // ✅ Effective total (after discount, before refunds)
         total_discount: totalDiscount,
-        effective_sales: actualRevenue, // ✅ Actual revenue (after discount AND refunds)
-        total_cost: totalCost,
+        effective_sales: actualRevenue,     // ✅ Actual revenue (after discount AND refunds)
+        total_cost: netCost,                // ✅ Cost (does NOT decrease when returned)
         total_paid: totalPaid,
         due_balance: Math.max(0, actualRevenue - totalPaid), // ✅ Based on actual revenue
-        estimated_profit: profitOrLoss, // ✅ Accrual basis: actual_revenue - cost
+        estimated_profit: profitOrLoss,     // ✅ Correct: revenue - cost
         sales_count: salesCount,
         return_count: returnCount,
       },
       breakdown: {
         gross_sales: totalSales,
         gross_discount: totalDiscount,
-        gross_cost: totalCost,
+        gross_cost: netCost,                // ✅ Cost stays same
         gross_paid: totalPaid,
         actual_revenue: actualRevenue,
         profit_or_loss: profitOrLoss,
       },
     };
   }
+
 
   // ✅ Top Selling Products with Date Filter
   async topProducts(owner_id, { start, end, limit = 10 }) {
@@ -244,7 +246,8 @@ class GroceryReportService {
         SELECT
           date_trunc(${g}, gcr.created_at) AS period,
           SUM(gcri.qty)::numeric AS qty_returned,
-          SUM((gsi.sp * gcri.qty))::numeric AS return_value
+          SUM((gsi.sp * gcri.qty))::numeric AS return_value,
+          SUM((gsi.cp * gcri.qty))::numeric AS returned_cost
         FROM grocery_customer_return_items gcri
         JOIN grocery_customer_returns gcr ON gcr.return_id = gcri.return_id
         LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
@@ -259,8 +262,8 @@ class GroceryReportService {
         (COALESCE(o.qty_out, 0) - COALESCE(r.qty_returned, 0)) AS net_qty_out,
         (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0)) AS gross_sales,
         COALESCE(d.discount_total, 0) AS discount,
-        COALESCE(o.cost, 0) AS cost,
-        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - COALESCE(o.cost, 0) AS profit
+        COALESCE(o.cost, 0) - COALESCE(r.returned_cost, 0) AS cost,
+        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - (COALESCE(o.cost, 0) - COALESCE(r.returned_cost, 0)) AS profit
       FROM qty_in i
       FULL OUTER JOIN qty_out o ON o.period = i.period
       FULL OUTER JOIN discounts d ON d.period = COALESCE(i.period, o.period)
@@ -268,6 +271,7 @@ class GroceryReportService {
       WHERE (COALESCE(o.qty_out, 0) > 0 OR COALESCE(r.qty_returned, 0) > 0)
       ORDER BY period ASC;
     `;
+
 
     return rows.map((r) => ({
       period: new Date(r.period).toISOString(),

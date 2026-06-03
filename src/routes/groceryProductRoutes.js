@@ -9,6 +9,9 @@ router.post('/', auth, controller.create);
 // Get all products for authenticated owner
 router.get('/', auth, controller.list);
 
+// Get average cost and inventory value
+router.get('/average-cost', auth, controller.getAverageCost);
+
 // Get product by barcode
 router.get('/barcode/:barcode', auth, controller.getByBarcode);
 
