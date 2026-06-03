@@ -48,4 +48,21 @@ export function getObject(key) {
   return client.getObject(BUCKET, key);
 }
 
+/**
+ * Generate a pre-signed URL for temporary access to an S3 object.
+ * @param {string} key - e.g. "payment-qr/abc-123.png"
+ * @param {number} expiresIn - expiry time in seconds (default: 3600 = 1 hour)
+ * @returns {Promise<string>} signed URL
+ */
+export async function getSignedUrl(key, expiresIn = 3600) {
+  try {
+    const url = await client.presignedGetObject(BUCKET, key, expiresIn);
+    console.log(`[S3] Generated signed URL for key: ${key}, expires in ${expiresIn}s`);
+    return url;
+  } catch (err) {
+    console.error(`[S3] Failed to generate signed URL:`, err.message);
+    throw err;
+  }
+}
+
 

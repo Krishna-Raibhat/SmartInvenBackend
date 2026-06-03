@@ -1,6 +1,6 @@
 // src/services/paymentQRStoreService.js
 import { prisma } from "../prisma/client.js";
-import { uploadToS3, getS3Url } from "../utils/s3.js";
+import { uploadToS3, getSignedUrl } from "../utils/s3.js";
 import { v4 as uuidv4 } from "uuid";
 
 class PaymentQRStoreService {
@@ -17,13 +17,26 @@ class PaymentQRStoreService {
     const rows = await prisma.paymentQRStore.findMany({
       orderBy: { created_at: "desc" },
     });
-    return rows.map((r) => ({ ...r, qr_image_url: getS3Url(r.qr_image_path) }));
+    
+    // Generate signed URLs for all QR images
+    const rowsWithSignedUrls = await Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        qr_image_url: await getSignedUrl(r.qr_image_path, 3600), // 1 hour expiry
+      }))
+    );
+    
+    return rowsWithSignedUrls;
   }
 
   async getById(id) {
     const row = await prisma.paymentQRStore.findUnique({ where: { id } });
     if (!row) return null;
-    return { ...row, qr_image_url: getS3Url(row.qr_image_path) };
+    
+    // Generate signed URL for the QR image
+    const signedUrl = await getSignedUrl(row.qr_image_path, 3600); // 1 hour expiry
+    
+    return { ...row, qr_image_url: signedUrl };
   }
 
   async getActive() {
@@ -32,7 +45,11 @@ class PaymentQRStoreService {
       orderBy: { created_at: "desc" },
     });
     if (!row) return null;
-    return { ...row, qr_image_url: getS3Url(row.qr_image_path) };
+    
+    // Generate signed URL for the active QR image
+    const signedUrl = await getSignedUrl(row.qr_image_path, 3600); // 1 hour expiry
+    
+    return { ...row, qr_image_url: signedUrl };
   }
 
   async update(id, fileBuffer, mimeType) {
