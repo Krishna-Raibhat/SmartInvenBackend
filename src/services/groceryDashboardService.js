@@ -359,13 +359,13 @@ class GroceryDashboardService {
     for (const s of sales) {
       const discount = Number(s.discount || 0);
       const effectiveTotal = Number(s.total_amount) - discount;
-      const discountMsg = discount > 0 ? ` (Disc: ${discount})` : '';
-      const billId = s.sales_id.slice(-8).toUpperCase(); // Show last 8 chars
+      const customerName = s.customer?.full_name || "Walk-in";
+      const discountMsg = discount > 0 ? ` (Disc: Rs.${discount})` : '';
       activities.push({
         type: "STOCK_OUT",
         created_at: s.created_at,
         title: "Sale (stock out)",
-        message: `Bill #${billId} • Total Rs.${effectiveTotal}${discountMsg} • Paid Rs.${Number(s.paid_amount)} • ${s.payment_status}`,
+        message: `${customerName} • Total Rs.${effectiveTotal}${discountMsg} • Paid Rs.${Number(s.paid_amount)} • ${s.payment_status}`,
         ref: { sales_id: s.sales_id },
       });
     }
