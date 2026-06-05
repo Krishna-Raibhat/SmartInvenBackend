@@ -1,10 +1,25 @@
 import { Router } from "express";
-import { register, login, me, updateMe, changePassword, forgotPasswordSendOtp, forgotPasswordVerifyOtp, forgotPasswordReset, superAdminLogin, getAllOwners } from "../controllers/authController.js";
+import { 
+  register, 
+  login, 
+  me, 
+  updateMe, 
+  changePassword, 
+  forgotPasswordSendOtp, 
+  forgotPasswordVerifyOtp, 
+  forgotPasswordReset, 
+  superAdminLogin, 
+  getAllOwners,
+  verifyRegistrationOtp
+} from "../controllers/authController.js";
 import authMiddleware from "../middlewares/authMiddleware.js";
 
 const router = Router();
 
+// Registration with OTP (Step 1: Submit form, Step 2: Verify OTP & Create account)
 router.post("/register", register);
+router.post("/register/verify-otp", verifyRegistrationOtp);
+
 router.post("/login", login);
 
 router.get("/me", authMiddleware, me);

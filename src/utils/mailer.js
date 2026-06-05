@@ -367,3 +367,101 @@ export const sendSubscriptionExpiryReminderEmail = async ({ to, full_name, expir
     text,
   });
 };
+
+
+// REGISTRATION OTP EMAIL
+export const sendRegistrationOtpEmail = async ({ to, otp }) => {
+  const subject = "Verify Your Email — SmartInven Registration";
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Email Verification</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:36px 40px 28px;">
+              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
+              <div style="font-size:13px;color:#a8c7fa;margin-top:4px;letter-spacing:0.5px;">Inventory Management System</div>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px 48px 32px;">
+              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;">Email Verification</p>
+              <p style="margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.6;">
+                Thank you for registering with SmartInven! Please use the OTP below to verify your email address. This code is valid for <strong>5 minutes</strong>.
+              </p>
+
+              <!-- OTP Box -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding:8px 0 32px;">
+                    <div style="display:inline-block;background:#f0f5ff;border:2px dashed #1a73e8;border-radius:12px;padding:20px 48px;">
+                      <div style="font-size:11px;font-weight:600;color:#1a73e8;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Your Verification Code</div>
+                      <div style="font-size:42px;font-weight:700;color:#1a1a2e;letter-spacing:12px;">${otp}</div>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Timer note -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td style="background:#fff8e1;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;padding:12px 16px;">
+                    <span style="font-size:13px;color:#92400e;">⏱ This OTP expires in <strong>5 minutes</strong>. Do not share it with anyone.</span>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
+                If you did not register for a SmartInven account, you can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding:0 48px;">
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 48px 32px;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                © ${new Date().getFullYear()} SmartInven. All rights reserved.<br/>
+                This is an automated email — please do not reply.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `Your email verification OTP is: ${otp}\n\nThis OTP expires in 5 minutes.\nIf you did not register for a SmartInven account, ignore this email.`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    text,
+  });
+};

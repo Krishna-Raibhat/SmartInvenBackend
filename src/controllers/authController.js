@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 
 import { prisma } from "../prisma/client.js";
 // adjust path if needed
-import { sendOtpEmail } from "../utils/mailer.js";
+import { sendOtpEmail, sendRegistrationOtpEmail } from "../utils/mailer.js";
 
 
 const { sign, verify } = jwt;
@@ -140,47 +140,36 @@ export async function register(req, res) {
 
     const hashedPassword = await hash(password, 10);
 
-    // ✅ get/create selected package
-    let pkg = await prisma.package.findUnique({ where: { package_key } });
-    if (!pkg) {
-      pkg = await prisma.package.create({
-        data: { package_key, package_name: packageNameMap[package_key] },
-      });
-    }
+    // ✅ Validation passed - Generate and send OTP
+    const otp = generateOtp();
+    const otpHash = await hash(otp, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    // ✅ create owner in selected package with optional status
-    const owner = await prisma.owner.create({
+    // Store OTP with registration data
+    await prisma.registrationOtp.create({
       data: {
+        email,
+        otp_hash: otpHash,
+        expires_at: expiresAt,
+        wrong_attempts: 0,
+        locked_until: null,
+        last_sent_at: new Date(),
+        verified_at: null,
+        // Store registration data temporarily
         full_name,
         phone,
-        email,
-        password: hashedPassword,
-        package_id: pkg.package_id,
-        ...(status ? { status } : {}), // use provided status or default to 'trial'
-      },
-      select: {
-        owner_id: true,
-        full_name: true,
-        email: true,
-        phone: true,
-        package_id: true,
-        status: true,
-        package: { select: { package_key: true, package_name: true } },
+        password_hash: hashedPassword,
+        package_key,
       },
     });
 
-    // ✅ correct token payload
-    const token = generateToken({
-      owner_id: owner.owner_id,
-      email: owner.email,
-      package_id: owner.package_id,
-      package_key: owner.package.package_key,
-    });
+    // Send OTP email
+    await sendRegistrationOtpEmail({ to: email, otp });
 
-    return sendSuccess(res, 201, {
-      message: "Owner registered successfully.",
-      token,
-      owner,
+    return sendSuccess(res, 200, {
+      message: "Registration data validated. OTP sent to email.",
+      requires_verification: true,
+      expires_in: 300,
     });
   } catch (err) {
     console.error("Register error:", err);
@@ -835,5 +824,232 @@ export async function getAllOwners(req, res) {
     return sendError(res, 500, "SERVER_ERROR", "Failed to fetch owners.", {
       detail: err?.message ?? "An unexpected error occurred.",
     });
+  }
+}
+
+/* =========================
+   REGISTRATION: SEND OTP
+========================= */
+export async function sendRegistrationOtp(req, res) {
+  try {
+    let { email } = req.body;
+    email = normalizeEmail(email);
+
+    if (!email) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Email is required.");
+    }
+
+    const emailError = validateEmail(email);
+    if (emailError) {
+      return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
+    }
+
+    // Check if email already exists
+    const existingOwner = await prisma.owner.findUnique({ where: { email } });
+    if (existingOwner) {
+      return sendError(res, 409, "EMAIL_ALREADY_EXISTS", "Email is already registered.");
+    }
+
+    // Check for existing OTP record
+    const activeRecord = await prisma.registrationOtp.findFirst({
+      where: { email },
+      orderBy: { created_at: "desc" },
+    });
+
+    const now = new Date();
+
+    // Check if account is locked
+    if (activeRecord?.locked_until && activeRecord.locked_until > now) {
+      return res.status(423).json({
+        success: false,
+        error_code: "ACCOUNT_LOCKED",
+        message: "Too many wrong OTP attempts. Try later.",
+        locked_until: activeRecord.locked_until,
+      });
+    }
+
+    // Rate limiting: 30 seconds between OTP requests
+    if (activeRecord?.last_sent_at) {
+      const seconds = (now - new Date(activeRecord.last_sent_at)) / 1000;
+      if (seconds < 30) {
+        return res.status(429).json({
+          success: false,
+          error_code: "RATE_LIMIT",
+          message: "Please wait before requesting another OTP.",
+          retry_after: Math.ceil(30 - seconds),
+        });
+      }
+    }
+
+    // Generate OTP
+    const otp = generateOtp();
+    const otpHash = await hash(otp, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    // Store OTP
+    await prisma.registrationOtp.create({
+      data: {
+        email,
+        otp_hash: otpHash,
+        expires_at: expiresAt,
+        wrong_attempts: 0,
+        locked_until: null,
+        last_sent_at: now,
+        verified_at: null,
+      },
+    });
+
+    // Send OTP email
+    await sendRegistrationOtpEmail({ to: email, otp });
+
+    return sendSuccess(res, 200, {
+      message: "OTP sent to email.",
+      expires_in: 300, // seconds
+    });
+  } catch (error) {
+    console.error("sendRegistrationOtp error:", error);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to send OTP.");
+  }
+}
+
+/* =========================
+   REGISTRATION: VERIFY OTP
+========================= */
+export async function verifyRegistrationOtp(req, res) {
+  try {
+    let { email, otp } = req.body;
+    email = normalizeEmail(email);
+
+    if (!email || !otp) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Email and OTP are required.");
+    }
+
+    const record = await prisma.registrationOtp.findFirst({
+      where: { email },
+      orderBy: { created_at: "desc" },
+    });
+
+    if (!record) {
+      return sendError(res, 404, "OTP_NOT_FOUND", "No OTP found for this email.");
+    }
+
+    const now = new Date();
+
+    // Check if locked
+    if (record.locked_until && record.locked_until > now) {
+      return res.status(423).json({
+        success: false,
+        error_code: "ACCOUNT_LOCKED",
+        message: "Account is locked due to too many wrong attempts. Try later.",
+        locked_until: record.locked_until,
+      });
+    }
+
+    // Check if expired
+    if (record.expires_at <= now) {
+      return sendError(res, 400, "OTP_EXPIRED", "OTP has expired. Please request a new one.");
+    }
+
+    // Check if already verified
+    if (record.verified_at) {
+      return sendSuccess(res, 200, {
+        message: "OTP already verified.",
+        verified: true,
+      });
+    }
+
+    // Verify OTP
+    const isMatch = await compare(String(otp), record.otp_hash);
+
+    if (!isMatch) {
+      const newAttempts = record.wrong_attempts + 1;
+
+      // Lock after 3 wrong attempts
+      if (newAttempts >= 3) {
+        const lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+        await prisma.registrationOtp.update({
+          where: { id: record.id },
+          data: { wrong_attempts: newAttempts, locked_until: lockedUntil },
+        });
+
+        return res.status(423).json({
+          success: false,
+          error_code: "ACCOUNT_LOCKED",
+          message: "Too many wrong OTP attempts. Account locked for 30 minutes.",
+          locked_until: lockedUntil,
+        });
+      }
+
+      await prisma.registrationOtp.update({
+        where: { id: record.id },
+        data: { wrong_attempts: newAttempts },
+      });
+
+      return sendError(res, 401, "INVALID_OTP", "Invalid OTP.", {
+        remaining_attempts: 3 - newAttempts,
+      });
+    }
+
+    // Mark as verified
+    await prisma.registrationOtp.update({
+      where: { id: record.id },
+      data: { verified_at: now },
+    });
+
+    // ✅ CREATE OWNER ACCOUNT AFTER OTP VERIFICATION
+    if (!record.full_name || !record.phone || !record.password_hash || !record.package_key) {
+      return sendError(res, 400, "REGISTRATION_DATA_MISSING", "Registration data not found. Please register again.");
+    }
+
+    // Get or create package
+    let pkg = await prisma.package.findUnique({ where: { package_key: record.package_key } });
+    if (!pkg) {
+      pkg = await prisma.package.create({
+        data: {
+          package_key: record.package_key,
+          package_name: packageNameMap[record.package_key],
+        },
+      });
+    }
+
+    // Create owner account
+    const owner = await prisma.owner.create({
+      data: {
+        full_name: record.full_name,
+        phone: record.phone,
+        email: record.email,
+        password: record.password_hash,
+        package_id: pkg.package_id,
+        status: "trial", // default status
+      },
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        package_id: true,
+        status: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
+    });
+
+    // Generate token
+    const token = generateToken({
+      owner_id: owner.owner_id,
+      email: owner.email,
+      package_id: owner.package_id,
+      package_key: owner.package.package_key,
+    });
+
+    return sendSuccess(res, 201, {
+      message: "OTP verified and account created successfully.",
+      verified: true,
+      token,
+      owner,
+    });
+  } catch (error) {
+    console.error("verifyRegistrationOtp error:", error);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to verify OTP.");
   }
 }

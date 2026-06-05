@@ -79,6 +79,28 @@ model PasswordResetOtp {
   @@map("password_reset_otps")
 }
 
+model RegistrationOtp {
+  id             String    @id @default(uuid())
+  email          String
+  otp_hash       String
+  expires_at     DateTime
+  wrong_attempts Int       @default(0)
+  locked_until   DateTime?
+  last_sent_at   DateTime?
+  verified_at    DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  // Store registration data temporarily
+  full_name      String?
+  phone          String?
+  password_hash  String?
+  package_key    String?
+
+  @@index([email])
+  @@index([expires_at])
+  @@map("registration_otps")
+}
+
 model HardwareSupplier {
   supplier_id   String             @id @default(uuid())
   owner_id      String
