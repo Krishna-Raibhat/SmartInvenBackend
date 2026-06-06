@@ -176,6 +176,7 @@ model HardwareStockOut {
   note                String?
   created_at          DateTime               @default(now())
   customer_address    String?
+  discount            Decimal                @default(0) @db.Decimal(10, 2)
   customer_name       String?
   customer_phn_number String?
   owner               Owner                  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)

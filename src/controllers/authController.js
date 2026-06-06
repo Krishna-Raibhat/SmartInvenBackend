@@ -844,13 +844,11 @@ export async function sendRegistrationOtp(req, res) {
       return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
     }
 
-    // Check if email already exists
     const existingOwner = await prisma.owner.findUnique({ where: { email } });
     if (existingOwner) {
       return sendError(res, 409, "EMAIL_ALREADY_EXISTS", "Email is already registered.");
     }
 
-    // Check for existing OTP record
     const activeRecord = await prisma.registrationOtp.findFirst({
       where: { email },
       orderBy: { created_at: "desc" },
@@ -858,7 +856,6 @@ export async function sendRegistrationOtp(req, res) {
 
     const now = new Date();
 
-    // Check if account is locked
     if (activeRecord?.locked_until && activeRecord.locked_until > now) {
       return res.status(423).json({
         success: false,
@@ -868,7 +865,6 @@ export async function sendRegistrationOtp(req, res) {
       });
     }
 
-    // Rate limiting: 30 seconds between OTP requests
     if (activeRecord?.last_sent_at) {
       const seconds = (now - new Date(activeRecord.last_sent_at)) / 1000;
       if (seconds < 30) {
@@ -881,30 +877,43 @@ export async function sendRegistrationOtp(req, res) {
       }
     }
 
-    // Generate OTP
     const otp = generateOtp();
     const otpHash = await hash(otp, 10);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Store OTP
-    await prisma.registrationOtp.create({
-      data: {
-        email,
-        otp_hash: otpHash,
-        expires_at: expiresAt,
-        wrong_attempts: 0,
-        locked_until: null,
-        last_sent_at: now,
-        verified_at: null,
-      },
-    });
+    if (activeRecord) {
+      // ✅ UPDATE existing record — preserves full_name, phone, password_hash, package_key
+      await prisma.registrationOtp.update({
+        where: { id: activeRecord.id },
+        data: {
+          otp_hash: otpHash,
+          expires_at: expiresAt,
+          wrong_attempts: 0,
+          locked_until: null,
+          last_sent_at: now,
+          verified_at: null,
+        },
+      });
+    } else {
+      // ✅ CREATE new record (first-time, no prior record)
+      await prisma.registrationOtp.create({
+        data: {
+          email,
+          otp_hash: otpHash,
+          expires_at: expiresAt,
+          wrong_attempts: 0,
+          locked_until: null,
+          last_sent_at: now,
+          verified_at: null,
+        },
+      });
+    }
 
-    // Send OTP email
     await sendRegistrationOtpEmail({ to: email, otp });
 
     return sendSuccess(res, 200, {
       message: "OTP sent to email.",
-      expires_in: 300, // seconds
+      expires_in: 300,
     });
   } catch (error) {
     console.error("sendRegistrationOtp error:", error);
