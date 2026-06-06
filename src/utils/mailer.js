@@ -400,7 +400,7 @@ export const sendRegistrationOtpEmail = async ({ to, otp }) => {
             <td style="padding:40px 48px 32px;">
               <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;">Email Verification</p>
               <p style="margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.6;">
-                Thank you for registering with SmartInven! Please use the OTP below to verify your email address. This code is valid for <strong>5 minutes</strong>.
+                Thank you for registering with SmartInven! Please use the OTP below to verify your email address. This code is valid for <strong>3 minutes</strong>.
               </p>
 
               <!-- OTP Box -->
@@ -419,7 +419,7 @@ export const sendRegistrationOtpEmail = async ({ to, otp }) => {
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
                 <tr>
                   <td style="background:#fff8e1;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;padding:12px 16px;">
-                    <span style="font-size:13px;color:#92400e;">⏱ This OTP expires in <strong>5 minutes</strong>. Do not share it with anyone.</span>
+                    <span style="font-size:13px;color:#92400e;">⏱ This OTP expires in <strong>3 minutes</strong>. Do not share it with anyone.</span>
                   </td>
                 </tr>
               </table>
