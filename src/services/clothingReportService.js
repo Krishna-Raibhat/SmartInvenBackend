@@ -69,7 +69,7 @@ class ClothingReportService {
         SELECT
           date_trunc(${g}, ccr.created_at) AS period,
           SUM(COALESCE(ccr.refund_amount, 0))::numeric AS refund_total,
-          COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN csi.cp * ccri.qty ELSE 0 END), 0)::numeric AS returned_cost_good
+          COALESCE(SUM(csi.cp * ccri.qty), 0)::numeric AS returned_cost
         FROM clothing_customer_returns ccr
         LEFT JOIN clothing_customer_return_items ccri ON ccri.return_id = ccr.return_id
         LEFT JOIN clothing_sales_items csi ON csi.sales_item_id = ccri.sales_item_id
@@ -78,13 +78,14 @@ class ClothingReportService {
           AND ccr.created_at <= ${endFinal}
         GROUP BY 1
       )
+
       SELECT
         COALESCE(sg.period, cg.period, p.period, r.period) AS period,
         COALESCE(sg.total_effective_sales, 0) AS effective_sales,
         COALESCE(cg.cost, 0) AS cost,
         COALESCE(p.paid_total, 0) AS paid,
         COALESCE(r.refund_total, 0) AS refund_total,
-        COALESCE(r.returned_cost_good, 0) AS returned_cost_good
+        COALESCE(r.returned_cost, 0) AS returned_cost
       FROM sales_grouped sg
       FULL OUTER JOIN cost_grouped cg ON cg.period = sg.period
       FULL OUTER JOIN paid p ON p.period = COALESCE(sg.period, cg.period)
@@ -95,9 +96,11 @@ class ClothingReportService {
     return rows.map((r) => {
       const effectiveSales = Number(r.effective_sales || 0);
       const refund = Number(r.refund_total || 0);
+      const returnedCost = Number(r.returned_cost || 0);
       const revenue = effectiveSales - refund;
-      const returnedCostGood = Number(r.returned_cost_good || 0);
-      const cost = Number(r.cost || 0) - returnedCostGood; // ✅ Recover CP of good-condition returns
+      // cost is reduced by returned cp*qty since those items came back
+      // profit lost on return = refund - cp*qty
+      const cost = Number(r.cost || 0) - returnedCost;
       const paid = Number(r.paid || 0);
       const profit = revenue - cost;
       const due = revenue - paid;
@@ -203,8 +206,7 @@ class ClothingReportService {
         SELECT
           date_trunc(${g}, cs.created_at) AS period,
           SUM(csi.qty)::int AS qty_out,
-          SUM(csi.line_total)::numeric AS sales,
-          SUM((csi.cp * csi.qty))::numeric AS cost
+          SUM(csi.cp * csi.qty)::numeric AS cost
         FROM clothing_sales_items csi
         JOIN clothing_sales cs ON cs.sales_id = csi.sales_id
         WHERE cs.owner_id = ${owner_id}
@@ -212,10 +214,10 @@ class ClothingReportService {
           AND cs.created_at <= ${endFinal}
         GROUP BY 1
       ),
-      discounts AS (
+      effective_sales AS (
         SELECT
           date_trunc(${g}, created_at) AS period,
-          SUM(discount)::numeric AS discount_total
+          SUM(GREATEST(total_amount - COALESCE(discount, 0), 0))::numeric AS effective_sales
         FROM clothing_sales
         WHERE owner_id = ${owner_id}
           AND created_at >= ${startFinal}
@@ -226,10 +228,11 @@ class ClothingReportService {
         SELECT
           date_trunc(${g}, ccr.created_at) AS period,
           SUM(ccri.qty)::int AS qty_returned,
-          SUM((csi.sp * ccri.qty))::numeric AS return_value,
+          COALESCE(SUM(ccr.refund_amount), 0)::numeric AS refund_total,
+          -- only GOOD returns recover CP (item goes back to stock) — matches summary logic
           COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN csi.cp * ccri.qty ELSE 0 END), 0)::numeric AS returned_cost_good
-        FROM clothing_customer_return_items ccri
-        JOIN clothing_customer_returns ccr ON ccr.return_id = ccri.return_id
+        FROM clothing_customer_returns ccr
+        LEFT JOIN clothing_customer_return_items ccri ON ccri.return_id = ccr.return_id
         LEFT JOIN clothing_sales_items csi ON csi.sales_item_id = ccri.sales_item_id
         WHERE ccr.owner_id = ${owner_id}
           AND ccr.created_at >= ${startFinal}
@@ -237,17 +240,21 @@ class ClothingReportService {
         GROUP BY 1
       )
       SELECT
-        COALESCE(i.period, o.period, d.period, r.period) AS period,
+        COALESCE(i.period, o.period, e.period, r.period) AS period,
         COALESCE(i.qty_in, 0) AS qty_in,
         (COALESCE(o.qty_out, 0) - COALESCE(r.qty_returned, 0)) AS net_qty_out,
-        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0)) AS gross_sales,
-        COALESCE(d.discount_total, 0) AS discount,
-        COALESCE(o.cost, 0) - COALESCE(r.returned_cost_good, 0) AS cost,
-        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - (COALESCE(o.cost, 0) - COALESCE(r.returned_cost_good, 0)) AS profit
+        -- actual_revenue = effective_sales - refund  (matches summary)
+        (COALESCE(e.effective_sales, 0) - COALESCE(r.refund_total, 0)) AS actual_revenue,
+        COALESCE(r.refund_total, 0) AS refund_total,
+        -- net_cost = sold_cost - returned_cost_good  (matches summary)
+        (COALESCE(o.cost, 0) - COALESCE(r.returned_cost_good, 0)) AS cost,
+        -- profit = actual_revenue - net_cost  (matches summary)
+        (COALESCE(e.effective_sales, 0) - COALESCE(r.refund_total, 0))
+          - (COALESCE(o.cost, 0) - COALESCE(r.returned_cost_good, 0)) AS profit
       FROM qty_in i
       FULL OUTER JOIN qty_out o ON o.period = i.period
-      FULL OUTER JOIN discounts d ON d.period = COALESCE(i.period, o.period)
-      FULL OUTER JOIN returns r ON r.period = COALESCE(i.period, o.period, d.period)
+      FULL OUTER JOIN effective_sales e ON e.period = COALESCE(i.period, o.period)
+      FULL OUTER JOIN returns r ON r.period = COALESCE(i.period, o.period, e.period)
       WHERE (COALESCE(o.qty_out, 0) > 0 OR COALESCE(r.qty_returned, 0) > 0)
       ORDER BY period ASC;
     `;
@@ -256,9 +263,8 @@ class ClothingReportService {
       period: new Date(r.period).toISOString(),
       qty_in: Number(r.qty_in || 0),
       qty_out: Number(r.net_qty_out || 0),
-      gross_sales: Number(r.gross_sales || 0),
-      discount: Number(r.discount || 0),
-      sales: Number(r.gross_sales || 0) - Number(r.discount || 0),
+      sales: Number(r.actual_revenue || 0),
+      refund: Number(r.refund_total || 0),
       cost: Number(r.cost || 0),
       profit: Number(r.profit || 0),
     }));
@@ -293,58 +299,40 @@ class ClothingReportService {
     const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
 
     const summaryRows = await prisma.$queryRaw`
-    SELECT
-      COUNT(DISTINCT ccr.return_id)::int AS total_returns,
-      COALESCE(SUM(ccri.qty), 0)::int AS total_qty,
-      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'damaged' THEN ccri.qty ELSE 0 END), 0)::int AS damaged_qty,
-      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN ccri.qty ELSE 0 END), 0)::int AS good_qty,
-      COALESCE(SUM(csi.sp * ccri.qty), 0)::numeric AS return_value
-    FROM clothing_customer_return_items ccri
-    JOIN clothing_customer_returns ccr
-      ON ccr.return_id = ccri.return_id
-    LEFT JOIN clothing_sales_items csi
-      ON csi.sales_item_id = ccri.sales_item_id
-    WHERE ccr.owner_id = ${owner_id}
-      AND ccr.created_at >= ${startFinal}
-      AND ccr.created_at <= ${endFinal};
-  `;
-
-    const conditionRows = await prisma.$queryRaw`
-    SELECT
-      LOWER(ccri.condition) AS condition,
-      COALESCE(SUM(ccri.qty), 0)::int AS qty
-    FROM clothing_customer_return_items ccri
-    JOIN clothing_customer_returns ccr
-      ON ccr.return_id = ccri.return_id
-    WHERE ccr.owner_id = ${owner_id}
-      AND ccr.created_at >= ${startFinal}
-      AND ccr.created_at <= ${endFinal}
-    GROUP BY LOWER(ccri.condition)
-    ORDER BY qty DESC;
-  `;
+      SELECT
+        COUNT(DISTINCT ccr.return_id)::int AS total_returns,
+        COALESCE(SUM(ccri.qty), 0)::int AS total_qty,
+        COALESCE(SUM(csi.sp * ccri.qty), 0)::numeric AS return_value
+      FROM clothing_customer_return_items ccri
+      JOIN clothing_customer_returns ccr
+        ON ccr.return_id = ccri.return_id
+      LEFT JOIN clothing_sales_items csi
+        ON csi.sales_item_id = ccri.sales_item_id
+      WHERE ccr.owner_id = ${owner_id}
+        AND ccr.created_at >= ${startFinal}
+        AND ccr.created_at <= ${endFinal};
+    `;
 
     const productRows = await prisma.$queryRaw`
-    SELECT
-      p.product_id,
-      p.product_name,
-      COALESCE(SUM(ccri.qty), 0)::int AS total_qty,
-      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'damaged' THEN ccri.qty ELSE 0 END), 0)::int AS damaged_qty,
-      COALESCE(SUM(CASE WHEN LOWER(ccri.condition) = 'good' THEN ccri.qty ELSE 0 END), 0)::int AS good_qty,
-      COALESCE(SUM(csi.sp * ccri.qty), 0)::numeric AS return_value
-    FROM clothing_customer_return_items ccri
-    JOIN clothing_customer_returns ccr
-      ON ccr.return_id = ccri.return_id
-    LEFT JOIN clothing_sales_items csi
-      ON csi.sales_item_id = ccri.sales_item_id
-    LEFT JOIN clothing_products p
-      ON p.product_id = csi.product_id
-    WHERE ccr.owner_id = ${owner_id}
-      AND ccr.created_at >= ${startFinal}
-      AND ccr.created_at <= ${endFinal}
-    GROUP BY p.product_id, p.product_name
-    ORDER BY total_qty DESC, damaged_qty DESC
-    LIMIT 10;
-  `;
+      SELECT
+        p.product_id,
+        p.product_name,
+        COALESCE(SUM(ccri.qty), 0)::int AS total_qty,
+        COALESCE(SUM(csi.sp * ccri.qty), 0)::numeric AS return_value
+      FROM clothing_customer_return_items ccri
+      JOIN clothing_customer_returns ccr
+        ON ccr.return_id = ccri.return_id
+      LEFT JOIN clothing_sales_items csi
+        ON csi.sales_item_id = ccri.sales_item_id
+      LEFT JOIN clothing_products p
+        ON p.product_id = csi.product_id
+      WHERE ccr.owner_id = ${owner_id}
+        AND ccr.created_at >= ${startFinal}
+        AND ccr.created_at <= ${endFinal}
+      GROUP BY p.product_id, p.product_name
+      ORDER BY total_qty DESC
+      LIMIT 10;
+    `;
 
     const s = summaryRows[0] || {};
 
@@ -352,20 +340,12 @@ class ClothingReportService {
       summary: {
         total_returns: Number(s.total_returns || 0),
         total_qty: Number(s.total_qty || 0),
-        damaged_qty: Number(s.damaged_qty || 0),
-        good_qty: Number(s.good_qty || 0),
         return_value: Number(s.return_value || 0),
       },
-      by_condition: conditionRows.map((x) => ({
-        condition: x.condition || "unknown",
-        qty: Number(x.qty || 0),
-      })),
       top_products: productRows.map((x) => ({
         product_id: x.product_id,
         product_name: x.product_name || "Unknown Product",
         total_qty: Number(x.total_qty || 0),
-        damaged_qty: Number(x.damaged_qty || 0),
-        good_qty: Number(x.good_qty || 0),
         return_value: Number(x.return_value || 0),
       })),
     };

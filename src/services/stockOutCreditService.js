@@ -6,7 +6,7 @@ class StockOutCreditService {
       const stockOuts = await prisma.hardwareStockOut.findMany({
         where: {
           owner_id,
-          paid_amount: { lt: prisma.hardwareStockOut.fields.total_amount }, //paid_amount less than total_amount
+          payment_status: { in: ["pending", "partial"] }, // ✅ fixed
         },
         orderBy: {
           created_at: "desc",
@@ -15,11 +15,13 @@ class StockOutCreditService {
           items: true,
         },
       });
+
       const summary = stockOuts.map((s) => {
-        // Calculate totals from items (optional, can also use header total_amount)
-        const totalAmt = Number(s.total_amount);
+        const totalAmt  = Number(s.total_amount);
+        const discount  = Number(s.discount || 0);
         const totalPaid = Number(s.paid_amount);
-        const amtToPay = totalAmt - totalPaid;
+        const effectiveTotal = totalAmt - discount;   // ✅ discount-aware
+        const amtToPay  = effectiveTotal - totalPaid; // ✅ actual remaining
 
         return {
           stockout_id: s.stockout_id,
@@ -27,6 +29,8 @@ class StockOutCreditService {
           customer_phn_number: s.customer_phn_number,
           customer_address: s.customer_address,
           total_amount: totalAmt,
+          discount: discount,               // ✅ added
+          effective_total: effectiveTotal,  // ✅ added
           total_paid_amount: totalPaid,
           amount_to_pay: amtToPay,
           payment_status: s.payment_status,
@@ -38,8 +42,8 @@ class StockOutCreditService {
             line_total: Number(i.line_total),
           })),
         };
-        
       });
+
       return summary;
     } catch {
       const err = new Error("Failed to fetch stock-out with credit left");

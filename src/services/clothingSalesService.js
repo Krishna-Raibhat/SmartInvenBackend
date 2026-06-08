@@ -265,7 +265,7 @@ class ClothingSalesService {
   }
 
   async listCredit(owner_id) {
-    return prisma.clothingSales.findMany({
+    const sales = await prisma.clothingSales.findMany({
       where: {
         owner_id,
         OR: [{ payment_status: "pending" }, { payment_status: "partial" }],
@@ -275,8 +275,37 @@ class ClothingSalesService {
         customer: {
           select: { customer_id: true, full_name: true, phone: true },
         },
+        customerReturns: {
+          select: { refund_amount: true },
+        },
       },
       take: 200,
+    });
+
+    return sales.map((sale) => {
+      const total = Number(sale.total_amount || 0);
+      const discount = Number(sale.discount || 0);
+      const paid = Number(sale.paid_amount || 0);
+      const effectiveTotal = total - discount;
+      const totalRefunded = sale.customerReturns.reduce(
+        (sum, r) => sum + Number(r.refund_amount || 0),
+        0
+      );
+      // due = what customer still owes after refunds are applied
+      const due = Math.max(0, effectiveTotal - paid - totalRefunded);
+
+      return {
+        sales_id: sale.sales_id,
+        customer: sale.customer,
+        payment_status: sale.payment_status,
+        total_amount: total,
+        discount,
+        effective_total: effectiveTotal,
+        paid_amount: paid,
+        total_refunded: totalRefunded,
+        due_amount: due,
+        created_at: sale.created_at,
+      };
     });
   }
 
@@ -292,7 +321,12 @@ class ClothingSalesService {
     return prisma.$transaction(async (tx) => {
       const sale = await tx.clothingSales.findFirst({
         where: { owner_id, sales_id },
-        select: { sales_id: true, total_amount: true, discount: true, paid_amount: true },
+        select: {
+          sales_id: true,
+          total_amount: true,
+          discount: true,
+          paid_amount: true,
+        },
       });
       if (!sale) {
         const e = new Error("Sale not found");
@@ -301,24 +335,34 @@ class ClothingSalesService {
         throw e;
       }
 
+      // fetch total refunds for this sale
+      const refundAgg = await tx.clothingCustomerReturn.aggregate({
+        where: { sales_id },
+        _sum: { refund_amount: true },
+      });
+      const totalRefunded = Number(refundAgg._sum.refund_amount || 0);
+
       const total = Number(sale.total_amount);
       const discount = Number(sale.discount || 0);
       const effectiveTotal = total - discount;
       const currentPaid = Number(sale.paid_amount);
       const newPaid = currentPaid + add;
 
-      // Use tolerance (0.01) for floating-point comparison
-      if (newPaid > effectiveTotal + 0.01) {
-        const e = new Error("Payment exceeds effective total amount");
+      // real due = effectiveTotal - totalRefunded - currentPaid
+      const realDue = Math.max(0, effectiveTotal - totalRefunded - currentPaid);
+
+      if (add > realDue + 0.01) {
+        const e = new Error(`Payment of ${add} exceeds remaining due of ${realDue.toFixed(2)}`);
         e.status = 400;
         e.code = "PAYMENT_EXCEEDS_TOTAL";
         throw e;
       }
 
+      // status based on effectiveTotal - refunds
+      const netTotal = effectiveTotal - totalRefunded;
       let status = "pending";
-      // Use small tolerance (0.01) for floating-point comparison
-      const remaining = effectiveTotal - newPaid;
-      if (remaining <= 0.01 && effectiveTotal > 0) status = "paid";
+      const remaining = netTotal - newPaid;
+      if (remaining <= 0.01 && netTotal > 0) status = "paid";
       else if (newPaid > 0) status = "partial";
 
       return tx.clothingSales.update({
@@ -343,11 +387,18 @@ class ClothingSalesService {
       select: { full_name: true, phone: true, email: true },
     });
 
+    // Fetch total refunds for this sale
+    const refundAgg = await prisma.clothingCustomerReturn.aggregate({
+      where: { sales_id },
+      _sum: { refund_amount: true },
+    });
+    const totalRefunded = Number(refundAgg._sum.refund_amount || 0);
+
     const total = Number(sale.total_amount);
     const discount = Number(sale.discount || 0);
     const paid = Number(sale.paid_amount);
     const effectiveTotal = total - discount;
-    const remaining = effectiveTotal - paid;
+    const remaining = Math.max(0, effectiveTotal - paid - totalRefunded);
 
     return {
       sale_id: sale.sales_id,
@@ -358,6 +409,7 @@ class ClothingSalesService {
         discount: discount,
         effective_total: effectiveTotal,
         paid_amount: paid,
+        total_refunded: totalRefunded,
         remaining_amount: remaining,
       },
       owner,

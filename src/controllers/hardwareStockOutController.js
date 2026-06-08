@@ -8,7 +8,16 @@ export const createStockOut = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
 
-    const { customer_name,customer_phn_number,customer_address,payment_status, paid_amount, note, items } = req.body;
+    const {
+      customer_name,
+      customer_phn_number,
+      customer_address,
+      payment_status,
+      paid_amount,
+      discount_amount, // ✅ pass discount through
+      note,
+      items,
+    } = req.body;
 
     const data = await stockOutService.createStockOut({
       owner_id,
@@ -17,8 +26,9 @@ export const createStockOut = async (req, res) => {
       customer_phn_number,
       customer_address,
       payment_status,
-      total_amount: 0, 
+      total_amount: 0,
       paid_amount,
+      discount_amount, // ✅ forward to service
       note,
       items,
     });

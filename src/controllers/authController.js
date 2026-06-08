@@ -196,10 +196,10 @@ export async function login(req, res) {
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "Email and password are required."
+        "Email and password are required.",
       );
     }
-    
+
     const owner = await prisma.owner.findUnique({
       where: { email },
       select: {
@@ -211,35 +211,49 @@ export async function login(req, res) {
         password: true,
         status: true,
         created_at: true,
+        subscription_expires_at: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
 
     if (!owner) {
-      return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
+      return sendError(
+        res,
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password.",
+      );
     }
 
     const isMatch = await compare(password, owner.password);
     if (!isMatch) {
-      return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
+      return sendError(
+        res,
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password.",
+      );
     }
 
     // ✅ Check account status
+    // --------------------------------------------------
+    // CHECK PENDING PAYMENT FIRST
+    // --------------------------------------------------
     if (owner.status === "inactive") {
-      return sendError(res, 403, "ACCOUNT_INACTIVE", "Your payment is pending verification. Please wait for approval.");
-    }
+      const pendingPayment = await prisma.paymentProof.findFirst({
+        where: {
+          owner_id: owner.owner_id,
+          status: "pending",
+        },
+      });
 
-    if (owner.status === "trial") {
-      const daysSinceCreation = Math.floor((Date.now() - new Date(owner.created_at).getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSinceCreation > 7) {
-        // Check if owner has a pending payment proof
-        const pendingPayment = await prisma.paymentProof.findFirst({
-          where: { owner_id: owner.owner_id, status: "pending" },
-          select: { id: true },
-        });
-
-        if (pendingPayment) {
-          return sendError(res, 403, "TRIAL_EXPIRED", "Your payment is still in verification. Please wait for approval or upload a new payment receipt if needed.", {
+      if (pendingPayment) {
+        return sendError(
+          res,
+          403,
+          "PAYMENT_PENDING",
+          "Your payment proof is under review. Please wait for approval.",
+          {
             owner: {
               owner_id: owner.owner_id,
               full_name: owner.full_name,
@@ -250,27 +264,88 @@ export async function login(req, res) {
               package_key: owner.package?.package_key ?? null,
               package_name: owner.package?.package_name ?? null,
             },
-            can_update_payment: true,
-            payment_status: "pending",
-            upload_url: "/api/payment-proof",
-          });
-        }
-
-        return sendError(res, 403, "TRIAL_EXPIRED", "Your 7-day trial has expired. Please subscribe to continue.", {
-          owner: {
-            owner_id: owner.owner_id,
-            full_name: owner.full_name,
-            email: owner.email,
-            phone: owner.phone,
-            package_id: owner.package_id,
-            status: owner.status,
-            package_key: owner.package?.package_key ?? null,
-            package_name: owner.package?.package_name ?? null,
           },
-        });
+        );
+      }
+
+      if (
+        owner.subscription_expires_at &&
+        new Date(owner.subscription_expires_at) < new Date()
+      ) {
+        return sendError(
+          res,
+          403,
+          "SUBSCRIPTION_EXPIRED",
+          "Your subscription has expired. Please renew to continue.",
+          {
+            owner: {
+              owner_id: owner.owner_id,
+              full_name: owner.full_name,
+              email: owner.email,
+              phone: owner.phone,
+              package_id: owner.package_id,
+              status: owner.status,
+              package_key: owner.package?.package_key ?? null,
+              package_name: owner.package?.package_name ?? null,
+            },
+          },
+        );
       }
     }
+    if (owner.status === "trial") {
+      const trialExpiry = new Date(new Date(owner.created_at).getTime() + 7 * 24 * 60 * 60 * 1000);
 
+      if (new Date() > trialExpiry) {
+        const pendingPayment = await prisma.paymentProof.findFirst({
+          where: { owner_id: owner.owner_id, status: "pending" },
+          select: { id: true },
+        });
+
+        if (pendingPayment) {
+          return sendError(
+            res,
+            403,
+            "TRIAL_EXPIRED",
+            "Your payment is still in verification. Please wait for approval or upload a new payment receipt if needed.",
+            {
+              owner: {
+                owner_id: owner.owner_id,
+                full_name: owner.full_name,
+                email: owner.email,
+                phone: owner.phone,
+                package_id: owner.package_id,
+                status: owner.status,
+                package_key: owner.package?.package_key ?? null,
+                package_name: owner.package?.package_name ?? null,
+              },
+              can_update_payment: true,
+              payment_status: "pending",
+              upload_url: "/api/payment-proof",
+            },
+          );
+        }
+
+        return sendError(
+          res,
+          403,
+          "TRIAL_EXPIRED",
+          "Your 7-day trial has expired. Please subscribe to continue.",
+          {
+            owner: {
+              owner_id: owner.owner_id,
+              full_name: owner.full_name,
+              email: owner.email,
+              phone: owner.phone,
+              package_id: owner.package_id,
+              status: owner.status,
+              package_key: owner.package?.package_key ?? null,
+              package_name: owner.package?.package_name ?? null,
+            },
+          },
+        );
+      }
+    }
+   
     if (fcm_token) {
       await prisma.owner.update({
         where: { owner_id: owner.owner_id },

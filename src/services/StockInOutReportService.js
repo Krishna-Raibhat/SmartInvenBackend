@@ -14,7 +14,7 @@ class HardwareReportService {
           break;
 
         case "weekly": {
-          const day = start.getDay(); // 0 = Sunday
+          const day = start.getDay();
           start.setDate(start.getDate() - day);
           start.setHours(0, 0, 0, 0);
 
@@ -83,7 +83,7 @@ class HardwareReportService {
     }
   }
 
-  //get stock-out records
+  // Get stock-out records
   async stockOut(owner_id, startDate, endDate) {
     try {
       if (!owner_id) {
@@ -147,18 +147,18 @@ class HardwareReportService {
       const { start, end } = this.getDateRange(type, date);
       const stock_out = await this.stockOut(owner_id, start, end);
 
-    
       let totalQtyOut = 0;
       let totalSalesAmt = 0;
-      let totalPiad=0;
+      let totalPaid = 0;
+      let totalDiscount = 0; // ✅ added
 
       for (const out of stock_out) {
         for (const item of out.items || []) {
-          totalQtyOut += Number(item.qty) || 0;
+          totalQtyOut   += Number(item.qty) || 0;
           totalSalesAmt += Number(item.line_total) || 0;
         }
-        totalPiad+=Number(out.paid_amount)||0;
-
+        totalPaid     += Number(out.paid_amount || 0);
+        totalDiscount += Number(out.discount || 0); // ✅ added
       }
 
       return {
@@ -167,7 +167,9 @@ class HardwareReportService {
         summary: {
           total_qty_out: totalQtyOut,
           total_sales_amount: totalSalesAmt,
-          total_paid: totalPiad,
+          total_discount: totalDiscount, // ✅ added
+          effective_sales_amount: totalSalesAmt - totalDiscount,
+          total_paid: totalPaid,
         },
       };
     } catch (err) {
@@ -181,32 +183,33 @@ class HardwareReportService {
     try {
       const { start, end } = this.getDateRange(type, date);
 
-      const stockIn = await this.stockIn(owner_id, start, end);
+      const stockIn  = await this.stockIn(owner_id, start, end);
       const stockOut = await this.stockOut(owner_id, start, end);
 
       let totalQtyIn = 0;
       let totalStockInValue = 0;
       let totalSales = 0;
-      let paidAmt=0;
-      let totalCp=0;
+      let paidAmt = 0;
+      let totalCp = 0;
       let totalQtyOut = 0;
-
+      let totalDiscount = 0; // ✅ added
 
       for (const lot of stockIn) {
-        totalQtyIn += lot.qty_in || 0;
+        totalQtyIn        += lot.qty_in || 0;
         totalStockInValue += (Number(lot.cp) || 0) * (lot.qty_in || 0);
       }
 
       for (const out of stockOut) {
         for (const item of out.items || []) {
           totalQtyOut += Number(item.qty) || 0;
-          totalSales += Number(item.line_total) || 0;
-          totalCp += (Number(item.cp) || 0) * (item.qty || 0);
+          totalSales  += Number(item.line_total) || 0;
+          totalCp     += (Number(item.cp) || 0) * (Number(item.qty) || 0);
         }
-        paidAmt+=Number(out.paid_amount)||0;
-    
+        paidAmt       += Number(out.paid_amount || 0);
+        totalDiscount += Number(out.discount || 0); // ✅ added
       }
-      const totalProfit = paidAmt - totalCp;
+
+      const totalProfit = (totalSales - totalDiscount) - totalCp; // ✅ fixed
 
       return {
         period: { type, start, end },
@@ -218,8 +221,10 @@ class HardwareReportService {
           total_qty_out: totalQtyOut,
           total_qty_out_cp: totalCp,
           total_sales_amt: totalSales,
+          total_discount: totalDiscount, // ✅ added
+          effective_sales_amt: totalSales - totalDiscount,
           total_paid: paidAmt,
-          total_profit: totalProfit,
+          total_profit: totalProfit,     // ✅ fixed
         },
       };
     } catch (err) {
@@ -231,14 +236,13 @@ class HardwareReportService {
 
   async stockInReport(owner_id, startDate, endDate) {
     try {
-      
       const stockIn = await this.stockIn(owner_id, startDate, endDate);
 
       let totalQtyIn = 0;
       let totalStockInValue = 0;
 
       for (const lot of stockIn) {
-        totalQtyIn += lot.qty_in || 0;
+        totalQtyIn        += lot.qty_in || 0;
         totalStockInValue += (Number(lot.cp) || 0) * (lot.qty_in || 0);
       }
 
@@ -259,22 +263,21 @@ class HardwareReportService {
 
   async stockOutReport(owner_id, startDate, endDate) {
     try {
-     
       const stockOut = await this.stockOut(owner_id, startDate, endDate);
 
       let totalQtyOut = 0;
       let totalSalesAmt = 0;
-      let totalPaid=0;
+      let totalPaid = 0;
+      let totalDiscount = 0; // ✅ added
 
       for (const out of stockOut) {
         for (const item of out.items || []) {
-          totalQtyOut += Number(item.qty) || 0;
+          totalQtyOut   += Number(item.qty) || 0;
           totalSalesAmt += Number(item.line_total) || 0;
         }
-        totalPaid+=Number(out.paid_amount)||0;
-
+        totalPaid     += Number(out.paid_amount || 0);
+        totalDiscount += Number(out.discount || 0); // ✅ added
       }
-      
 
       return {
         period: { startDate, endDate },
@@ -282,6 +285,8 @@ class HardwareReportService {
         summary: {
           total_qty_out: totalQtyOut,
           total_sales_amount: totalSalesAmt,
+          total_discount: totalDiscount, // ✅ added
+          effective_sales_amount: totalSalesAmt - totalDiscount,
           total_paid: totalPaid,
         },
       };
@@ -294,33 +299,33 @@ class HardwareReportService {
 
   async combinedReport(owner_id, startDate, endDate) {
     try {
-    
-      const stockIn = await this.stockIn(owner_id, startDate, endDate);
+      const stockIn  = await this.stockIn(owner_id, startDate, endDate);
       const stockOut = await this.stockOut(owner_id, startDate, endDate);
 
       let totalQtyIn = 0;
       let totalStockInValue = 0;
       let totalSales = 0;
-      let paidAmt=0;
-      let totalCp=0;
+      let paidAmt = 0;
+      let totalCp = 0;
       let totalQtyOut = 0;
-
+      let totalDiscount = 0; // ✅ added
 
       for (const lot of stockIn) {
-        totalQtyIn += lot.qty_in || 0;
+        totalQtyIn        += lot.qty_in || 0;
         totalStockInValue += (Number(lot.cp) || 0) * (lot.qty_in || 0);
       }
 
       for (const out of stockOut) {
         for (const item of out.items || []) {
           totalQtyOut += Number(item.qty) || 0;
-          totalSales += Number(item.line_total) || 0;
-          totalCp += (Number(item.cp) || 0) * (item.qty || 0);
+          totalSales  += Number(item.line_total) || 0;
+          totalCp     += (Number(item.cp) || 0) * (Number(item.qty) || 0);
         }
-        paidAmt+=Number(out.paid_amount)||0;
-    
+        paidAmt       += Number(out.paid_amount || 0);
+        totalDiscount += Number(out.discount || 0); // ✅ added
       }
-      const totalProfit = paidAmt - totalCp;
+
+      const totalProfit = (totalSales - totalDiscount) - totalCp; // ✅ fixed
 
       return {
         period: { startDate, endDate },
@@ -332,8 +337,10 @@ class HardwareReportService {
           total_qty_out: totalQtyOut,
           total_qty_out_cp: totalCp,
           total_sales_amt: totalSales,
+          total_discount: totalDiscount, // ✅ added
+          effective_sales_amt: totalSales - totalDiscount, // ✅
           total_paid: paidAmt,
-          total_profit: totalProfit,
+          total_profit: totalProfit,     // ✅ fixed
         },
       };
     } catch (err) {
@@ -342,7 +349,6 @@ class HardwareReportService {
       throw err;
     }
   }
-
 }
 
 export default new HardwareReportService();

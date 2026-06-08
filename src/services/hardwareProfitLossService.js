@@ -21,8 +21,6 @@ class HardwareProfitService {
         throw err;
       }
 
-      // const start = new Date(start_date);
-      // const end = new Date(end_date);
       const start = new Date(start_date);
       start.setHours(0, 0, 0, 0);
 
@@ -35,17 +33,17 @@ class HardwareProfitService {
         throw err;
       }
 
-      // Fetch stockout headers(paid_amount)
-      // WITH this:
+      // Fetch stockout IDs in the date range (payment status does not affect profit)
       const stockouts = await prisma.hardwareStockOut.findMany({
         where: {
           owner_id,
-          payment_status: "paid", // ✅ only fully paid
           created_at: { gte: start, lte: end },
         },
         select: {
           stockout_id: true,
+          total_amount: true,
           paid_amount: true,
+          discount: true, // ✅ added
         },
       });
 
@@ -53,24 +51,23 @@ class HardwareProfitService {
         return {
           from: start,
           to: end,
-          total_paid: 0,
-          total_cost: 0,
-          profit_or_loss: 0,
+          total_sales_amount: 0,
+          total_discount_amount: 0,
+          effective_sales_amount: 0,
+          total_cost_amount: 0,
+          total_paid_amount: 0,
+          profit_or_loss_amount: 0,
           status: "profit",
         };
       }
 
       const stockoutIds = stockouts.map((s) => s.stockout_id);
 
-      // Fetch sold items for owner within date range
+      // Fetch sold items for those stockouts
       const items = await prisma.hardwareStockOutItem.findMany({
         where: {
           owner_id,
-          stockout_id:{in: stockoutIds},
-          created_at: {
-            gte: start, // greater than or equals to start
-            lte: end, // less than or equals to end
-          },
+          stockout_id: { in: stockoutIds },
         },
         select: {
           qty: true,
@@ -83,27 +80,28 @@ class HardwareProfitService {
       let totalSales = 0;
       let totalCost = 0;
       let totalPaid = 0;
+      let totalDiscount = 0; // ✅ added
 
-      // Calculate totals
+      // Profit is based on sale value (sp × qty) minus discount, not paid_amount
       for (const item of items) {
-        const cost = Number(item.cp) * item.qty;
-        const sales = Number(item.sp) * item.qty;
-
-        totalCost += cost;
-        totalSales += sales;
+        totalCost  += Number(item.cp) * item.qty;
+        totalSales += Number(item.sp) * item.qty;
       }
 
-      for (const stock of stockouts){
-        totalPaid += Number(stock.paid_amount || 0);
+      for (const stock of stockouts) {
+        totalPaid     += Number(stock.paid_amount || 0);
+        totalDiscount += Number(stock.discount || 0); // ✅ added
       }
 
-      const totalProfit = totalPaid - totalCost;
+      const totalProfit = (totalSales - totalDiscount) - totalCost; // ✅ discount reduces profit
 
       // Return profit/loss response
       return {
         from: start,
         to: end,
         total_sales_amount: totalSales,
+        total_discount_amount: totalDiscount,
+        effective_sales_amount: totalSales - totalDiscount, // ✅ what frontend should display as "sales"
         total_cost_amount: totalCost,
         total_paid_amount: totalPaid,
         profit_or_loss_amount: totalProfit,

@@ -6,10 +6,8 @@ import { Prisma } from "@prisma/client";
 const Decimal = Prisma.Decimal;
 
 class GrocerySalesService {
-  // ✅ CREATE SALE (with optional lot_id or FIFO, auto-create customer)
   async createSale(owner_id, payload) {
-    const { customer_id, customer, paid_amount, payment_status, note, discount, items } =
-      payload;
+    const { customer_id, customer, paid_amount, payment_status, note, discount, items } = payload;
 
     if (!Array.isArray(items) || items.length === 0) {
       const e = new Error("At least one item is required");
@@ -36,7 +34,6 @@ class GrocerySalesService {
 
     let finalCustomerId = customer_id ?? null;
 
-    // Handle customer (same as Clothing)
     if (finalCustomerId) {
       const cust = await prisma.customer.findFirst({
         where: { customer_id: finalCustomerId, owner_id },
@@ -52,9 +49,7 @@ class GrocerySalesService {
       const phone = normalizeNepalPhone(String(customer.phone).trim());
 
       if (!isValidNepalPhone(phone)) {
-        const e = new Error(
-          "Invalid phone number. Please enter a valid 10-digit Nepali number."
-        );
+        const e = new Error("Invalid phone number. Please enter a valid 10-digit Nepali number.");
         e.status = 400;
         e.code = "VALIDATION_PHONE_INVALID";
         throw e;
@@ -85,7 +80,6 @@ class GrocerySalesService {
     }
 
     return prisma.$transaction(async (tx) => {
-      // Create header first
       const header = await tx.grocerySales.create({
         data: {
           owner_id,
@@ -112,7 +106,6 @@ class GrocerySalesService {
           throw e;
         }
 
-        // If lot_id is provided, use that lot
         if (lot_id) {
           const lot = await tx.groceryStockLot.findFirst({
             where: { lot_id, product_id, owner_id },
@@ -134,7 +127,6 @@ class GrocerySalesService {
             throw e;
           }
 
-          // Deduct from lot
           await tx.groceryStockLot.update({
             where: { lot_id },
             data: { qty_remaining: { decrement: qtyDecimal } },
@@ -166,20 +158,10 @@ class GrocerySalesService {
 
           createdItems.push(created);
         } else {
-          // FIFO: Use oldest lots first
           const lots = await tx.groceryStockLot.findMany({
-            where: {
-              owner_id,
-              product_id,
-              qty_remaining: { gt: 0 },
-            },
+            where: { owner_id, product_id, qty_remaining: { gt: 0 } },
             orderBy: { created_at: "asc" },
-            select: {
-              lot_id: true,
-              cp: true,
-              sp: true,
-              qty_remaining: true,
-            },
+            select: { lot_id: true, cp: true, sp: true, qty_remaining: true },
           });
 
           if (lots.length === 0) {
@@ -197,7 +179,6 @@ class GrocerySalesService {
             const lotQtyRemaining = new Decimal(lot.qty_remaining);
             const qtyToDeduct = Decimal.min(remainingQty, lotQtyRemaining);
 
-            // Deduct from this lot
             await tx.groceryStockLot.update({
               where: { lot_id: lot.lot_id },
               data: { qty_remaining: { decrement: qtyToDeduct } },
@@ -220,7 +201,7 @@ class GrocerySalesService {
                 product_id,
                 lot_id: lot.lot_id,
                 qty: qtyToDeduct,
-                cp: lot.cp, // Preserve each lot's actual CP
+                cp: lot.cp,
                 sp: sellingPrice,
                 line_total: lineTotal,
                 note: lineNote ?? null,
@@ -247,10 +228,8 @@ class GrocerySalesService {
         throw e;
       }
 
-      // ✅ Calculate effective total (total - discount)
       const effectiveTotal = totalAmount.sub(disc);
 
-      // ✅ Validate discount doesn't exceed total
       if (disc > totalAmount.toNumber()) {
         const e = new Error("Discount cannot exceed total amount");
         e.status = 400;
@@ -259,14 +238,12 @@ class GrocerySalesService {
       }
 
       let finalStatus = "pending";
-
       if (payment_status === "paid") {
         finalStatus = "paid";
       } else if (payment_status === "partial") {
         finalStatus = "partial";
       } else {
-        if (paid >= effectiveTotal.toNumber() && effectiveTotal.gt(0))
-          finalStatus = "paid";
+        if (paid >= effectiveTotal.toNumber() && effectiveTotal.gt(0)) finalStatus = "paid";
         else if (paid > 0) finalStatus = "partial";
       }
 
@@ -280,10 +257,7 @@ class GrocerySalesService {
         },
       });
 
-      return {
-        ...updatedHeader,
-        items: createdItems,
-      };
+      return { ...updatedHeader, items: createdItems };
     });
   }
 
@@ -310,10 +284,7 @@ class GrocerySalesService {
               },
             },
             lot: {
-              select: {
-                batch_no: true,
-                expiry_date: true,
-              },
+              select: { batch_no: true, expiry_date: true },
             },
           },
         },
@@ -322,33 +293,25 @@ class GrocerySalesService {
   }
 
   async list(owner_id) {
-      const sales = await prisma.grocerySales.findMany({
-        where: { owner_id },
-        orderBy: { created_at: "desc" },
-        include: {
-          customer: {
-            select: {
-              customer_id: true,
-              full_name: true,
-              phone: true,
-            },
-          },
-
-          items: {
-            select: {
-              returned_qty: true,
-            },
-          },
+    const sales = await prisma.grocerySales.findMany({
+      where: { owner_id },
+      orderBy: { created_at: "desc" },
+      include: {
+        customer: {
+          select: { customer_id: true, full_name: true, phone: true },
         },
-        take: 200,
-      });
+        items: {
+          select: { returned_qty: true },
+        },
+      },
+      take: 200,
+    });
 
-      return sales.map((sale) => ({
-        ...sale,
-
-        has_return: sale.items.some((it) => Number(it.returned_qty || 0) > 0),
-      }));
-    }
+    return sales.map((sale) => ({
+      ...sale,
+      has_return: sale.items.some((it) => Number(it.returned_qty || 0) > 0),
+    }));
+  }
 
   async listCredit(owner_id) {
     return prisma.grocerySales.findMany({
@@ -392,26 +355,28 @@ class GrocerySalesService {
       const effectiveTotal = total - discount;
       const currentPaid = Number(sale.paid_amount);
       const newPaid = currentPaid + add;
+      const remaining = effectiveTotal - currentPaid;
 
-      if (newPaid > effectiveTotal) {
-        const e = new Error("Payment exceeds total amount after discount");
+      if (add > remaining + 0.01) {
+        const e = new Error(`Payment exceeds remaining amount. Remaining: ${remaining.toFixed(2)}`);
         e.status = 400;
         e.code = "PAYMENT_EXCEEDS_TOTAL";
         throw e;
       }
 
+      const finalPaid = Math.min(newPaid, effectiveTotal);
+
       let status = "pending";
-      if (newPaid >= effectiveTotal && effectiveTotal > 0) status = "paid";
-      else if (newPaid > 0) status = "partial";
+      if (finalPaid >= effectiveTotal - 0.01 && effectiveTotal > 0) status = "paid";
+      else if (finalPaid > 0) status = "partial";
 
       return tx.grocerySales.update({
         where: { sales_id },
-        data: { paid_amount: newPaid, payment_status: status },
+        data: { paid_amount: finalPaid, payment_status: status },
       });
     });
   }
 
-  // ✅ BILL JSON (for printing)
   async getBill(owner_id, sales_id) {
     const sale = await this.getById(owner_id, sales_id);
     if (!sale) {
@@ -446,30 +411,19 @@ class GrocerySalesService {
       owner,
       customer: sale.customer,
       items: sale.items.map((it) => ({
-      sales_item_id: it.sales_item_id,
-
-      product_name: it.product?.product_name,
-      unit: it.product?.unit?.unit_name,
-
-      batch_no: it.lot?.batch_no,
-      expiry_date: it.lot?.expiry_date,
-
-      // ── quantities ─────────────────────
-      qty: Number(it.qty),
-      returned_qty: Number(it.returned_qty || 0),
-
-      // ── pricing ────────────────────────
-      cp: Number(it.cp),
-      sp: Number(it.sp),
-      line_total: Number(it.line_total),
-
-      // ── profit ─────────────────────────
-      profit:
-          (Number(it.sp) - Number(it.cp)) *
-          Number(it.qty),
-
-      note: it.note,
-    })),
+        sales_item_id: it.sales_item_id,
+        product_name: it.product?.product_name,
+        unit: it.product?.unit?.unit_name,
+        batch_no: it.lot?.batch_no,
+        expiry_date: it.lot?.expiry_date,
+        qty: Number(it.qty),
+        returned_qty: Number(it.returned_qty || 0),
+        cp: Number(it.cp),
+        sp: Number(it.sp),
+        line_total: Number(it.line_total),
+        profit: (Number(it.sp) - Number(it.cp)) * Number(it.qty),
+        note: it.note,
+      })),
       note: sale.note,
     };
   }

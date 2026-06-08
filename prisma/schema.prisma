@@ -322,6 +322,7 @@ model ClothingSales {
   owner_id        String
   customer_id     String?
   payment_status  String                   @default("pending")
+  discount       Decimal                 @default(0) @db.Decimal(10, 2)
   total_amount    Decimal                  @db.Decimal(10, 2)
   paid_amount     Decimal                  @db.Decimal(10, 2)
   note            String?
@@ -408,6 +409,7 @@ model ClothingCustomerReturnItem {
   lot            ClothingStockLot       @relation(fields: [lot_id], references: [lot_id])
   return         ClothingCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
   salesItem      ClothingSalesItem?     @relation(fields: [sales_item_id], references: [sales_item_id])
+  amount       Decimal                      @db.Decimal(10, 2)
 
   @@index([return_id])
   @@index([lot_id])
@@ -421,6 +423,7 @@ model ClothingSupplierReturn {
   status      String                       @default("pending")
   note        String?
   created_at  DateTime                     @default(now())
+  amount       Decimal                      @db.Decimal(10, 2)
   items       ClothingSupplierReturnItem[]
   owner       Owner                        @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   supplier    ClothingSupplier             @relation(fields: [supplier_id], references: [supplier_id])
@@ -625,6 +628,7 @@ model GrocerySupplierReturn {
   owner_id     String
   supplier_id  String
   total_refund Decimal                     @db.Decimal(10, 2)
+  amount       Decimal                      @db.Decimal(10, 2)
   note         String?
   created_at   DateTime                    @default(now())
   items        GrocerySupplierReturnItem[]
