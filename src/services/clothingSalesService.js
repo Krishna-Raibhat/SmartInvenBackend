@@ -268,7 +268,7 @@ class ClothingSalesService {
     const sales = await prisma.clothingSales.findMany({
       where: {
         owner_id,
-        OR: [{ payment_status: "pending" }, { payment_status: "partial" }],
+        // Don't filter by payment_status here — we'll filter by actual due after calculating refunds
       },
       orderBy: { created_at: "desc" },
       include: {
@@ -282,31 +282,38 @@ class ClothingSalesService {
       take: 200,
     });
 
-    return sales.map((sale) => {
-      const total = Number(sale.total_amount || 0);
-      const discount = Number(sale.discount || 0);
-      const paid = Number(sale.paid_amount || 0);
-      const effectiveTotal = total - discount;
-      const totalRefunded = sale.customerReturns.reduce(
-        (sum, r) => sum + Number(r.refund_amount || 0),
-        0
-      );
-      // due = what customer still owes after refunds are applied
-      const due = Math.max(0, effectiveTotal - paid - totalRefunded);
+    // ✅ Filter by actual due amount (after refunds) instead of payment_status
+    return sales
+      .map((sale) => {
+        const total = Number(sale.total_amount || 0);
+        const discount = Number(sale.discount || 0);
+        const paidRaw = Number(sale.paid_amount || 0);
+        const effectiveTotal = total - discount;
+        const totalRefunded = sale.customerReturns.reduce(
+          (sum, r) => sum + Number(r.refund_amount || 0),
+          0
+        );
+        
+        // Calculate net paid: if refund exceeds due, reduce paid by excess
+        const dueBeforeRefund = Math.max(0, effectiveTotal - paidRaw);
+        const excessRefund = Math.max(0, totalRefunded - dueBeforeRefund);
+        const netPaid = Math.max(0, paidRaw - excessRefund);
+        const due = Math.max(0, effectiveTotal - paidRaw - totalRefunded);
 
-      return {
-        sales_id: sale.sales_id,
-        customer: sale.customer,
-        payment_status: sale.payment_status,
-        total_amount: total,
-        discount,
-        effective_total: effectiveTotal,
-        paid_amount: paid,
-        total_refunded: totalRefunded,
-        due_amount: due,
-        created_at: sale.created_at,
-      };
-    });
+        return {
+          sales_id: sale.sales_id,
+          customer: sale.customer,
+          payment_status: sale.payment_status,
+          total_amount: total,
+          discount,
+          effective_total: effectiveTotal,
+          paid_amount: netPaid, // Show net paid after refund adjustments
+          total_refunded: totalRefunded,
+          due_amount: due,
+          created_at: sale.created_at,
+        };
+      })
+      .filter((sale) => sale.due_amount > 0); // ✅ Only return sales with actual due > 0
   }
 
   async addPayment(owner_id, sales_id, add_amount) {
@@ -396,9 +403,15 @@ class ClothingSalesService {
 
     const total = Number(sale.total_amount);
     const discount = Number(sale.discount || 0);
-    const paid = Number(sale.paid_amount);
+    const paidRaw = Number(sale.paid_amount);
     const effectiveTotal = total - discount;
-    const remaining = Math.max(0, effectiveTotal - paid - totalRefunded);
+    
+    // Calculate net paid: if refund exceeds (effectiveTotal - paid), reduce paid by excess
+    // Example: sale=5000, paid=3000, refund=2500 → net_paid = 3000 - (2500-2000) = 2500
+    const dueBeforeRefund = Math.max(0, effectiveTotal - paidRaw);
+    const excessRefund = Math.max(0, totalRefunded - dueBeforeRefund);
+    const netPaid = Math.max(0, paidRaw - excessRefund);
+    const remaining = Math.max(0, effectiveTotal - paidRaw - totalRefunded);
 
     return {
       sale_id: sale.sales_id,
@@ -408,7 +421,7 @@ class ClothingSalesService {
         total_amount: total,
         discount: discount,
         effective_total: effectiveTotal,
-        paid_amount: paid,
+        paid_amount: netPaid, // Show net paid after refund adjustments
         total_refunded: totalRefunded,
         remaining_amount: remaining,
       },
