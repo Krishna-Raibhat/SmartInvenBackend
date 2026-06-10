@@ -221,19 +221,19 @@ class GrocerySalesService {
         }
       }
 
-      if (paid > totalAmount.toNumber() && payment_status !== "paid") {
-        const e = new Error("paid_amount cannot be greater than total_amount");
-        e.status = 400;
-        e.code = "VALIDATION_PAID_GT_TOTAL";
-        throw e;
-      }
-
       const effectiveTotal = totalAmount.sub(disc);
 
       if (disc > totalAmount.toNumber()) {
         const e = new Error("Discount cannot exceed total amount");
         e.status = 400;
         e.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL";
+        throw e;
+      }
+
+      if (paid > effectiveTotal.toNumber() && payment_status !== "paid") {
+        const e = new Error("paid_amount cannot be greater than effective total");
+        e.status = 400;
+        e.code = "VALIDATION_PAID_GT_TOTAL";
         throw e;
       }
 
@@ -314,19 +314,55 @@ class GrocerySalesService {
   }
 
   async listCredit(owner_id) {
-    return prisma.grocerySales.findMany({
+    const sales = await prisma.grocerySales.findMany({
       where: {
         owner_id,
-        OR: [{ payment_status: "pending" }, { payment_status: "partial" }],
+        // Don't filter by payment_status here — we'll filter by actual due after calculating refunds
       },
       orderBy: { created_at: "desc" },
       include: {
         customer: {
           select: { customer_id: true, full_name: true, phone: true },
         },
+        returns: {
+          select: { refund_amount: true },
+        },
       },
       take: 200,
     });
+
+    // ✅ Filter by actual due amount (after refunds) instead of payment_status
+    return sales
+      .map((sale) => {
+        const total = Number(sale.total_amount || 0);
+        const discount = Number(sale.discount || 0);
+        const paidRaw = Number(sale.paid_amount || 0);
+        const effectiveTotal = total - discount;
+        const totalRefunded = sale.returns.reduce(
+          (sum, r) => sum + Number(r.refund_amount || 0),
+          0
+        );
+        
+        // Calculate net paid: if refund exceeds due, reduce paid by excess
+        const dueBeforeRefund = Math.max(0, effectiveTotal - paidRaw);
+        const excessRefund = Math.max(0, totalRefunded - dueBeforeRefund);
+        const netPaid = Math.max(0, paidRaw - excessRefund);
+        const due = Math.max(0, effectiveTotal - paidRaw - totalRefunded);
+
+        return {
+          sales_id: sale.sales_id,
+          customer: sale.customer,
+          payment_status: sale.payment_status,
+          total_amount: total,
+          discount,
+          effective_total: effectiveTotal,
+          paid_amount: netPaid, // Show net paid after refund adjustments
+          total_refunded: totalRefunded,
+          due_amount: due,
+          created_at: sale.created_at,
+        };
+      })
+      .filter((sale) => sale.due_amount > 0); // ✅ Only return sales with actual due > 0
   }
 
   async addPayment(owner_id, sales_id, add_amount) {
@@ -391,39 +427,70 @@ class GrocerySalesService {
       select: { full_name: true, phone: true, email: true },
     });
 
+    // Fetch total refunds for this sale
+    const refundAgg = await prisma.groceryCustomerReturn.aggregate({
+      where: { sales_id },
+      _sum: { refund_amount: true },
+    });
+    const totalRefunded = Number(refundAgg._sum.refund_amount || 0);
+
     const total = Number(sale.total_amount);
     const discount = Number(sale.discount || 0);
+    const paidRaw = Number(sale.paid_amount);
     const effectiveTotal = total - discount;
-    const paid = Number(sale.paid_amount);
-    const remaining = effectiveTotal - paid;
+    
+    // Calculate net paid: if refund exceeds due, reduce paid by excess
+    const dueBeforeRefund = Math.max(0, effectiveTotal - paidRaw);
+    const excessRefund = Math.max(0, totalRefunded - dueBeforeRefund);
+    const netPaid = Math.max(0, paidRaw - excessRefund);
+    const remaining = Math.max(0, effectiveTotal - paidRaw - totalRefunded);
+
+    let paymentStatus = sale.payment_status;
+    if (remaining <= 0) {
+      paymentStatus = "paid";
+    } else if (netPaid > 0) {
+      paymentStatus = "partial";
+    } else {
+      paymentStatus = "pending";
+    }
 
     return {
       sale_id: sale.sales_id,
       created_at: sale.created_at,
-      payment_status: sale.payment_status,
+      payment_status: paymentStatus,
       totals: {
         total_amount: total,
         discount: discount,
         effective_total: effectiveTotal,
-        paid_amount: paid,
-        remaining_amount: remaining > 0 ? remaining : 0,
+        paid_amount: netPaid, // Show net paid after refund adjustments
+        total_refunded: totalRefunded,
+        remaining_amount: remaining,
       },
       owner,
       customer: sale.customer,
-      items: sale.items.map((it) => ({
-        sales_item_id: it.sales_item_id,
-        product_name: it.product?.product_name,
-        unit: it.product?.unit?.unit_name,
-        batch_no: it.lot?.batch_no,
-        expiry_date: it.lot?.expiry_date,
-        qty: Number(it.qty),
-        returned_qty: Number(it.returned_qty || 0),
-        cp: Number(it.cp),
-        sp: Number(it.sp),
-        line_total: Number(it.line_total),
-        profit: (Number(it.sp) - Number(it.cp)) * Number(it.qty),
-        note: it.note,
-      })),
+      items: sale.items.map((it) => {
+        const soldQty = Number(it.qty || 0);
+        const returnedQty = Number(it.returned_qty || 0);
+        const remainingQty = soldQty - returnedQty;
+
+        return {
+          sales_item_id: it.sales_item_id,
+          product_name: it.product?.product_name,
+          unit: it.product?.unit?.unit_name,
+          batch_no: it.lot?.batch_no,
+          expiry_date: it.lot?.expiry_date,
+          
+          sold_qty: soldQty,
+          returned_qty: returnedQty,
+          remaining_qty: remainingQty,
+          
+          cp: Number(it.cp),
+          sp: Number(it.sp),
+          line_total: Number(it.line_total),
+          profit: (Number(it.sp) - Number(it.cp)) * remainingQty, // Profit on remaining qty only
+          note: it.note,
+        };
+      }),
       note: sale.note,
     };
   }

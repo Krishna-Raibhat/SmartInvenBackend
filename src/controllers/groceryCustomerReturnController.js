@@ -7,8 +7,8 @@ const fail = (res, status, error_code, message) =>
 export const create = async (req, res) => {
   try {
     const owner_id = req.owner.owner_id;
-    const result = await service.createReturn(owner_id, req.body);
-    return res.status(201).json({ success: true, data: result });
+    const data = await service.createReturn(owner_id, req.body);
+    return res.status(201).json({ success: true, data });
   } catch (e) {
     if (e.status) return fail(res, e.status, e.code || "ERROR", e.message);
     return fail(res, 500, "SERVER_ERROR", e.message);

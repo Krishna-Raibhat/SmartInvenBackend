@@ -20,42 +20,17 @@ class GroceryReportService {
     const startDate = parseDateOrNull(start);
     const endDate = parseDateOrNull(end);
 
-    // Default: last 30 days
     const startFinal = startDate
       ? startOfDay(startDate)
       : startOfDay(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
     const endFinal = endDate ? endOfDay(endDate) : endOfDay(new Date());
 
-    // 1) Calculate effective_total properly (per-sale: total_amount - discount)
-    const salesTotals = await prisma.$queryRaw`
-      SELECT 
-        COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
-        COALESCE(SUM(discount), 0)::numeric AS total_discount,
-        COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
-        COALESCE(SUM(GREATEST(total_amount - COALESCE(discount, 0), 0)), 0)::numeric AS effective_total,
-        COUNT(sales_id)::int AS sales_count
-      FROM grocery_sales
-      WHERE owner_id = ${owner_id}
-        AND created_at >= ${startFinal}
-        AND created_at <= ${endFinal}
-    `;
-
-    const row = salesTotals[0];
-    const totalSales = Number(row.total_amount || 0);
-    const totalDiscount = Number(row.total_discount || 0);
-    const totalPaid = Number(row.total_paid || 0);
-    const effectiveTotal = Number(row.effective_total || 0);
-    const salesCount = Number(row.sales_count || 0);
-
-    // 2) ✅ CORRECT PROFIT CALCULATION
-    //    Revenue = effective_total - refund_amount (for returns of sales in this period)
-    //    Cost = sold_cost - returned_cost (returned items go back to stock, cost is recovered)
-    //    Profit = revenue - net_cost
     const rows = await prisma.$queryRaw`
       WITH sold AS (
         SELECT
           gs.sales_id,
-          -- effective_total = revenue before returns
+          gs.paid_amount,
+          gs.discount,
           GREATEST(gs.total_amount - COALESCE(gs.discount, 0), 0) AS effective_total,
           COALESCE(SUM(gsi.cp * gsi.qty), 0) AS sold_cost
         FROM grocery_sales_items gsi
@@ -63,7 +38,7 @@ class GroceryReportService {
         WHERE gs.owner_id = ${owner_id}
           AND gs.created_at >= ${startFinal}
           AND gs.created_at <= ${endFinal}
-        GROUP BY gs.sales_id, gs.total_amount, gs.discount
+        GROUP BY gs.sales_id, gs.paid_amount, gs.total_amount, gs.discount
       ),
       returns AS (
         SELECT
@@ -77,23 +52,56 @@ class GroceryReportService {
         LEFT JOIN grocery_sales_items gsi ON gsi.sales_item_id = gcri.sales_item_id
         WHERE gcr.owner_id = ${owner_id}
         GROUP BY gcr.sales_id
+      ),
+      per_sale AS (
+        SELECT
+          s.sales_id,
+          s.effective_total,
+          s.paid_amount,
+          s.sold_cost,
+          s.discount,
+          COALESCE(r.total_refund, 0) AS total_refund,
+          COALESCE(r.returned_cost, 0) AS returned_cost,
+          COALESCE(r.return_count, 0) AS return_count,
+          -- net_paid per sale (same logic as clothing)
+          GREATEST(0,
+            s.paid_amount - GREATEST(0,
+              COALESCE(r.total_refund, 0) - GREATEST(0, s.effective_total - s.paid_amount)
+            )
+          ) AS net_paid,
+          -- due per sale
+          GREATEST(0,
+            (s.effective_total - COALESCE(r.total_refund, 0)) -
+            GREATEST(0,
+              s.paid_amount - GREATEST(0,
+                COALESCE(r.total_refund, 0) - GREATEST(0, s.effective_total - s.paid_amount)
+              )
+            )
+          ) AS due
+        FROM sold s
+        LEFT JOIN returns r ON r.sales_id = s.sales_id
       )
       SELECT
-        -- Revenue = sum of all effective_totals minus all refund amounts
-        COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund), 0) AS actual_revenue,
-        
-        -- Cost = sold cost minus returned cost (returned items go back to stock)
-        COALESCE(SUM(s.sold_cost), 0) - COALESCE(SUM(r.returned_cost), 0) AS net_cost,
-        
-        COALESCE(SUM(r.return_count), 0) AS return_count
-      FROM sold s
-      LEFT JOIN returns r ON r.sales_id = s.sales_id
+        COUNT(sales_id)::int AS sales_count,
+        COALESCE(SUM(effective_total), 0)::numeric AS effective_total,
+        COALESCE(SUM(discount), 0)::numeric AS total_discount,
+        COALESCE(SUM(effective_total - total_refund), 0)::numeric AS actual_revenue,
+        COALESCE(SUM(sold_cost - returned_cost), 0)::numeric AS net_cost,
+        COALESCE(SUM(net_paid), 0)::numeric AS total_paid,
+        COALESCE(SUM(due), 0)::numeric AS due_balance,
+        COALESCE(SUM(return_count), 0)::int AS return_count
+      FROM per_sale
     `;
 
-
-    const actualRevenue = Number(rows?.[0]?.actual_revenue || 0);
-    const netCost = Number(rows?.[0]?.net_cost || 0);
-    const returnCount = Number(rows?.[0]?.return_count || 0);
+    const row = rows[0];
+    const salesCount = Number(row?.sales_count || 0);
+    const effectiveTotal = Number(row?.effective_total || 0);
+    const totalDiscount = Number(row?.total_discount || 0);
+    const actualRevenue = Number(row?.actual_revenue || 0);
+    const netCost = Number(row?.net_cost || 0);
+    const totalPaid = Number(row?.total_paid || 0);
+    const dueBalance = Number(row?.due_balance || 0);
+    const returnCount = Number(row?.return_count || 0);
     const profitOrLoss = actualRevenue - netCost;
 
     return {
@@ -102,27 +110,25 @@ class GroceryReportService {
         end: endFinal.toISOString(),
       },
       summary: {
-        total_sales: effectiveTotal,        // ✅ Effective total (after discount, before refunds)
+        total_sales: effectiveTotal,
         total_discount: totalDiscount,
-        effective_sales: actualRevenue,     // ✅ Actual revenue (after discount AND refunds)
-        total_cost: netCost,                // ✅ Cost (does NOT decrease when returned)
+        effective_sales: actualRevenue,
+        total_cost: netCost,
         total_paid: totalPaid,
-        due_balance: Math.max(0, actualRevenue - totalPaid), // ✅ Based on actual revenue
-        estimated_profit: profitOrLoss,     // ✅ Correct: revenue - cost
+        due_balance: dueBalance,
+        estimated_profit: profitOrLoss,
         sales_count: salesCount,
         return_count: returnCount,
       },
       breakdown: {
-        gross_sales: totalSales,
         gross_discount: totalDiscount,
-        gross_cost: netCost,                // ✅ Cost stays same
+        gross_cost: netCost,
         gross_paid: totalPaid,
         actual_revenue: actualRevenue,
         profit_or_loss: profitOrLoss,
       },
     };
   }
-
 
   // ✅ Top Selling Products with Date Filter
   async topProducts(owner_id, { start, end, limit = 10 }) {

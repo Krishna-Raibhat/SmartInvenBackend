@@ -1,8 +1,5 @@
 // src/services/groceryCustomerReturnService.js
-import prisma from "../config/prisma.js";
-import { Prisma } from "@prisma/client";
-
-const Decimal = Prisma.Decimal;
+import { prisma } from "../prisma/client.js";
 
 class GroceryCustomerReturnService {
   async createReturn(owner_id, payload) {
@@ -20,6 +17,23 @@ class GroceryCustomerReturnService {
       e.status = 400;
       e.code = "VALIDATION_NO_ITEMS";
       throw e;
+    }
+
+    // Validate that each item has an amount
+    for (const item of items) {
+      if (item.amount === undefined || item.amount === null) {
+        const e = new Error("Each return item must have an amount specified");
+        e.status = 400;
+        e.code = "VALIDATION_AMOUNT_REQUIRED";
+        throw e;
+      }
+      const amt = Number(item.amount);
+      if (!Number.isFinite(amt) || amt < 0) {
+        const e = new Error("Item amount must be a valid non-negative number");
+        e.status = 400;
+        e.code = "VALIDATION_AMOUNT_INVALID";
+        throw e;
+      }
     }
 
     return prisma.$transaction(async (tx) => {
@@ -54,14 +68,14 @@ class GroceryCustomerReturnService {
         },
       });
 
-      let returnValue = new Decimal(0);
+      let returnValue = 0;
 
       /* =========================
          3️⃣ Process Items
       ========================= */
       for (const it of items) {
         const sales_item_id = String(it.sales_item_id || "").trim();
-        const qty = new Decimal(it.qty);
+        const qty = Number(it.qty);
 
         if (!sales_item_id) {
           throw Object.assign(new Error("sales_item_id required"), {
@@ -70,8 +84,8 @@ class GroceryCustomerReturnService {
           });
         }
 
-        if (qty.lte(0)) {
-          throw Object.assign(new Error("qty must be positive"), {
+        if (!Number.isInteger(qty) || qty <= 0) {
+          throw Object.assign(new Error("qty must be positive integer"), {
             status: 400,
             code: "VALIDATION_QTY_INVALID",
           });
@@ -98,14 +112,13 @@ class GroceryCustomerReturnService {
           });
         }
 
-        const soldQty = new Decimal(salesItem.qty);
-        const returnedQty = new Decimal(salesItem.returned_qty || 0);
-        const availableToReturn = soldQty.sub(returnedQty);
+        const availableToReturn =
+          Number(salesItem.qty) - Number(salesItem.returned_qty || 0);
 
-        if (qty.gt(availableToReturn)) {
+        if (qty > availableToReturn) {
           throw Object.assign(
             new Error(
-              `Return exceeds available qty. Remaining=${availableToReturn.toString()}`,
+              `Return exceeds available qty. Remaining=${availableToReturn}`,
             ),
             { status: 400, code: "RETURN_EXCEEDS_SOLD" },
           );
@@ -117,7 +130,7 @@ class GroceryCustomerReturnService {
         const lotCheck = await tx.groceryStockLot.findFirst({
           where: {
             lot_id: salesItem.lot_id,
-            owner_id,
+            product: { owner_id },
           },
           select: { lot_id: true },
         });
@@ -156,13 +169,8 @@ class GroceryCustomerReturnService {
         });
 
         /* =========================
-           3.5 Always Restock (add back to lot)
+           3.5 Restock (All returns are restocked)
         ========================= */
-        const beforeUpdate = await tx.groceryStockLot.findFirst({
-          where: { lot_id: salesItem.lot_id },
-          select: { qty_remaining: true },
-        });
-
         await tx.groceryStockLot.update({
           where: { lot_id: salesItem.lot_id },
           data: {
@@ -170,15 +178,8 @@ class GroceryCustomerReturnService {
           },
         });
 
-        const afterUpdate = await tx.groceryStockLot.findFirst({
-          where: { lot_id: salesItem.lot_id },
-          select: { qty_remaining: true },
-        });
-
-        console.log(`[GROCERY RETURN] Lot ${salesItem.lot_id}: qty_remaining ${beforeUpdate.qty_remaining} → ${afterUpdate.qty_remaining} (returned ${qty})`);
-
-        // Add item amount to return value
-        returnValue = returnValue.add(new Decimal(itemAmount));
+        // Add item amount to total refund
+        returnValue += itemAmount;
       }
 
       /* =========================
@@ -203,110 +204,143 @@ class GroceryCustomerReturnService {
           sales_id,
           original_total: Number(sale.total_amount),
           original_paid: Number(sale.paid_amount),
-          refund_amount: refundAmount.toNumber(),
+          refund_amount: refundAmount,
           note: "Sale totals remain unchanged. Revenue calculation done at reporting level.",
         },
       };
     });
   }
 
-  /* =========================
-     LIST RETURNS
-  ========================= */
   async list(owner_id) {
-    return prisma.groceryCustomerReturn.findMany({
+    const returns = await prisma.groceryCustomerReturn.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
-      include: {
-        sales: {
-          include: {
-            customer: {
-              select: {
-                customer_id: true,
-                full_name: true,
-                phone: true,
-              },
-            },
-          },
-        },
-        items: {
-          include: {
-            salesItem: {
-              include: {
-                product: {
-                  select: {
-                    product_id: true,
-                    product_name: true,
-                    unit: {
-                      select: {
-                        unit_name: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            lot: {
-              select: {
-                batch_no: true,
-                expiry_date: true,
-              },
-            },
-          },
-        },
-      },
-      take: 200,
-    });
-  }
-
-  /* =========================
-     GET RETURN DETAILS
-  ========================= */
-  async getById(owner_id, return_id) {
-    return prisma.groceryCustomerReturn.findFirst({
-      where: { owner_id, return_id },
       include: {
         sales: {
           select: {
             sales_id: true,
             total_amount: true,
+            discount: true,
             paid_amount: true,
-            payment_status: true,
+            created_at: true,
             customer: {
-              select: {
-                customer_id: true,
-                full_name: true,
-                phone: true,
-              },
+              select: { customer_id: true, full_name: true, phone: true },
             },
           },
         },
         items: {
           include: {
-            salesItem: {
-              include: {
-                product: {
-                  select: {
-                    product_name: true,
-                    unit: {
-                      select: {
-                        unit_name: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
             lot: {
               select: {
-                batch_no: true,
-                expiry_date: true,
+                lot_id: true,
+                cp: true,
+                sp: true,
+                product: { select: { product_id: true, product_name: true } },
+              },
+            },
+          },
+        },
+      },
+      take: 100,
+    });
+
+    return returns.map((ret) => ({
+      return: {
+        return_id: ret.return_id,
+        sales_id: ret.sales_id,
+        refund_amount: Number(ret.refund_amount || 0),
+        note: ret.note,
+        created_at: ret.created_at,
+      },
+      sale: ret.sales
+        ? {
+            sales_id: ret.sales.sales_id,
+            customer: ret.sales.customer,
+            total_amount: Number(ret.sales.total_amount),
+            discount: Number(ret.sales.discount || 0),
+            paid_amount: Number(ret.sales.paid_amount),
+            created_at: ret.sales.created_at,
+          }
+        : null,
+      items: ret.items.map((itm) => ({
+        return_item_id: itm.return_item_id,
+        lot_id: itm.lot_id,
+        sales_item_id: itm.sales_item_id,
+        qty: itm.qty,
+        amount: Number(itm.amount),
+        note: itm.note,
+        product: itm.lot.product,
+        cp: Number(itm.lot.cp),
+        sp: Number(itm.lot.sp),
+        created_at: itm.created_at,
+      })),
+    }));
+  }
+
+  async getById(owner_id, return_id) {
+    const ret = await prisma.groceryCustomerReturn.findFirst({
+      where: { return_id, owner_id },
+      include: {
+        sales: {
+          select: {
+            sales_id: true,
+            total_amount: true,
+            discount: true,
+            paid_amount: true,
+            created_at: true,
+            customer: {
+              select: { customer_id: true, full_name: true, phone: true },
+            },
+          },
+        },
+        items: {
+          include: {
+            lot: {
+              select: {
+                lot_id: true,
+                cp: true,
+                sp: true,
+                product: { select: { product_id: true, product_name: true } },
               },
             },
           },
         },
       },
     });
+
+    if (!ret) return null;
+
+    return {
+      return: {
+        return_id: ret.return_id,
+        sales_id: ret.sales_id,
+        refund_amount: Number(ret.refund_amount || 0),
+        note: ret.note,
+        created_at: ret.created_at,
+      },
+      sale: ret.sales
+        ? {
+            sales_id: ret.sales.sales_id,
+            customer: ret.sales.customer,
+            total_amount: Number(ret.sales.total_amount),
+            discount: Number(ret.sales.discount || 0),
+            paid_amount: Number(ret.sales.paid_amount),
+            created_at: ret.sales.created_at,
+          }
+        : null,
+      items: ret.items.map((itm) => ({
+        return_item_id: itm.return_item_id,
+        lot_id: itm.lot_id,
+        sales_item_id: itm.sales_item_id,
+        qty: itm.qty,
+        amount: Number(itm.amount),
+        note: itm.note,
+        product: itm.lot.product,
+        cp: Number(itm.lot.cp),
+        sp: Number(itm.lot.sp),
+        created_at: itm.created_at,
+      })),
+    };
   }
 }
 

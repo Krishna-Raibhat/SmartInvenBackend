@@ -74,7 +74,8 @@ class ClothingSalesService {
         const created = await prisma.customer.create({
           data: {
             owner_id,
-            full_name: String(customer.full_name ?? "").trim() || "Walk-in Customer",
+            // full_name: String(customer.full_name ?? "").trim() || "Walk-in Customer",
+            full_name: String(customer.full_name ?? "").trim() || null,
             phone: phone ?? null,
             email: customer.email ? String(customer.email).trim() : null,
             address: customer.address ? String(customer.address).trim() : null,
@@ -252,15 +253,38 @@ class ClothingSalesService {
   }
 
   async list(owner_id) {
-    return prisma.clothingSales.findMany({
+    const sales = await prisma.clothingSales.findMany({
       where: { owner_id },
       orderBy: { created_at: "desc" },
       include: {
         customer: {
           select: { customer_id: true, full_name: true, phone: true },
         },
+        customerReturns: {
+          select: { refund_amount: true },
+        },
       },
       take: 200,
+    });
+
+    return sales.map((sale) => {
+      const total = Number(sale.total_amount || 0);
+      const discount = Number(sale.discount || 0);
+      const paid = Number(sale.paid_amount || 0);
+      const effectiveTotal = total - discount;
+      const totalRefunded = sale.customerReturns.reduce(
+        (sum, r) => sum + Number(r.refund_amount || 0), 0
+      );
+      const remaining = Math.max(0, effectiveTotal - paid - totalRefunded);
+      const netPaid = Math.max(0, paid - Math.max(0, totalRefunded - Math.max(0, effectiveTotal - paid)));
+
+      let paymentStatus;
+      if (remaining <= 0) paymentStatus = "paid";
+      else if (netPaid > 0) paymentStatus = "partial";
+      else paymentStatus = "pending";
+
+      const { customerReturns, ...rest } = sale;
+      return { ...rest, payment_status: paymentStatus };
     });
   }
 
@@ -413,10 +437,18 @@ class ClothingSalesService {
     const netPaid = Math.max(0, paidRaw - excessRefund);
     const remaining = Math.max(0, effectiveTotal - paidRaw - totalRefunded);
 
+    let paymentStatus = sale.payment_status;
+    if (remaining <= 0) {
+      paymentStatus = "paid";
+    } else if (netPaid > 0) {
+      paymentStatus = "partial";
+    } else {
+      paymentStatus = "pending";
+    }
     return {
       sale_id: sale.sales_id,
       created_at: sale.created_at,
-      payment_status: sale.payment_status,
+      payment_status: paymentStatus,
       totals: {
         total_amount: total,
         discount: discount,
