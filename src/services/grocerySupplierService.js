@@ -86,6 +86,50 @@ class GrocerySupplierService {
     await prisma.grocerySupplier.delete({ where: { supplier_id } });
     return true;
   }
+
+  // Get supplier stock statistics
+  async getSupplierStats(owner_id, supplier_id) {
+    const supplier = await prisma.grocerySupplier.findFirst({
+      where: { owner_id, supplier_id },
+    });
+    
+    if (!supplier) {
+      const e = new Error("Supplier not found");
+      e.status = 404;
+      e.code = "SUPPLIER_NOT_FOUND";
+      throw e;
+    }
+
+    // Get aggregated stock lot statistics
+    const stats = await prisma.$queryRaw`
+      SELECT
+        COUNT(*)::int AS total_stock_lots,
+        COALESCE(SUM(qty_in), 0)::numeric AS total_qty_purchased,
+        COALESCE(SUM(qty_remaining), 0)::numeric AS total_qty_remaining,
+        COALESCE(SUM(cp * qty_in), 0)::numeric AS total_purchase_amount
+      FROM grocery_stock_lots
+      WHERE owner_id = ${owner_id}
+        AND supplier_id = ${supplier_id}
+        AND deleted_at IS NULL
+    `;
+
+    const row = stats[0] || {};
+
+    return {
+      supplier_id: supplier.supplier_id,
+      supplier_name: supplier.supplier_name,
+      phone: supplier.phone,
+      email: supplier.email,
+      address: supplier.address,
+      statistics: {
+        total_stock_lots: Number(row.total_stock_lots || 0),
+        total_qty_purchased: Number(row.total_qty_purchased || 0),
+        total_qty_remaining: Number(row.total_qty_remaining || 0),
+        total_purchase_amount: Number(row.total_purchase_amount || 0),
+        total_qty_sold: Number(row.total_qty_purchased || 0) - Number(row.total_qty_remaining || 0),
+      },
+    };
+  }
 }
 
 export default new GrocerySupplierService();

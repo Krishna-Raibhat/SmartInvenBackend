@@ -167,3 +167,16 @@ export const remove = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
+
+export const getStats = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const supplier_id = req.params.supplier_id;
+
+    const stats = await grocerySupplierService.getSupplierStats(owner_id, supplier_id);
+    return res.json({ success: true, data: stats });
+  } catch (err) {
+    if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};

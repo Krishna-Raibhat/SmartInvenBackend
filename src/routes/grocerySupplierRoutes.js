@@ -9,6 +9,7 @@ const router = express.Router();
 router.post("/", auth, ctrl.create);
 router.get("/", auth, ctrl.list);
 router.get("/:supplier_id", auth, ctrl.getById);
+router.get("/:supplier_id/stats", auth, ctrl.getStats);
 router.put("/:supplier_id", auth, ctrl.update);
 router.delete("/:supplier_id", auth, ctrl.remove);
 
