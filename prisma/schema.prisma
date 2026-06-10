@@ -217,6 +217,7 @@ model HardwareNotification {
   message         String
   product_id      String?
   read_at         DateTime?
+  is_enabled    Boolean                     @default(true)
   created_at      DateTime         @default(now())
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         HardwareProduct? @relation(fields: [product_id], references: [product_id])
@@ -457,6 +458,7 @@ model ClothingNotification {
   title           String
   message         String
   product_id      String?
+  is_enabled    Boolean                     @default(true)
   read_at         DateTime?
   created_at      DateTime         @default(now())
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
@@ -713,6 +715,7 @@ model GroceryCustomerReturn {
   note          String?
   created_at    DateTime                    @default(now())
   updated_at    DateTime                    @updatedAt
+  
   deleted_at    DateTime?
   items         GroceryCustomerReturnItem[]
   owner         Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
