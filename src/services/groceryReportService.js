@@ -104,6 +104,18 @@ class GroceryReportService {
     const returnCount = Number(row?.return_count || 0);
     const profitOrLoss = actualRevenue - netCost;
 
+    // Calculate inventory losses for the period
+    const lossQuery = await prisma.groceryInventoryLoss.aggregate({
+      where: {
+        owner_id,
+        created_at: { gte: startFinal, lte: endFinal },
+      },
+      _sum: { loss_amount: true },
+    });
+
+    const totalLosses = Number(lossQuery._sum.loss_amount || 0);
+    const finalProfit = profitOrLoss - totalLosses;
+
     return {
       date_range: {
         start: startFinal.toISOString(),
@@ -116,7 +128,8 @@ class GroceryReportService {
         total_cost: netCost,
         total_paid: totalPaid,
         due_balance: dueBalance,
-        estimated_profit: profitOrLoss,
+        inventory_losses: totalLosses,
+        estimated_profit: finalProfit,
         sales_count: salesCount,
         return_count: returnCount,
       },
@@ -125,7 +138,8 @@ class GroceryReportService {
         gross_cost: netCost,
         gross_paid: totalPaid,
         actual_revenue: actualRevenue,
-        profit_or_loss: profitOrLoss,
+        inventory_losses: totalLosses,
+        profit_or_loss: finalProfit,
       },
     };
   }
@@ -261,19 +275,31 @@ class GroceryReportService {
           AND gcr.created_at >= ${startFinal}
           AND gcr.created_at <= ${endFinal}
         GROUP BY 1
+      ),
+      losses AS (
+        SELECT
+          date_trunc(${g}, created_at) AS period,
+          SUM(loss_amount)::numeric AS loss_amount
+        FROM grocery_inventory_losses
+        WHERE owner_id = ${owner_id}
+          AND created_at >= ${startFinal}
+          AND created_at <= ${endFinal}
+        GROUP BY 1
       )
       SELECT
-        COALESCE(i.period, o.period, d.period, r.period) AS period,
+        COALESCE(i.period, o.period, d.period, r.period, l.period) AS period,
         COALESCE(i.qty_in, 0) AS qty_in,
         (COALESCE(o.qty_out, 0) - COALESCE(r.qty_returned, 0)) AS net_qty_out,
         (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0)) AS gross_sales,
         COALESCE(d.discount_total, 0) AS discount,
         COALESCE(o.cost, 0) - COALESCE(r.returned_cost, 0) AS cost,
-        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - (COALESCE(o.cost, 0) - COALESCE(r.returned_cost, 0)) AS profit
+        COALESCE(l.loss_amount, 0) AS losses,
+        (COALESCE(o.sales, 0) - COALESCE(r.return_value, 0) - COALESCE(d.discount_total, 0)) - (COALESCE(o.cost, 0) - COALESCE(r.returned_cost, 0)) - COALESCE(l.loss_amount, 0) AS profit
       FROM qty_in i
       FULL OUTER JOIN qty_out o ON o.period = i.period
       FULL OUTER JOIN discounts d ON d.period = COALESCE(i.period, o.period)
       FULL OUTER JOIN returns r ON r.period = COALESCE(i.period, o.period, d.period)
+      FULL OUTER JOIN losses l ON l.period = COALESCE(i.period, o.period, d.period, r.period)
       WHERE (COALESCE(o.qty_out, 0) > 0 OR COALESCE(r.qty_returned, 0) > 0)
       ORDER BY period ASC;
     `;
@@ -287,7 +313,8 @@ class GroceryReportService {
       discount: Number(r.discount || 0),
       sales: Number(r.gross_sales || 0) - Number(r.discount || 0), // Effective total
       cost: Number(r.cost || 0),
-      profit: Number(r.profit || 0), // Effective total - cost
+      losses: Number(r.losses || 0),
+      profit: Number(r.profit || 0), // Effective total - cost - losses
     }));
   }
 

@@ -303,14 +303,39 @@ class GrocerySalesService {
         items: {
           select: { returned_qty: true },
         },
+        returns: {
+          select: { refund_amount: true },
+        },
       },
       take: 200,
     });
 
-    return sales.map((sale) => ({
-      ...sale,
-      has_return: sale.items.some((it) => Number(it.returned_qty || 0) > 0),
-    }));
+    return sales.map((sale) => {
+      const total = Number(sale.total_amount || 0);
+      const discount = Number(sale.discount || 0);
+      const paid = Number(sale.paid_amount || 0);
+      const effectiveTotal = total - discount;
+      const totalRefunded = sale.returns.reduce(
+        (sum, r) => sum + Number(r.refund_amount || 0),
+        0
+      );
+      const remaining = Math.max(0, effectiveTotal - paid - totalRefunded);
+      const netPaid = Math.max(0, paid - Math.max(0, totalRefunded - Math.max(0, effectiveTotal - paid)));
+
+      let paymentStatus;
+      if (remaining <= 0) paymentStatus = "paid";
+      else if (netPaid > 0) paymentStatus = "partial";
+      else paymentStatus = "pending";
+
+      const hasReturn = sale.items.some((it) => Number(it.returned_qty || 0) > 0);
+      const { returns, ...rest } = sale;
+      
+      return {
+        ...rest,
+        payment_status: paymentStatus,
+        has_return: hasReturn,
+      };
+    });
   }
 
   async listCredit(owner_id) {

@@ -39,6 +39,7 @@ model Owner {
   clothingSuppliers          ClothingSupplier[]
   customers                  Customer[]
   groceryCustomerReturns     GroceryCustomerReturn[]
+  groceryInventoryLosses     GroceryInventoryLoss[]
   groceryNotifications       GroceryNotification[]
   groceryProducts            GroceryProduct[]
   grocerySales               GrocerySales[]
@@ -583,6 +584,7 @@ model GroceryProduct {
   category                   GroceryCategory?      @relation(fields: [category_id], references: [category_id])
   owner                      Owner                 @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   unit                       GroceryUnit           @relation(fields: [unit_id], references: [unit_id])
+  losses                     GroceryInventoryLoss[]
   salesItems                 GrocerySalesItem[]
   stockLots                  GroceryStockLot[]
 
@@ -613,6 +615,7 @@ model GroceryStockLot {
   updated_at          DateTime                    @updatedAt
   deleted_at          DateTime?
   customerReturnItems GroceryCustomerReturnItem[]
+  losses              GroceryInventoryLoss[]
   salesItems          GrocerySalesItem[]
   owner               Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product             GroceryProduct              @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
@@ -658,6 +661,28 @@ model GrocerySupplierReturnItem {
   @@index([return_id])
   @@index([lot_id])
   @@map("grocery_supplier_return_items")
+}
+
+model GroceryInventoryLoss {
+  loss_id     String          @id @default(uuid())
+  owner_id    String
+  lot_id      String
+  product_id  String
+  qty         Decimal         @db.Decimal(10, 3)
+  cp          Decimal         @db.Decimal(10, 2)
+  loss_amount Decimal         @db.Decimal(10, 2)
+  reason      String
+  note        String?
+  created_at  DateTime        @default(now())
+  owner       Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  lot         GroceryStockLot @relation(fields: [lot_id], references: [lot_id])
+  product     GroceryProduct  @relation(fields: [product_id], references: [product_id])
+
+  @@index([owner_id])
+  @@index([created_at])
+  @@index([reason])
+  @@index([product_id])
+  @@map("grocery_inventory_losses")
 }
 
 model GrocerySales {

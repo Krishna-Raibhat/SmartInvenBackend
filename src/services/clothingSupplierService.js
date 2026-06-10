@@ -110,16 +110,35 @@ class ClothingSupplierService {
   async remove(owner_id, supplier_id) {
     const supplier = await prisma.clothingSupplier.findFirst({
       where: { owner_id, supplier_id },
-      select: { supplier_id: true },
+      select: { supplier_id: true, supplier_name: true },
     });
     if (!supplier) return null;
 
-    // block delete if linked to any stock lots
-    const linkedCount = await prisma.clothingStockLot.count({
+    // Check for linked stock lots
+    const stockLotCount = await prisma.clothingStockLot.count({
       where: { supplier_id },
     });
 
-    if (linkedCount > 0) return false;
+    // Check for linked supplier returns
+    const returnCount = await prisma.clothingSupplierReturn.count({
+      where: { supplier_id },
+    });
+
+    const totalLinked = stockLotCount + returnCount;
+
+    if (totalLinked > 0) {
+      const e = new Error(
+        `Cannot delete supplier "${supplier.supplier_name}". This supplier has ${stockLotCount} stock lot(s) and ${returnCount} return(s) linked. Please remove these records first or contact support.`
+      );
+      e.status = 400;
+      e.code = "SUPPLIER_HAS_LINKED_RECORDS";
+      e.details = {
+        stock_lots: stockLotCount,
+        returns: returnCount,
+        total: totalLinked,
+      };
+      throw e;
+    }
 
     await prisma.clothingSupplier.delete({ where: { supplier_id } });
     return true;

@@ -138,6 +138,23 @@ class GroceryDashboardService {
     const netCost = Number(profitRows?.[0]?.net_cost || 0);
     const profitOrLoss = actualRevenue - netCost;
 
+    // Calculate inventory losses for the period
+    const lossQuery = hasDate
+      ? await prisma.groceryInventoryLoss.aggregate({
+          where: {
+            owner_id,
+            created_at: { gte: startDate, lte: endDate },
+          },
+          _sum: { loss_amount: true },
+        })
+      : await prisma.groceryInventoryLoss.aggregate({
+          where: { owner_id },
+          _sum: { loss_amount: true },
+        });
+
+    const totalLosses = Number(lossQuery._sum.loss_amount || 0);
+    const finalProfit = profitOrLoss - totalLosses;
+
     const productCount = await prisma.groceryProduct.count({ where: { owner_id } });
 
     return {
@@ -152,7 +169,8 @@ class GroceryDashboardService {
       profit: {
         actual_revenue: actualRevenue,
         total_cost: netCost,
-        profit: profitOrLoss,
+        inventory_losses: totalLosses,
+        profit: finalProfit,
       },
       products: {
         count: productCount,
