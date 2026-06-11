@@ -67,6 +67,12 @@ import groceryNotificationPreferenceRoutes from "./routes/groceryNotificationPre
 import groceryBatchSyncRoutes from "./routes/groceryBatchSyncRoutes.js";
 import clothingBatchSyncRoutes from "./routes/clothingBatchSyncRoutes.js";
 import hardwareBatchSyncRoutes from "./routes/hardwareBatchSyncRoutes.js";
+import storeCategoryRoutes from "./routes/storeCategoryRoutes.js";
+import storeUnitRoutes from "./routes/storeUnitRoutes.js";
+import storeSupplierRoutes from "./routes/storeSupplierRoutes.js";
+import storeProductRoutes from "./routes/storeProductRoutes.js";
+import storeStockLotRoutes from "./routes/storeStockLotRoutes.js";
+import storeSupplierReturnRoutes from "./routes/storeSupplierReturnRoutes.js";
 
 
 const app = express();
@@ -157,6 +163,14 @@ app.use("/api/grocery/reports", groceryReportRoutes);
 app.use("/api/grocery/notifications", groceryNotificationRoutes);
 app.use("/api/grocery/notification-preferences", groceryNotificationPreferenceRoutes);
 app.use("/api/grocery/sync", groceryBatchSyncRoutes);
+
+// Store routes
+app.use("/api/store/categories", storeCategoryRoutes);
+app.use("/api/store/units", storeUnitRoutes);
+app.use("/api/store/suppliers", storeSupplierRoutes);
+app.use("/api/store/products", storeProductRoutes);
+app.use("/api/store/stock-lots", storeStockLotRoutes);
+app.use("/api/store/supplier-returns", storeSupplierReturnRoutes);
 
 /* ==========================
    SERVER START

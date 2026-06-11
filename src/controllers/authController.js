@@ -1119,6 +1119,21 @@ export async function verifyRegistrationOtp(req, res) {
       },
     });
 
+    // ✅ Seed "general" category for Store package owners
+    if (record.package_key === "store") {
+      try {
+        await prisma.storeCategory.create({
+          data: {
+            owner_id: owner.owner_id,
+            category_name: "general",
+          },
+        });
+      } catch (err) {
+        console.error("Failed to create default store category:", err);
+        // Don't fail registration if category creation fails
+      }
+    }
+
     // Generate token
     const token = generateToken({
       owner_id: owner.owner_id,
