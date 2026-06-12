@@ -59,6 +59,9 @@ model Owner {
   storeProducts              StoreProduct[]
   storeStockLots             StoreStockLot[]
   storeSupplierReturns       StoreSupplierReturn[]
+  storeSupplierReturnItems   StoreSupplierReturnItem[]
+  storeSales                 StoreSales[]
+  storeSalesItems            StoreSalesItem[]
   package                    Package?                 @relation(fields: [package_id], references: [package_id], onDelete: Restrict)
   otps                       PasswordResetOtp[]
   paymentProofs              PaymentProof[]
@@ -384,6 +387,7 @@ model Customer {
   updated_at  DateTime        @updatedAt
   sales       ClothingSales[]
   grocerySales GrocerySales[]
+  storeSales  StoreSales[]
   owner       Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   @@unique([owner_id, phone])
@@ -891,6 +895,7 @@ model StoreProduct {
   category     StoreCategory?    @relation(fields: [category_id], references: [category_id])
   unit         StoreUnit?        @relation(fields: [unit_id], references: [unit_id])
   stockLots    StoreStockLot[]
+  salesItems   StoreSalesItem[]
 
   @@unique([owner_id, product_name])
   @@index([owner_id])
@@ -915,6 +920,7 @@ model StoreStockLot {
   product             StoreProduct              @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
   supplier            StoreSupplier?            @relation(fields: [supplier_id], references: [supplier_id])
   supplierReturnItems StoreSupplierReturnItem[]
+  salesItems          StoreSalesItem[]
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
@@ -930,7 +936,7 @@ model StoreSupplierReturn {
   created_at   DateTime                  @default(now())
   items        StoreSupplierReturnItem[]
   owner        Owner                     @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  supplier     StoreSupplier             @relation(fields: [supplier_id], references: [supplier_id])
+  supplier     StoreSupplier             @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
 
   @@index([owner_id, created_at])
   @@index([owner_id, supplier_id])
@@ -940,16 +946,19 @@ model StoreSupplierReturn {
 model StoreSupplierReturnItem {
   return_item_id String               @id @default(uuid())
   return_id      String
+  owner_id       String
   lot_id         String
   qty            Int
   refund_amount  Decimal              @db.Decimal(10, 2)
   reason         String?
   note           String?
   created_at     DateTime             @default(now())
+  owner          Owner                @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   lot            StoreStockLot        @relation(fields: [lot_id], references: [lot_id])
   return         StoreSupplierReturn  @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
 
   @@index([return_id])
+  @@index([owner_id])
   @@index([lot_id])
   @@map("store_supplier_return_items")
 }
@@ -959,4 +968,57 @@ enum StoreProductType {
   service
 
   @@map("store_product_type")
+}
+
+enum StoreSalesPaymentStatus {
+  pending
+  partial
+  paid
+
+  @@map("store_sales_payment_status")
+}
+
+model StoreSales {
+  sales_id       String                   @id @default(uuid())
+  owner_id       String
+  customer_id    String?
+  payment_status StoreSalesPaymentStatus  @default(pending)
+  total_amount   Decimal                  @db.Decimal(10, 2)
+  discount       Decimal                  @default(0) @db.Decimal(10, 2)
+  paid_amount    Decimal                  @default(0) @db.Decimal(10, 2)
+  due_amount     Decimal                  @default(0) @db.Decimal(10, 2)
+  note           String?
+  created_at     DateTime                 @default(now())
+  updated_at     DateTime                 @updatedAt
+  owner          Owner                    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  customer       Customer?                @relation(fields: [customer_id], references: [customer_id])
+  items          StoreSalesItem[]
+
+  @@index([owner_id, created_at])
+  @@index([customer_id])
+  @@map("store_sales")
+}
+
+model StoreSalesItem {
+  sales_item_id String         @id @default(uuid())
+  sales_id      String
+  owner_id      String
+  product_id    String
+  lot_id        String?
+  qty           Int
+  cp            Decimal?       @db.Decimal(10, 2)
+  sp            Decimal        @db.Decimal(10, 2)
+  line_total    Decimal        @db.Decimal(10, 2)
+  note          String?
+  created_at    DateTime       @default(now())
+  owner         Owner          @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  sales         StoreSales     @relation(fields: [sales_id], references: [sales_id], onDelete: Cascade)
+  product       StoreProduct   @relation(fields: [product_id], references: [product_id])
+  lot           StoreStockLot? @relation(fields: [lot_id], references: [lot_id])
+
+  @@index([sales_id])
+  @@index([owner_id])
+  @@index([product_id])
+  @@index([lot_id])
+  @@map("store_sales_items")
 }
