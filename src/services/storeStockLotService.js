@@ -20,16 +20,18 @@ class StoreStockLotService {
     if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
     if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
 
-    if (supplier_id) {
-      const supplier = await prisma.storeSupplier.findFirst({ where: { supplier_id, owner_id } });
-      if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
+    if (!supplier_id) {
+      throw { code: "REQUIRED_FIELDS", message: "supplier_id is required." };
     }
+
+    const supplier = await prisma.storeSupplier.findFirst({ where: { supplier_id, owner_id } });
+    if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
 
     return prisma.storeStockLot.create({
       data: {
         owner_id,
         product_id,
-        supplier_id: supplier_id || null,
+        supplier_id,
         qty_in,
         qty_remaining: qty_in,
         cp,

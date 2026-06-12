@@ -39,6 +39,14 @@ const storeStockLotController = {
         });
       }
 
+      if (!supplier_id) {
+        return res.status(400).json({
+          success: false,
+          error_code: "REQUIRED_FIELDS",
+          message: "supplier_id is required.",
+        });
+      }
+
       const lot = await storeStockLotService.create({
         owner_id,
         product_id,

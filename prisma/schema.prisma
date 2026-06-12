@@ -908,7 +908,7 @@ model StoreStockLot {
   lot_id              String                    @id @default(uuid())
   owner_id            String
   product_id          String
-  supplier_id         String?
+  supplier_id         String
   cp                  Decimal                   @db.Decimal(10, 2)
   sp                  Decimal                   @db.Decimal(10, 2)
   qty_in              Int
@@ -918,7 +918,7 @@ model StoreStockLot {
   updated_at          DateTime                  @updatedAt
   owner               Owner                     @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product             StoreProduct              @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
-  supplier            StoreSupplier?            @relation(fields: [supplier_id], references: [supplier_id])
+  supplier            StoreSupplier?             @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
   supplierReturnItems StoreSupplierReturnItem[]
   salesItems          StoreSalesItem[]
 
