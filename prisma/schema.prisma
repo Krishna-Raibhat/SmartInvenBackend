@@ -66,6 +66,7 @@ model Owner {
   storeSuppliers             StoreSupplier[]
   storeUnits                 StoreUnit[]
   storeCustomerReturns       StoreCustomerReturn[]
+  storeCustomerReturnItems  StoreCustomerReturnItem[] 
 
   @@map("owners")
 }
@@ -1009,8 +1010,8 @@ model StoreCustomerReturn {
 }
 
 model StoreCustomerReturnItem {
-  return_item_id String 
-  owner_id      String              @id @default(uuid())
+  return_item_id String             @id @default(uuid())
+  owner_id      String              
   return_id      String
   sales_item_id  String
   lot_id         String
