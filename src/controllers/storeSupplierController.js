@@ -112,81 +112,76 @@ const storeSupplierController = {
   },
 
   async update(req, res) {
-    const owner_id = req.owner.owner_id;
-    const { id } = req.params;
-    let { supplier_name, phone, email, address } = req.body;
+    try {
+      const owner_id = req.owner.owner_id;
+      const { id } = req.params;
+      let { supplier_name, phone, email, address } = req.body;
 
-    if (supplier_name === undefined && phone === undefined && email === undefined && address === undefined) {
-      return res.status(400).json({
-        success: false,
-        error_code: "REQUIRED_FIELDS",
-        message: "At least one field is required.",
-      });
-    }
-
-    const patch = {};
-
-    if (supplier_name !== undefined) patch.supplier_name = String(supplier_name || "").trim();
-
-    if (phone !== undefined) {
-      phone = normalizeNepalPhone(String(phone || "").trim());
-      if (!isValidNepalPhone(phone)) {
+      if (supplier_name === undefined && phone === undefined && email === undefined && address === undefined) {
         return res.status(400).json({
           success: false,
-          error_code: "VALIDATION_PHONE_INVALID",
-          message: "Invalid phone number. Please enter a valid Nepali number.",
+          error_code: "REQUIRED_FIELDS",
+          message: "At least one field is required.",
         });
       }
-      patch.phone = phone;
-    }
 
-    if (email !== undefined) {
-      if (email === null || String(email).trim() === "") {
-        patch.email = null;
-      } else {
-        email = String(email).trim();
-        if (!isValidEmail(email)) {
+      const patch = {};
+
+      if (supplier_name !== undefined) {
+        patch.supplier_name = String(supplier_name || "").trim();
+        if (patch.supplier_name === "") {
           return res.status(400).json({
             success: false,
-            error_code: "VALIDATION_EMAIL_INVALID",
-            message: "Invalid email format.",
+            error_code: "VALIDATION_ERROR",
+            message: "supplier_name cannot be empty.",
           });
         }
-        patch.email = email;
       }
-    }
 
-    if (address !== undefined) {
-      patch.address = address === null ? null : String(address).trim();
-    }
+      if (phone !== undefined) {
+        phone = normalizeNepalPhone(String(phone || "").trim());
+        if (!isValidNepalPhone(phone)) {
+          return res.status(400).json({
+            success: false,
+            error_code: "VALIDATION_PHONE_INVALID",
+            message: "Invalid phone number. Please enter a valid Nepali number.",
+          });
+        }
+        patch.phone = phone;
+      }
 
-    try {
+      if (email !== undefined) {
+        if (email === null || String(email).trim() === "") {
+          patch.email = null;
+        } else {
+          email = String(email).trim();
+          if (!isValidEmail(email)) {
+            return res.status(400).json({
+              success: false,
+              error_code: "VALIDATION_EMAIL_INVALID",
+              message: "Invalid email format.",
+            });
+          }
+          patch.email = email;
+        }
+      }
+
+      if (address !== undefined) {
+        patch.address = address === null ? null : String(address).trim();
+      }
+
       const supplier = await storeSupplierService.update(owner_id, id, patch);
-
       return res.status(200).json({ success: true, data: supplier });
+
     } catch (error) {
       if (error.code === "NOT_FOUND") {
-        return res.status(404).json({
-          success: false,
-          error_code: "NOT_FOUND",
-          message: error.message,
-        });
+        return res.status(404).json({ success: false, error_code: "NOT_FOUND", message: error.message });
       }
-
       if (error.code === "DUPLICATE") {
-        return res.status(409).json({
-          success: false,
-          error_code: "DUPLICATE",
-          message: error.message,
-        });
+        return res.status(409).json({ success: false, error_code: "DUPLICATE", message: error.message });
       }
-
       console.error("Error updating store supplier:", error);
-      return res.status(500).json({
-        success: false,
-        error_code: "SERVER_ERROR",
-        message: "Failed to update supplier.",
-      });
+      return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Failed to update supplier." });
     }
   },
 
