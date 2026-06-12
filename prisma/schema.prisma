@@ -1009,7 +1009,8 @@ model StoreCustomerReturn {
 }
 
 model StoreCustomerReturnItem {
-  return_item_id String              @id @default(uuid())
+  return_item_id String 
+  owner_id      String              @id @default(uuid())
   return_id      String
   sales_item_id  String
   lot_id         String
@@ -1020,6 +1021,7 @@ model StoreCustomerReturnItem {
   return         StoreCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
   salesItem      StoreSalesItem      @relation(fields: [sales_item_id], references: [sales_item_id])
   lot            StoreStockLot       @relation(fields: [lot_id], references: [lot_id])
+  owner         Owner    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   @@index([return_id])
   @@index([sales_item_id])
