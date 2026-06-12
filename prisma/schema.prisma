@@ -19,18 +19,18 @@ model Package {
 }
 
 model Owner {
-  owner_id                   String                   @id @default(uuid())
+  owner_id                   String                    @id @default(uuid())
   full_name                  String
-  email                      String                   @unique
-  phone                      String                   @unique
-  password                   String                   @map("password_hash")
+  email                      String                    @unique
+  phone                      String                    @unique
+  password                   String                    @map("password_hash")
   fcm_token                  String?
   package_id                 String?
-  created_at                 DateTime                 @default(now())
-  updated_at                 DateTime                 @updatedAt
-  status                     OwnerStatus              @default(trial)
+  created_at                 DateTime                  @default(now())
+  updated_at                 DateTime                  @updatedAt
+  status                     OwnerStatus               @default(trial)
   subscription_expires_at    DateTime?
-  subscription_reminder_sent Boolean                  @default(false)
+  subscription_reminder_sent Boolean                   @default(false)
   clothingCustomerReturns    ClothingCustomerReturn[]
   clothingNotifications      ClothingNotification[]
   clothingProducts           ClothingProduct[]
@@ -53,18 +53,18 @@ model Owner {
   stockOuts                  HardwareStockOut[]
   stockOutItems              HardwareStockOutItem[]
   suppliers                  HardwareSupplier[]
-  storeCategories            StoreCategory[]
-  storeUnits                 StoreUnit[]
-  storeSuppliers             StoreSupplier[]
-  storeProducts              StoreProduct[]
-  storeStockLots             StoreStockLot[]
-  storeSupplierReturns       StoreSupplierReturn[]
-  storeSupplierReturnItems   StoreSupplierReturnItem[]
-  storeSales                 StoreSales[]
-  storeSalesItems            StoreSalesItem[]
-  package                    Package?                 @relation(fields: [package_id], references: [package_id], onDelete: Restrict)
+  package                    Package?                  @relation(fields: [package_id], references: [package_id], onDelete: Restrict)
   otps                       PasswordResetOtp[]
   paymentProofs              PaymentProof[]
+  storeCategories            StoreCategory[]
+  storeProducts              StoreProduct[]
+  storeSales                 StoreSales[]
+  storeSalesItems            StoreSalesItem[]
+  storeStockLots             StoreStockLot[]
+  storeSupplierReturnItems   StoreSupplierReturnItem[]
+  storeSupplierReturns       StoreSupplierReturn[]
+  storeSuppliers             StoreSupplier[]
+  storeUnits                 StoreUnit[]
 
   @@map("owners")
 }
@@ -186,9 +186,9 @@ model HardwareStockOut {
   note                String?
   created_at          DateTime               @default(now())
   customer_address    String?
-  discount            Decimal                @default(0) @db.Decimal(10, 2)
   customer_name       String?
   customer_phn_number String?
+  discount            Decimal                @default(0) @db.Decimal(10, 2)
   owner               Owner                  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   items               HardwareStockOutItem[]
 
@@ -227,8 +227,8 @@ model HardwareNotification {
   message         String
   product_id      String?
   read_at         DateTime?
-  is_enabled    Boolean                     @default(true)
   created_at      DateTime         @default(now())
+  is_enabled      Boolean          @default(true)
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         HardwareProduct? @relation(fields: [product_id], references: [product_id])
 
@@ -333,11 +333,11 @@ model ClothingSales {
   owner_id        String
   customer_id     String?
   payment_status  String                   @default("pending")
-  discount       Decimal                 @default(0) @db.Decimal(10, 2)
   total_amount    Decimal                  @db.Decimal(10, 2)
   paid_amount     Decimal                  @db.Decimal(10, 2)
   note            String?
   created_at      DateTime                 @default(now())
+  discount        Decimal                  @default(0) @db.Decimal(10, 2)
   updated_at      DateTime                 @default(now()) @updatedAt
   customerReturns ClothingCustomerReturn[]
   customer        Customer?                @relation(fields: [customer_id], references: [customer_id])
@@ -377,18 +377,18 @@ model ClothingSalesItem {
 }
 
 model Customer {
-  customer_id String          @id @default(uuid())
-  owner_id    String
-  full_name   String
-  phone       String?
-  email       String?
-  address     String?
-  created_at  DateTime        @default(now())
-  updated_at  DateTime        @updatedAt
-  sales       ClothingSales[]
+  customer_id  String          @id @default(uuid())
+  owner_id     String
+  full_name    String
+  phone        String?
+  email        String?
+  address      String?
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+  sales        ClothingSales[]
+  owner        Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   grocerySales GrocerySales[]
-  storeSales  StoreSales[]
-  owner       Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  storeSales   StoreSales[]
 
   @@unique([owner_id, phone])
   @@index([owner_id])
@@ -419,10 +419,10 @@ model ClothingCustomerReturnItem {
   condition      String                 @default("good")
   note           String?
   created_at     DateTime               @default(now())
+  amount         Decimal                @db.Decimal(10, 2)
   lot            ClothingStockLot       @relation(fields: [lot_id], references: [lot_id])
   return         ClothingCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
   salesItem      ClothingSalesItem?     @relation(fields: [sales_item_id], references: [sales_item_id])
-  amount       Decimal                      @db.Decimal(10, 2)
 
   @@index([return_id])
   @@index([lot_id])
@@ -436,7 +436,7 @@ model ClothingSupplierReturn {
   status      String                       @default("pending")
   note        String?
   created_at  DateTime                     @default(now())
-  amount       Decimal                      @db.Decimal(10, 2)
+  amount      Decimal                      @db.Decimal(10, 2)
   items       ClothingSupplierReturnItem[]
   owner       Owner                        @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   supplier    ClothingSupplier             @relation(fields: [supplier_id], references: [supplier_id])
@@ -469,9 +469,9 @@ model ClothingNotification {
   title           String
   message         String
   product_id      String?
-  is_enabled    Boolean                     @default(true)
   read_at         DateTime?
   created_at      DateTime         @default(now())
+  is_enabled      Boolean          @default(true)
   owner           Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product         ClothingProduct? @relation(fields: [product_id], references: [product_id])
 
@@ -503,14 +503,6 @@ model PaymentProof {
   @@index([owner_id])
   @@index([status])
   @@map("payment_proofs")
-}
-
-enum OwnerStatus {
-  trial
-  active
-  inactive
-
-  @@map("owner_status")
 }
 
 model GrocerySupplier {
@@ -577,24 +569,24 @@ model GroceryUnit {
 }
 
 model GroceryProduct {
-  product_id                 String                @id @default(uuid())
+  product_id                 String                 @id @default(uuid())
   owner_id                   String
   category_id                String?
   brand_id                   String?
   unit_id                    String
   product_name               String
-  barcode                    String?               @unique
-  description                String?
-  created_at                 DateTime              @default(now())
-  updated_at                 DateTime              @updatedAt
-  last_low_stock_notified_at DateTime?
+  created_at                 DateTime               @default(now())
+  updated_at                 DateTime               @updatedAt
   deleted_at                 DateTime?
-  notifications              GroceryNotification[]
-  brand                      GroceryBrand?         @relation(fields: [brand_id], references: [brand_id])
-  category                   GroceryCategory?      @relation(fields: [category_id], references: [category_id])
-  owner                      Owner                 @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  unit                       GroceryUnit           @relation(fields: [unit_id], references: [unit_id])
+  last_low_stock_notified_at DateTime?
+  barcode                    String?                @unique
+  description                String?
   losses                     GroceryInventoryLoss[]
+  notifications              GroceryNotification[]
+  brand                      GroceryBrand?          @relation(fields: [brand_id], references: [brand_id])
+  category                   GroceryCategory?       @relation(fields: [category_id], references: [category_id])
+  owner                      Owner                  @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  unit                       GroceryUnit            @relation(fields: [unit_id], references: [unit_id])
   salesItems                 GrocerySalesItem[]
   stockLots                  GroceryStockLot[]
 
@@ -609,21 +601,21 @@ model GroceryProduct {
 
 model GroceryStockLot {
   lot_id              String                      @id @default(uuid())
-  owner_id            String
   product_id          String
   supplier_id         String
-  qty_in              Decimal                     @db.Decimal(10, 3)
-  qty_remaining       Decimal                     @db.Decimal(10, 3)
   cp                  Decimal                     @db.Decimal(10, 2)
   sp                  Decimal                     @db.Decimal(10, 2)
-  batch_no            String?
+  qty_in              Decimal                     @db.Decimal(10, 3)
+  qty_remaining       Decimal                     @db.Decimal(10, 3)
   expiry_date         DateTime?
   notes               String?
   created_at          DateTime                    @default(now())
-  barcode             String?                     @unique
-  barcode_image_url   String?
   updated_at          DateTime                    @updatedAt
   deleted_at          DateTime?
+  barcode             String?                     @unique
+  barcode_image_url   String?
+  batch_no            String?
+  owner_id            String
   customerReturnItems GroceryCustomerReturnItem[]
   losses              GroceryInventoryLoss[]
   salesItems          GrocerySalesItem[]
@@ -644,7 +636,7 @@ model GrocerySupplierReturn {
   owner_id     String
   supplier_id  String
   total_refund Decimal                     @db.Decimal(10, 2)
-  amount       Decimal                      @db.Decimal(10, 2)
+  amount       Decimal                     @db.Decimal(10, 2)
   note         String?
   created_at   DateTime                    @default(now())
   items        GrocerySupplierReturnItem[]
@@ -684,8 +676,8 @@ model GroceryInventoryLoss {
   reason      String
   note        String?
   created_at  DateTime        @default(now())
-  owner       Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   lot         GroceryStockLot @relation(fields: [lot_id], references: [lot_id])
+  owner       Owner           @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product     GroceryProduct  @relation(fields: [product_id], references: [product_id])
 
   @@index([owner_id])
@@ -749,9 +741,8 @@ model GroceryCustomerReturn {
   refund_amount Decimal                     @db.Decimal(10, 2)
   note          String?
   created_at    DateTime                    @default(now())
-  updated_at    DateTime                    @updatedAt
-  
   deleted_at    DateTime?
+  updated_at    DateTime                    @updatedAt
   items         GroceryCustomerReturnItem[]
   owner         Owner                       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   sales         GrocerySales                @relation(fields: [sales_id], references: [sales_id])
@@ -769,9 +760,9 @@ model GroceryCustomerReturnItem {
   sales_item_id  String
   lot_id         String
   qty            Decimal               @db.Decimal(10, 3)
-  amount         Decimal?              @db.Decimal(10, 2)
   note           String?
   created_at     DateTime              @default(now())
+  amount         Decimal?              @db.Decimal(10, 2)
   lot            GroceryStockLot       @relation(fields: [lot_id], references: [lot_id])
   return         GroceryCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
   salesItem      GrocerySalesItem      @relation(fields: [sales_item_id], references: [sales_item_id])
@@ -817,11 +808,6 @@ model SyncIdempotency {
   @@map("sync_idempotency")
 }
 
-
-// ========================================
-// STORE MODELS
-// ========================================
-
 model StoreCategory {
   category_id   String         @id @default(uuid())
   owner_id      String
@@ -842,8 +828,8 @@ model StoreUnit {
   unit_name  String
   created_at DateTime       @default(now())
   updated_at DateTime       @updatedAt
-  owner      Owner          @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   products   StoreProduct[]
+  owner      Owner          @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   @@unique([owner_id, unit_name])
   @@index([owner_id])
@@ -851,51 +837,43 @@ model StoreUnit {
 }
 
 model StoreSupplier {
-  supplier_id     String                       @id @default(uuid())
-  owner_id        String
-  supplier_name   String
-  phone           String
-  email           String?
-  address         String?
-  due_amount      Decimal                      @default(0) @db.Decimal(10, 2)
-  paid_amount     Decimal                      @default(0) @db.Decimal(10, 2)
-  payment_status  StoreSupplierPaymentStatus   @default(paid)
-  created_at      DateTime                     @default(now())
-  updated_at      DateTime                     @updatedAt
-  owner           Owner                        @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  stockLots       StoreStockLot[]
-  returns         StoreSupplierReturn[]
+  supplier_id    String                     @id @default(uuid())
+  owner_id       String
+  supplier_name  String
+  phone          String
+  email          String?
+  address        String?
+  created_at     DateTime                   @default(now())
+  updated_at     DateTime                   @updatedAt
+  due_amount     Decimal                    @default(0) @db.Decimal(10, 2)
+  paid_amount    Decimal                    @default(0) @db.Decimal(10, 2)
+  payment_status StoreSupplierPaymentStatus @default(paid)
+  stockLots      StoreStockLot[]
+  returns        StoreSupplierReturn[]
+  owner          Owner                      @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   @@unique([owner_id, phone])
   @@index([owner_id])
   @@map("store_suppliers")
 }
 
-enum StoreSupplierPaymentStatus {
-  unpaid
-  partial
-  paid
-
-  @@map("store_supplier_payment_status")
-}
-
 model StoreProduct {
-  product_id   String            @id @default(uuid())
+  product_id   String           @id @default(uuid())
   owner_id     String
   category_id  String?
   unit_id      String?
   product_name String
-  type         StoreProductType  @default(item)
   description  String?
-  cp           Decimal?          @db.Decimal(10, 2)
-  sp           Decimal?          @db.Decimal(10, 2)
-  created_at   DateTime          @default(now())
-  updated_at   DateTime          @updatedAt
-  owner        Owner             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  category     StoreCategory?    @relation(fields: [category_id], references: [category_id])
-  unit         StoreUnit?        @relation(fields: [unit_id], references: [unit_id])
-  stockLots    StoreStockLot[]
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+  cp           Decimal?         @db.Decimal(10, 2)
+  sp           Decimal?         @db.Decimal(10, 2)
+  type         StoreProductType @default(item)
+  category     StoreCategory?   @relation(fields: [category_id], references: [category_id])
+  owner        Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  unit         StoreUnit?       @relation(fields: [unit_id], references: [unit_id])
   salesItems   StoreSalesItem[]
+  stockLots    StoreStockLot[]
 
   @@unique([owner_id, product_name])
   @@index([owner_id])
@@ -916,11 +894,11 @@ model StoreStockLot {
   notes               String?
   created_at          DateTime                  @default(now())
   updated_at          DateTime                  @updatedAt
+  salesItems          StoreSalesItem[]
   owner               Owner                     @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product             StoreProduct              @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
-  supplier            StoreSupplier?             @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
+  supplier            StoreSupplier             @relation(fields: [supplier_id], references: [supplier_id])
   supplierReturnItems StoreSupplierReturnItem[]
-  salesItems          StoreSalesItem[]
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
@@ -931,12 +909,12 @@ model StoreSupplierReturn {
   return_id    String                    @id @default(uuid())
   owner_id     String
   supplier_id  String
-  total_refund Decimal                   @db.Decimal(10, 2)
   note         String?
   created_at   DateTime                  @default(now())
+  total_refund Decimal                   @db.Decimal(10, 2)
   items        StoreSupplierReturnItem[]
   owner        Owner                     @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  supplier     StoreSupplier             @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
+  supplier     StoreSupplier             @relation(fields: [supplier_id], references: [supplier_id])
 
   @@index([owner_id, created_at])
   @@index([owner_id, supplier_id])
@@ -944,23 +922,84 @@ model StoreSupplierReturn {
 }
 
 model StoreSupplierReturnItem {
-  return_item_id String               @id @default(uuid())
   return_id      String
-  owner_id       String
   lot_id         String
   qty            Int
-  refund_amount  Decimal              @db.Decimal(10, 2)
   reason         String?
   note           String?
-  created_at     DateTime             @default(now())
-  owner          Owner                @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  lot            StoreStockLot        @relation(fields: [lot_id], references: [lot_id])
-  return         StoreSupplierReturn  @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
+  created_at     DateTime            @default(now())
+  refund_amount  Decimal             @db.Decimal(10, 2)
+  return_item_id String              @id @default(uuid())
+  owner_id       String
+  lot            StoreStockLot       @relation(fields: [lot_id], references: [lot_id])
+  owner          Owner               @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  return         StoreSupplierReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
 
   @@index([return_id])
   @@index([owner_id])
   @@index([lot_id])
   @@map("store_supplier_return_items")
+}
+
+model StoreSales {
+  sales_id       String                  @id @default(uuid())
+  owner_id       String
+  customer_id    String?
+  total_amount   Decimal                 @db.Decimal(10, 2)
+  discount       Decimal                 @default(0) @db.Decimal(10, 2)
+  paid_amount    Decimal                 @default(0) @db.Decimal(10, 2)
+  note           String?
+  created_at     DateTime                @default(now())
+  updated_at     DateTime                @updatedAt
+  payment_status StoreSalesPaymentStatus @default(pending)
+  due_amount     Decimal                 @default(0) @db.Decimal(10, 2)
+  customer       Customer?               @relation(fields: [customer_id], references: [customer_id])
+  owner          Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  items          StoreSalesItem[]
+
+  @@index([owner_id, created_at])
+  @@index([customer_id])
+  @@map("store_sales")
+}
+
+model StoreSalesItem {
+  sales_item_id String         @id @default(uuid())
+  sales_id      String
+  product_id    String
+  lot_id        String?
+  qty           Int
+  cp            Decimal?       @db.Decimal(10, 2)
+  sp            Decimal        @db.Decimal(10, 2)
+  line_total    Decimal        @db.Decimal(10, 2)
+  note          String?
+  created_at    DateTime       @default(now())
+  owner_id      String
+  lot           StoreStockLot? @relation(fields: [lot_id], references: [lot_id])
+  owner         Owner          @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  product       StoreProduct   @relation(fields: [product_id], references: [product_id])
+  sales         StoreSales     @relation(fields: [sales_id], references: [sales_id], onDelete: Cascade)
+
+  @@index([sales_id])
+  @@index([owner_id])
+  @@index([product_id])
+  @@index([lot_id])
+  @@map("store_sales_items")
+}
+
+enum OwnerStatus {
+  trial
+  active
+  inactive
+
+  @@map("owner_status")
+}
+
+enum StoreSupplierPaymentStatus {
+  unpaid
+  partial
+  paid
+
+  @@map("store_supplier_payment_status")
 }
 
 enum StoreProductType {
@@ -976,49 +1015,4 @@ enum StoreSalesPaymentStatus {
   paid
 
   @@map("store_sales_payment_status")
-}
-
-model StoreSales {
-  sales_id       String                   @id @default(uuid())
-  owner_id       String
-  customer_id    String?
-  payment_status StoreSalesPaymentStatus  @default(pending)
-  total_amount   Decimal                  @db.Decimal(10, 2)
-  discount       Decimal                  @default(0) @db.Decimal(10, 2)
-  paid_amount    Decimal                  @default(0) @db.Decimal(10, 2)
-  due_amount     Decimal                  @default(0) @db.Decimal(10, 2)
-  note           String?
-  created_at     DateTime                 @default(now())
-  updated_at     DateTime                 @updatedAt
-  owner          Owner                    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  customer       Customer?                @relation(fields: [customer_id], references: [customer_id])
-  items          StoreSalesItem[]
-
-  @@index([owner_id, created_at])
-  @@index([customer_id])
-  @@map("store_sales")
-}
-
-model StoreSalesItem {
-  sales_item_id String         @id @default(uuid())
-  sales_id      String
-  owner_id      String
-  product_id    String
-  lot_id        String?
-  qty           Int
-  cp            Decimal?       @db.Decimal(10, 2)
-  sp            Decimal        @db.Decimal(10, 2)
-  line_total    Decimal        @db.Decimal(10, 2)
-  note          String?
-  created_at    DateTime       @default(now())
-  owner         Owner          @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  sales         StoreSales     @relation(fields: [sales_id], references: [sales_id], onDelete: Cascade)
-  product       StoreProduct   @relation(fields: [product_id], references: [product_id])
-  lot           StoreStockLot? @relation(fields: [lot_id], references: [lot_id])
-
-  @@index([sales_id])
-  @@index([owner_id])
-  @@index([product_id])
-  @@index([lot_id])
-  @@map("store_sales_items")
 }

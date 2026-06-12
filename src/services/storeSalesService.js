@@ -7,7 +7,14 @@ const Decimal = Prisma.Decimal;
 
 class StoreSalesService {
   async createSale(owner_id, payload) {
-    const { customer_id, customer, paid_amount, payment_status, note, discount, items } = payload;
+    const { customer_id, customer, paid_amount, payment_status, note, discount, items, payment_method } = payload;
+
+    const validMethods = ["cash", "online"];
+    if (payment_method && !validMethods.includes(payment_method)) {
+      const e = new Error("payment_method must be cash or online");
+      e.status = 400; e.code = "VALIDATION_PAYMENT_METHOD_INVALID"; throw e;
+    }
+    const finalPaymentMethod = payment_method ?? "cash";
 
     if (!Array.isArray(items) || items.length === 0) {
       const e = new Error("At least one item is required");
@@ -73,6 +80,7 @@ class StoreSalesService {
           owner_id,
           customer_id: finalCustomerId,
           payment_status: "pending",
+          payment_method: finalPaymentMethod,
           total_amount: 0,
           discount: disc,
           paid_amount: paid,
@@ -138,7 +146,6 @@ class StoreSalesService {
             const lineTotal = sellingPrice.mul(qtyNum);
             totalAmount = totalAmount.add(lineTotal);
 
-            // Fix #1: owner_id added
             createdItems.push(await tx.storeSalesItem.create({
               data: {
                 owner_id,
@@ -185,7 +192,6 @@ class StoreSalesService {
               const lineTotal = sellingPrice.mul(deduct);
               totalAmount = totalAmount.add(lineTotal);
 
-              // Fix #1: owner_id added
               createdItems.push(await tx.storeSalesItem.create({
                 data: {
                   owner_id,
@@ -218,7 +224,6 @@ class StoreSalesService {
           const lineTotal = sellingPrice.mul(qtyNum);
           totalAmount = totalAmount.add(lineTotal);
 
-          // Fix #1: owner_id added
           createdItems.push(await tx.storeSalesItem.create({
             data: {
               owner_id,
@@ -242,7 +247,6 @@ class StoreSalesService {
 
       const effectiveTotal = totalAmount.sub(disc);
 
-      // Fix #5: validate payment_status against actual amounts
       let finalStatus;
       if (paid.gte(effectiveTotal) && effectiveTotal.gt(0)) {
         finalStatus = "paid";
@@ -252,7 +256,6 @@ class StoreSalesService {
         finalStatus = "pending";
       }
 
-      // Allow manual override only if it's logically consistent
       if (payment_status === "paid" && paid.lt(effectiveTotal)) {
         const e = new Error("Cannot mark as paid when paid_amount is less than total");
         e.status = 400; e.code = "VALIDATION_STATUS_INCONSISTENT"; throw e;
@@ -264,7 +267,6 @@ class StoreSalesService {
 
       const dueAmount = Decimal.max(new Decimal(0), effectiveTotal.sub(paid));
 
-      // Fix #2: all Decimal arithmetic, no Number conversion for money
       const updatedHeader = await tx.storeSales.update({
         where: { sales_id: header.sales_id },
         data: {
@@ -273,6 +275,7 @@ class StoreSalesService {
           paid_amount: paid,
           due_amount: dueAmount,
           payment_status: finalStatus,
+          payment_method: finalPaymentMethod,
         },
       });
 
@@ -281,7 +284,6 @@ class StoreSalesService {
   }
 
   async list(owner_id, { page = 1, limit = 50 } = {}) {
-    // Fix #4: pagination instead of hardcoded take
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
@@ -343,8 +345,13 @@ class StoreSalesService {
     return sale;
   }
 
-  async addPayment(owner_id, sales_id, add_amount) {
-    // Fix #2: use Decimal for money arithmetic
+  async addPayment(owner_id, sales_id, add_amount, payment_method) {
+    const validMethods = ["cash", "online"];
+    if (payment_method && !validMethods.includes(payment_method)) {
+      const e = new Error("payment_method must be cash or online");
+      e.status = 400; e.code = "VALIDATION_PAYMENT_METHOD_INVALID"; throw e;
+    }
+
     const add = new Decimal(Number(add_amount));
     if (add.lte(0)) {
       const e = new Error("amount must be a positive number");
@@ -377,15 +384,17 @@ class StoreSalesService {
         ? "paid"
         : finalPaid.gt(0) ? "partial" : "pending";
 
+      const updateData = { paid_amount: finalPaid, due_amount: finalDue, payment_status: status };
+      if (payment_method) updateData.payment_method = payment_method;
+
       return tx.storeSales.update({
         where: { sales_id },
-        data: { paid_amount: finalPaid, due_amount: finalDue, payment_status: status },
+        data: updateData,
       });
     });
   }
 
   async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
-    // Fix #4: pagination
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
@@ -397,6 +406,7 @@ class StoreSalesService {
         select: {
           sales_id: true,
           payment_status: true,
+          payment_method: true,
           total_amount: true,
           discount: true,
           paid_amount: true,
