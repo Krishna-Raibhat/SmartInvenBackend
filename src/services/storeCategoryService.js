@@ -20,10 +20,18 @@ class StoreCategoryService {
   }
 
   async list(owner_id) {
-    return prisma.storeCategory.findMany({
+    const categories = await prisma.storeCategory.findMany({
       where: { owner_id },
       orderBy: { category_name: "asc" },
+      include: {
+        _count: { select: { products: true } },
+      },
     });
+
+    return categories.map(({ _count, ...cat }) => ({
+      ...cat,
+      product_count: _count.products,
+    }));
   }
 
   async getById(owner_id, category_id) {
