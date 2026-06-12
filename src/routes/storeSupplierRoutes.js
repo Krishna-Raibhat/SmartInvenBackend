@@ -9,6 +9,8 @@ router.post("/", auth, storeSupplierController.create);
 router.get("/", auth, storeSupplierController.list);
 router.get("/:id", auth, storeSupplierController.getById);
 router.put("/:id", auth, storeSupplierController.update);
+router.patch("/:id/due", auth, storeSupplierController.setDue);
+router.patch("/:id/pay", auth, storeSupplierController.recordPayment);
 router.delete("/:id", auth, storeSupplierController.delete);
 
 export default router;

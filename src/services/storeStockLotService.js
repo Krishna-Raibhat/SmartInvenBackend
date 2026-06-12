@@ -11,9 +11,14 @@ class StoreStockLotService {
     if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
     if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
 
-    if (!cp) throw { code: "REQUIRED_FIELDS", message: "cp is required." };
-    if (!sp) throw { code: "REQUIRED_FIELDS", message: "sp is required." };
+    // Fix #1: null/undefined checks instead of falsy (allows 0)
+    if (cp === undefined || cp === null) throw { code: "REQUIRED_FIELDS", message: "cp is required." };
+    if (sp === undefined || sp === null) throw { code: "REQUIRED_FIELDS", message: "sp is required." };
     if (!qty_in || qty_in <= 0) throw { code: "REQUIRED_FIELDS", message: "qty_in must be greater than 0." };
+
+    // Fix #5: positive price validation
+    if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
+    if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
 
     if (supplier_id) {
       const supplier = await prisma.storeSupplier.findFirst({ where: { supplier_id, owner_id } });
@@ -48,19 +53,34 @@ class StoreStockLotService {
     });
   }
 
+  // Fix #4: single query — fetch lots with product included, validate product type from result
   async getByProduct(owner_id, product_id) {
-    const product = await prisma.storeProduct.findFirst({
+    const lots = await prisma.storeStockLot.findMany({
       where: { product_id, owner_id },
-    });
-
-    if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
-    if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Service does not have stock lots." };
-
-    return prisma.storeStockLot.findMany({
-      where: { product_id, owner_id },
-      include: { supplier: true },
+      include: {
+        supplier: true,
+        product: { select: { type: true } },
+      },
       orderBy: { created_at: "desc" },
     });
+
+    // Validate using the first lot's product, or do a targeted check only if no lots found
+    if (lots.length > 0 && lots[0].product.type === "service") {
+      throw { code: "VALIDATION_ERROR", message: "Service does not have stock lots." };
+    }
+
+    if (lots.length === 0) {
+      // Still need to verify the product exists and isn't a service
+      const product = await prisma.storeProduct.findFirst({
+        where: { product_id, owner_id },
+        select: { type: true },
+      });
+      if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+      if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Service does not have stock lots." };
+    }
+
+    // Strip the nested product from each lot to keep response clean
+    return lots.map(({ product: _p, ...lot }) => lot);
   }
 
   async getById(owner_id, lot_id) {
@@ -91,14 +111,26 @@ class StoreStockLotService {
     const newQtyIn = qty_in !== undefined ? Number(qty_in) : currentQtyIn;
     const newQtyRemaining = qty_remaining !== undefined ? Number(qty_remaining) : currentQtyRemaining;
 
+    // Fix #3: positive qty_in validation on update
+    if (qty_in !== undefined && newQtyIn <= 0) {
+      throw { code: "VALIDATION_ERROR", message: "qty_in must be greater than 0." };
+    }
     if (newQtyIn < qtySold) {
       throw { code: "VALIDATION_ERROR", message: `qty_in cannot be less than qty sold (${qtySold}).` };
     }
     if (newQtyRemaining > newQtyIn) {
       throw { code: "VALIDATION_ERROR", message: `qty_remaining cannot exceed qty_in (${newQtyIn}).` };
     }
-    if (newQtyRemaining < 0) {
+    if (qty_remaining !== undefined && newQtyRemaining < 0) {
       throw { code: "VALIDATION_ERROR", message: "qty_remaining cannot be negative." };
+    }
+
+    // Fix #5: positive price validation on update
+    if (cp !== undefined && Number(cp) < 0) {
+      throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
+    }
+    if (sp !== undefined && Number(sp) < 0) {
+      throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
     }
 
     const data = {};
@@ -107,8 +139,9 @@ class StoreStockLotService {
     if (qty_in !== undefined) data.qty_in = newQtyIn;
     if (qty_remaining !== undefined) data.qty_remaining = newQtyRemaining;
 
+    // Fix #2: include owner_id in where clause for explicit ownership
     return prisma.storeStockLot.update({
-      where: { lot_id },
+      where: { lot_id, owner_id },
       data,
       include: {
         product: { include: { category: true, unit: true } },
