@@ -65,6 +65,7 @@ model Owner {
   storeSupplierReturns       StoreSupplierReturn[]
   storeSuppliers             StoreSupplier[]
   storeUnits                 StoreUnit[]
+  storeCustomerReturns       StoreCustomerReturn[]
 
   @@map("owners")
 }
@@ -899,6 +900,7 @@ model StoreStockLot {
   product             StoreProduct              @relation(fields: [product_id], references: [product_id], onDelete: Cascade)
   supplier            StoreSupplier             @relation(fields: [supplier_id], references: [supplier_id])
   supplierReturnItems StoreSupplierReturnItem[]
+  customerReturnItems StoreCustomerReturnItem[]
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
@@ -914,7 +916,7 @@ model StoreSupplierReturn {
   total_refund Decimal                   @db.Decimal(10, 2)
   items        StoreSupplierReturnItem[]
   owner        Owner                     @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  supplier     StoreSupplier             @relation(fields: [supplier_id], references: [supplier_id])
+  supplier StoreSupplier @relation(fields: [supplier_id], references: [supplier_id], onDelete: Restrict)
 
   @@index([owner_id, created_at])
   @@index([owner_id, supplier_id])
@@ -953,9 +955,11 @@ model StoreSales {
   updated_at     DateTime                @updatedAt
   payment_status StoreSalesPaymentStatus @default(pending)
   due_amount     Decimal                 @default(0) @db.Decimal(10, 2)
+  payment_method StorePaymentMethod @default(cash)
   customer       Customer?               @relation(fields: [customer_id], references: [customer_id])
   owner          Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   items          StoreSalesItem[]
+  customerReturns StoreCustomerReturn[]
 
   @@index([owner_id, created_at])
   @@index([customer_id])
@@ -968,6 +972,7 @@ model StoreSalesItem {
   product_id    String
   lot_id        String?
   qty           Int
+  returned_qty  Int            @default(0)
   cp            Decimal?       @db.Decimal(10, 2)
   sp            Decimal        @db.Decimal(10, 2)
   line_total    Decimal        @db.Decimal(10, 2)
@@ -978,12 +983,48 @@ model StoreSalesItem {
   owner         Owner          @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   product       StoreProduct   @relation(fields: [product_id], references: [product_id])
   sales         StoreSales     @relation(fields: [sales_id], references: [sales_id], onDelete: Cascade)
+  returnItems   StoreCustomerReturnItem[]
 
   @@index([sales_id])
   @@index([owner_id])
   @@index([product_id])
   @@index([lot_id])
   @@map("store_sales_items")
+}
+
+model StoreCustomerReturn {
+  return_id     String                    @id @default(uuid())
+  owner_id      String
+  sales_id      String
+  refund_amount Decimal                   @db.Decimal(10, 2)
+  note          String?
+  created_at    DateTime                  @default(now())
+  items         StoreCustomerReturnItem[]
+  owner         Owner                     @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  sales StoreSales @relation(fields: [sales_id], references: [sales_id], onDelete: Restrict)
+
+  @@index([owner_id, created_at])
+  @@index([sales_id])
+  @@map("store_customer_returns")
+}
+
+model StoreCustomerReturnItem {
+  return_item_id String              @id @default(uuid())
+  return_id      String
+  sales_item_id  String
+  lot_id         String
+  qty            Int
+  amount         Decimal             @db.Decimal(10, 2)
+  note           String?
+  created_at     DateTime            @default(now())
+  return         StoreCustomerReturn @relation(fields: [return_id], references: [return_id], onDelete: Cascade)
+  salesItem      StoreSalesItem      @relation(fields: [sales_item_id], references: [sales_item_id])
+  lot            StoreStockLot       @relation(fields: [lot_id], references: [lot_id])
+
+  @@index([return_id])
+  @@index([sales_item_id])
+  @@index([lot_id])
+  @@map("store_customer_return_items")
 }
 
 enum OwnerStatus {
@@ -1015,4 +1056,10 @@ enum StoreSalesPaymentStatus {
   paid
 
   @@map("store_sales_payment_status")
+}
+enum StorePaymentMethod {
+  cash
+  online
+
+  @@map("store_payment_method")
 }

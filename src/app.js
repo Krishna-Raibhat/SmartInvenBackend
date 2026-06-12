@@ -74,6 +74,7 @@ import storeProductRoutes from "./routes/storeProductRoutes.js";
 import storeStockLotRoutes from "./routes/storeStockLotRoutes.js";
 import storeSupplierReturnRoutes from "./routes/storeSupplierReturnRoutes.js";
 import storeSalesRoutes from "./routes/storeSalesRoutes.js";
+import storeCustomerReturnRoutes from "./routes/storeCustomerReturnRoutes.js";
 
 
 const app = express();
@@ -173,6 +174,7 @@ app.use("/api/store/products", storeProductRoutes);
 app.use("/api/store/stock-lots", storeStockLotRoutes);
 app.use("/api/store/supplier-returns", storeSupplierReturnRoutes);
 app.use("/api/store/sales", storeSalesRoutes);
+app.use("/api/store/returns/customer", storeCustomerReturnRoutes);
 
 /* ==========================
    SERVER START
