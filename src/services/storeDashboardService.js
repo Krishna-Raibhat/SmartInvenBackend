@@ -44,7 +44,7 @@ class StoreDashboardService {
         this._getStats(owner_id, null, null),
         this._getSalesChart(owner_id, last7Start, nowUTC),
         this._getRecentActivities(owner_id, 6),
-        this._getLowStockItems(owner_id, 40,5),
+        this.getLowStockItems(owner_id, 40,5),
       ]);
 
     return {
@@ -369,30 +369,78 @@ class StoreDashboardService {
   //     qty_remaining: Number(r.total_qty),
   //   }));
   // }
-  async _getLowStockItems(owner_id, threshold = 40, limit = 10) {
-    const rows = await prisma.$queryRaw`
-      SELECT
-        p.product_id,
-        p.product_name,
-        u.unit_name,
-        COALESCE(SUM(sl.qty_remaining), 0)::int AS total_qty
-      FROM store_products p
-      LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
-      LEFT JOIN store_units u ON u.unit_id = p.unit_id
-      WHERE p.owner_id = ${owner_id}
-        AND p.type = 'item'
-      GROUP BY p.product_id, p.product_name, u.unit_name
-      HAVING COALESCE(SUM(sl.qty_remaining), 0) < ${threshold}
-      ORDER BY total_qty ASC
-      LIMIT ${limit};
-    `;
+  async getLowStockItems(owner_id, threshold = 40, limit = 10) {
+    const [summaryRows, lowStockRows, outOfStockRows] = await Promise.all([
+      prisma.$queryRaw`
+        SELECT
+          COUNT(p.product_id)::int AS total_products,
+          COUNT(CASE WHEN COALESCE(sq.total_qty, 0) >= ${threshold} THEN 1 END)::int AS in_stock,
+          COUNT(CASE WHEN COALESCE(sq.total_qty, 0) > 0
+                      AND COALESCE(sq.total_qty, 0) < ${threshold} THEN 1 END)::int AS low_stock,
+          COUNT(CASE WHEN COALESCE(sq.total_qty, 0) = 0 THEN 1 END)::int AS out_of_stock
+        FROM store_products p
+        LEFT JOIN (
+          SELECT product_id, SUM(qty_remaining) AS total_qty
+          FROM store_stock_lots
+          WHERE owner_id = ${owner_id}
+          GROUP BY product_id
+        ) sq ON sq.product_id = p.product_id
+        WHERE p.owner_id = ${owner_id}
+          AND p.type = 'item'
+      `,
+      prisma.$queryRaw`
+        SELECT
+          p.product_id,
+          p.product_name,
+          u.unit_name,
+          COALESCE(SUM(sl.qty_remaining), 0)::int AS total_qty
+        FROM store_products p
+        LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
+        LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        WHERE p.owner_id = ${owner_id}
+          AND p.type = 'item'
+        GROUP BY p.product_id, p.product_name, u.unit_name
+        HAVING COALESCE(SUM(sl.qty_remaining), 0) > 0
+          AND COALESCE(SUM(sl.qty_remaining), 0) < ${threshold}
+        ORDER BY total_qty ASC
+        LIMIT ${limit};
+      `,
+      prisma.$queryRaw`
+        SELECT
+          p.product_id,
+          p.product_name,
+          u.unit_name,
+          0::int AS total_qty
+        FROM store_products p
+        LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
+        LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        WHERE p.owner_id = ${owner_id}
+          AND p.type = 'item'
+        GROUP BY p.product_id, p.product_name, u.unit_name
+        HAVING COALESCE(SUM(sl.qty_remaining), 0) = 0
+        ORDER BY p.product_name ASC
+        LIMIT ${limit};
+      `,
+    ]);
 
-    return rows.map((r) => ({
+    const s = summaryRows[0] || {};
+    const mapItem = (r) => ({
       product_id:    r.product_id,
       product_name:  r.product_name,
       unit:          r.unit_name || "units",
       qty_remaining: Number(r.total_qty),
-    }));
+    });
+
+    return {
+      summary: {
+        total_products: Number(s.total_products || 0),
+        in_stock:       Number(s.in_stock       || 0),
+        low_stock:      Number(s.low_stock      || 0),
+        out_of_stock:   Number(s.out_of_stock   || 0),
+      },
+      low_stock_items:    lowStockRows.map(mapItem),
+      out_of_stock_items: outOfStockRows.map(mapItem),
+    };
   }
   async getInventoryValue(owner_id) {
     const rows = await prisma.$queryRaw`
@@ -410,9 +458,7 @@ class StoreDashboardService {
       total_cost_value:    Number(Number(r.total_cost_value || 0).toFixed(2)),
     };
   }
-  async getLowStockItems(owner_id, threshold = 40, limit = 10) {
-    return this._getLowStockItems(owner_id, threshold, limit);
-  }
+  
 
   async getRecentActivities(owner_id, limit = 6) {
     return this._getRecentActivities(owner_id, limit);
