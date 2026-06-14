@@ -75,6 +75,10 @@ import storeStockLotRoutes from "./routes/storeStockLotRoutes.js";
 import storeSupplierReturnRoutes from "./routes/storeSupplierReturnRoutes.js";
 import storeSalesRoutes from "./routes/storeSalesRoutes.js";
 import storeCustomerReturnRoutes from "./routes/storeCustomerReturnRoutes.js";
+import storeNotificationRoutes from "./routes/storeNotificationRoutes.js";
+import storeNotificationPreferenceRoutes from "./routes/storeNotificationPreferenceRoutes.js";
+import storeProfitLossRoutes from "./routes/storeProfitLossRoutes.js";
+import storeDashboardRoutes from "./routes/storeDashboardRoutes.js";
 
 
 const app = express();
@@ -175,6 +179,10 @@ app.use("/api/store/stock-lots", storeStockLotRoutes);
 app.use("/api/store/supplier-returns", storeSupplierReturnRoutes);
 app.use("/api/store/sales", storeSalesRoutes);
 app.use("/api/store/returns/customer", storeCustomerReturnRoutes);
+app.use("/api/store/notifications", storeNotificationRoutes);
+app.use("/api/store/notification-preferences", storeNotificationPreferenceRoutes);
+app.use("/api/store/profit-loss", storeProfitLossRoutes);
+app.use("/api/store/dashboard", storeDashboardRoutes);
 
 /* ==========================
    SERVER START

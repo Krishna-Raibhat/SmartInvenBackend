@@ -66,6 +66,8 @@ model Owner {
   storeSuppliers             StoreSupplier[]
   storeUnits                 StoreUnit[]
   storeCustomerReturns       StoreCustomerReturn[]
+  storeNotifications         StoreNotification[]
+  storeNotificationPrefs     StoreNotificationPreference[]
   storeCustomerReturnItems  StoreCustomerReturnItem[] 
 
   @@map("owners")
@@ -860,22 +862,24 @@ model StoreSupplier {
 }
 
 model StoreProduct {
-  product_id   String           @id @default(uuid())
-  owner_id     String
-  category_id  String?
-  unit_id      String?
-  product_name String
-  description  String?
-  created_at   DateTime         @default(now())
-  updated_at   DateTime         @updatedAt
-  cp           Decimal?         @db.Decimal(10, 2)
-  sp           Decimal?         @db.Decimal(10, 2)
-  type         StoreProductType @default(item)
-  category     StoreCategory?   @relation(fields: [category_id], references: [category_id])
-  owner        Owner            @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
-  unit         StoreUnit?       @relation(fields: [unit_id], references: [unit_id])
-  salesItems   StoreSalesItem[]
-  stockLots    StoreStockLot[]
+  product_id                 String            @id @default(uuid())
+  owner_id                   String
+  category_id                String?
+  unit_id                    String?
+  product_name               String
+  description                String?
+  created_at                 DateTime          @default(now())
+  updated_at                 DateTime          @updatedAt
+  cp                         Decimal?          @db.Decimal(10, 2)
+  sp                         Decimal?          @db.Decimal(10, 2)
+  type                       StoreProductType  @default(item)
+  last_low_stock_notified_at DateTime?
+  category                   StoreCategory?    @relation(fields: [category_id], references: [category_id])
+  owner                      Owner             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  unit                       StoreUnit?        @relation(fields: [unit_id], references: [unit_id])
+  salesItems                 StoreSalesItem[]
+  stockLots                  StoreStockLot[]
+  storeNotifications         StoreNotification[]
 
   @@unique([owner_id, product_name])
   @@index([owner_id])
@@ -1059,6 +1063,35 @@ enum StoreSalesPaymentStatus {
   paid
 
   @@map("store_sales_payment_status")
+}
+
+model StoreNotification {
+  notification_id String        @id @default(uuid())
+  owner_id        String
+  type            String
+  title           String
+  message         String
+  product_id      String?
+  read_at         DateTime?
+  created_at      DateTime      @default(now())
+  owner           Owner         @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  product         StoreProduct? @relation(fields: [product_id], references: [product_id])
+
+  @@index([owner_id, created_at])
+  @@index([owner_id, read_at])
+  @@map("store_notifications")
+}
+
+model StoreNotificationPreference {
+  id         String   @id @default(uuid())
+  owner_id   String
+  type       String
+  is_enabled Boolean  @default(true)
+  updated_at DateTime @updatedAt
+  owner      Owner    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  @@unique([owner_id, type])
+  @@map("store_notification_preferences")
 }
 enum StorePaymentMethod {
   cash

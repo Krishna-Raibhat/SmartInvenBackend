@@ -3,6 +3,7 @@ import { prisma } from "../prisma/client.js";
 import { sendLowStockNotification } from "../services/notificationService.js";
 import { sendClothingLowStockNotification } from "../services/clothingNotificationService.js";
 import { sendGroceryLowStockNotification } from "../services/groceryNotificationService.js";
+import { sendStoreLowStockNotification } from "../services/storeNotificationService.js";
 
 const LOW_STOCK_THRESHOLD = 40;
 const COOLDOWN_HOURS = 24;
@@ -203,6 +204,69 @@ cron.schedule(
             });
 
             await prisma.groceryProduct.update({
+              where: { product_id: p.product_id },
+              data: { last_low_stock_notified_at: now },
+            });
+          }
+        }
+
+        /* ===============================
+           🏪 STORE LOW STOCK (items only)
+        =============================== */
+        const storeSums = await prisma.storeStockLot.groupBy({
+          by: ["product_id"],
+          where: { owner_id: ownerId },
+          _sum: { qty_remaining: true },
+        });
+
+        if (storeSums.length) {
+          const stMap = new Map(
+            storeSums.map(x => [x.product_id, Number(x._sum.qty_remaining || 0)])
+          );
+
+          const stProducts = await prisma.storeProduct.findMany({
+            where: {
+              owner_id: ownerId,
+              type: "item",
+              product_id: { in: [...stMap.keys()] },
+            },
+            select: {
+              product_id: true,
+              product_name: true,
+              last_low_stock_notified_at: true,
+              unit: { select: { unit_name: true } },
+            },
+          });
+
+          for (const p of stProducts) {
+            const remaining = stMap.get(p.product_id) ?? 0;
+
+            if (remaining >= LOW_STOCK_THRESHOLD && p.last_low_stock_notified_at) {
+              await prisma.storeProduct.update({
+                where: { product_id: p.product_id },
+                data: { last_low_stock_notified_at: null },
+              });
+              continue;
+            }
+
+            if (remaining >= LOW_STOCK_THRESHOLD) continue;
+
+            const last = p.last_low_stock_notified_at;
+            const hours =
+              last ? (now - new Date(last)) / (1000 * 60 * 60) : Infinity;
+
+            if (hours < COOLDOWN_HOURS) continue;
+
+            await sendStoreLowStockNotification({
+              owner_id: ownerId,
+              fcmToken: owner.fcm_token ?? null,
+              productId: p.product_id,
+              productName: p.product_name,
+              remainingQty: remaining,
+              unitName: p.unit?.unit_name || "units",
+            });
+
+            await prisma.storeProduct.update({
               where: { product_id: p.product_id },
               data: { last_low_stock_notified_at: now },
             });
