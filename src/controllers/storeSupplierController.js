@@ -117,7 +117,12 @@ const storeSupplierController = {
       const { id } = req.params;
       let { supplier_name, phone, email, address } = req.body;
 
-      if (supplier_name === undefined && phone === undefined && email === undefined && address === undefined) {
+      if (
+        supplier_name === undefined &&
+        phone === undefined &&
+        email === undefined &&
+        address === undefined
+      ) {
         return res.status(400).json({
           success: false,
           error_code: "REQUIRED_FIELDS",
@@ -144,7 +149,8 @@ const storeSupplierController = {
           return res.status(400).json({
             success: false,
             error_code: "VALIDATION_PHONE_INVALID",
-            message: "Invalid phone number. Please enter a valid Nepali number.",
+            message:
+              "Invalid phone number. Please enter a valid Nepali number.",
           });
         }
         patch.phone = phone;
@@ -172,16 +178,63 @@ const storeSupplierController = {
 
       const supplier = await storeSupplierService.update(owner_id, id, patch);
       return res.status(200).json({ success: true, data: supplier });
-
     } catch (error) {
       if (error.code === "NOT_FOUND") {
-        return res.status(404).json({ success: false, error_code: "NOT_FOUND", message: error.message });
+        return res
+          .status(404)
+          .json({
+            success: false,
+            error_code: "NOT_FOUND",
+            message: error.message,
+          });
       }
       if (error.code === "DUPLICATE") {
-        return res.status(409).json({ success: false, error_code: "DUPLICATE", message: error.message });
+        return res
+          .status(409)
+          .json({
+            success: false,
+            error_code: "DUPLICATE",
+            message: error.message,
+          });
       }
       console.error("Error updating store supplier:", error);
-      return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Failed to update supplier." });
+      return res
+        .status(500)
+        .json({
+          success: false,
+          error_code: "SERVER_ERROR",
+          message: "Failed to update supplier.",
+        });
+    }
+  },
+
+  async getLots(req, res) {
+    try {
+      const owner_id = req.owner.owner_id;
+      const { id } = req.params;
+
+      const lots = await storeSupplierService.getLots(owner_id, id);
+
+      return res.status(200).json({
+        success: true,
+        data: lots,
+      });
+    } catch (error) {
+      if (error.code === "NOT_FOUND") {
+        return res.status(404).json({
+          success: false,
+          error_code: "NOT_FOUND",
+          message: error.message,
+        });
+      }
+
+      console.error("Error fetching supplier lots:", error);
+
+      return res.status(500).json({
+        success: false,
+        error_code: "SERVER_ERROR",
+        message: "Failed to fetch supplier lots.",
+      });
     }
   },
 
@@ -259,7 +312,11 @@ const storeSupplierController = {
         });
       }
 
-      const supplier = await storeSupplierService.recordPayment(owner_id, id, parsed);
+      const supplier = await storeSupplierService.recordPayment(
+        owner_id,
+        id,
+        parsed,
+      );
 
       return res.status(200).json({ success: true, data: supplier });
     } catch (error) {

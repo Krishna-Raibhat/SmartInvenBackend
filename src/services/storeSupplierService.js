@@ -16,7 +16,10 @@ class StoreSupplierService {
       });
     } catch (err) {
       if (err.code === "P2002") {
-        throw { code: "DUPLICATE", message: "Supplier with this phone already exists." };
+        throw {
+          code: "DUPLICATE",
+          message: "Supplier with this phone already exists.",
+        };
       }
       throw err;
     }
@@ -104,10 +107,12 @@ class StoreSupplierService {
     }
 
     const updateData = {};
-    if (data.supplier_name) updateData.supplier_name = data.supplier_name.trim();
+    if (data.supplier_name)
+      updateData.supplier_name = data.supplier_name.trim();
     if (data.phone) updateData.phone = data.phone.trim();
     if (data.email !== undefined) updateData.email = data.email?.trim() || null;
-    if (data.address !== undefined) updateData.address = data.address?.trim() || null;
+    if (data.address !== undefined)
+      updateData.address = data.address?.trim() || null;
 
     try {
       return await prisma.storeSupplier.update({
@@ -116,10 +121,50 @@ class StoreSupplierService {
       });
     } catch (err) {
       if (err.code === "P2002") {
-        throw { code: "DUPLICATE", message: "Supplier with this phone already exists." };
+        throw {
+          code: "DUPLICATE",
+          message: "Supplier with this phone already exists.",
+        };
       }
       throw err;
     }
+  }
+
+  async getLots(owner_id, supplier_id) {
+    const supplier = await prisma.storeSupplier.findFirst({
+      where: {
+        owner_id,
+        supplier_id,
+      },
+    });
+
+    if (!supplier) {
+      throw {
+        code: "NOT_FOUND",
+        message: "Supplier not found.",
+      };
+    }
+
+    return prisma.storeStockLot.findMany({
+      where: {
+        owner_id,
+        supplier_id,
+        qty_remaining: {
+          gt: 0,
+        },
+      },
+      orderBy: {
+        created_at: "desc",
+      },
+      include: {
+        product: {
+          include: {
+            category: true,
+            unit: true,
+          },
+        },
+      },
+    });
   }
 
   /**
@@ -137,7 +182,10 @@ class StoreSupplierService {
 
     const newDue = new Prisma.Decimal(due_amount);
     if (newDue.lt(0)) {
-      throw { code: "INVALID_AMOUNT", message: "due_amount cannot be negative." };
+      throw {
+        code: "INVALID_AMOUNT",
+        message: "due_amount cannot be negative.",
+      };
     }
 
     const paidAmount = new Prisma.Decimal(supplier.paid_amount);
@@ -177,7 +225,10 @@ class StoreSupplierService {
 
     const payAmount = new Prisma.Decimal(amount);
     if (payAmount.lte(0)) {
-      throw { code: "INVALID_AMOUNT", message: "Payment amount must be greater than 0." };
+      throw {
+        code: "INVALID_AMOUNT",
+        message: "Payment amount must be greater than 0.",
+      };
     }
 
     const currentDue = new Prisma.Decimal(supplier.due_amount);

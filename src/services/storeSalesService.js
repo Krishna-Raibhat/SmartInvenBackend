@@ -7,30 +7,47 @@ const Decimal = Prisma.Decimal;
 
 class StoreSalesService {
   async createSale(owner_id, payload) {
-    const { customer_id, customer, paid_amount, payment_status, note, discount, items, payment_method } = payload;
+    const {
+      customer_id,
+      customer,
+      paid_amount,
+      payment_status,
+      note,
+      discount,
+      items,
+      payment_method,
+    } = payload;
 
     const validMethods = ["cash", "online"];
     if (payment_method && !validMethods.includes(payment_method)) {
       const e = new Error("payment_method must be cash or online");
-      e.status = 400; e.code = "VALIDATION_PAYMENT_METHOD_INVALID"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
+      throw e;
     }
     const finalPaymentMethod = payment_method ?? "cash";
 
     if (!Array.isArray(items) || items.length === 0) {
       const e = new Error("At least one item is required");
-      e.status = 400; e.code = "VALIDATION_NO_ITEMS"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_NO_ITEMS";
+      throw e;
     }
 
     const paid = new Decimal(Number(paid_amount ?? 0));
     if (paid.lt(0)) {
       const e = new Error("paid_amount must be a valid non-negative number");
-      e.status = 400; e.code = "VALIDATION_PAID_INVALID"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_PAID_INVALID";
+      throw e;
     }
 
     const disc = new Decimal(Number(discount ?? 0));
     if (disc.lt(0)) {
       const e = new Error("discount must be a valid number >= 0");
-      e.status = 400; e.code = "VALIDATION_DISCOUNT_INVALID"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_DISCOUNT_INVALID";
+      throw e;
     }
 
     // Resolve customer
@@ -43,13 +60,19 @@ class StoreSalesService {
       });
       if (!cust) {
         const e = new Error("Customer not found for this owner");
-        e.status = 404; e.code = "CUSTOMER_NOT_FOUND"; throw e;
+        e.status = 404;
+        e.code = "CUSTOMER_NOT_FOUND";
+        throw e;
       }
     } else if (customer?.phone) {
       const phone = normalizeNepalPhone(String(customer.phone).trim());
       if (!isValidNepalPhone(phone)) {
-        const e = new Error("Invalid phone number. Please enter a valid 10-digit Nepali number.");
-        e.status = 400; e.code = "VALIDATION_PHONE_INVALID"; throw e;
+        const e = new Error(
+          "Invalid phone number. Please enter a valid 10-digit Nepali number.",
+        );
+        e.status = 400;
+        e.code = "VALIDATION_PHONE_INVALID";
+        throw e;
       }
 
       const existing = await prisma.customer.findFirst({
@@ -96,13 +119,17 @@ class StoreSalesService {
 
         if (!product_id) {
           const e = new Error("product_id is required for each item");
-          e.status = 400; e.code = "VALIDATION_PRODUCT_REQUIRED"; throw e;
+          e.status = 400;
+          e.code = "VALIDATION_PRODUCT_REQUIRED";
+          throw e;
         }
 
         const qtyNum = Number(qty);
         if (!Number.isInteger(qtyNum) || qtyNum <= 0) {
           const e = new Error("qty must be a positive integer");
-          e.status = 400; e.code = "VALIDATION_QTY_INVALID"; throw e;
+          e.status = 400;
+          e.code = "VALIDATION_QTY_INVALID";
+          throw e;
         }
 
         const product = await tx.storeProduct.findFirst({
@@ -112,7 +139,9 @@ class StoreSalesService {
 
         if (!product) {
           const e = new Error(`Product ${product_id} not found`);
-          e.status = 404; e.code = "PRODUCT_NOT_FOUND"; throw e;
+          e.status = 404;
+          e.code = "PRODUCT_NOT_FOUND";
+          throw e;
         }
 
         if (product.type === "item") {
@@ -123,13 +152,21 @@ class StoreSalesService {
             });
 
             if (!lot) {
-              const e = new Error(`Stock lot ${lot_id} not found for this product`);
-              e.status = 404; e.code = "LOT_NOT_FOUND"; throw e;
+              const e = new Error(
+                `Stock lot ${lot_id} not found for this product`,
+              );
+              e.status = 404;
+              e.code = "LOT_NOT_FOUND";
+              throw e;
             }
 
             if (lot.qty_remaining < qtyNum) {
-              const e = new Error(`Not enough stock in lot ${lot_id}. Available: ${lot.qty_remaining}, Requested: ${qtyNum}`);
-              e.status = 400; e.code = "STOCK_NOT_ENOUGH"; throw e;
+              const e = new Error(
+                `Not enough stock in lot ${lot_id}. Available: ${lot.qty_remaining}, Requested: ${qtyNum}`,
+              );
+              e.status = 400;
+              e.code = "STOCK_NOT_ENOUGH";
+              throw e;
             }
 
             await tx.storeStockLot.update({
@@ -140,25 +177,29 @@ class StoreSalesService {
             const sellingPrice = new Decimal(itemSp ?? lot.sp);
             if (sellingPrice.lt(0)) {
               const e = new Error("sp must be >= 0");
-              e.status = 400; e.code = "VALIDATION_SP_INVALID"; throw e;
+              e.status = 400;
+              e.code = "VALIDATION_SP_INVALID";
+              throw e;
             }
 
             const lineTotal = sellingPrice.mul(qtyNum);
             totalAmount = totalAmount.add(lineTotal);
 
-            createdItems.push(await tx.storeSalesItem.create({
-              data: {
-                owner_id,
-                sales_id: header.sales_id,
-                product_id,
-                lot_id,
-                qty: qtyNum,
-                cp: lot.cp,
-                sp: sellingPrice,
-                line_total: lineTotal,
-                note: lineNote ?? null,
-              },
-            }));
+            createdItems.push(
+              await tx.storeSalesItem.create({
+                data: {
+                  owner_id,
+                  sales_id: header.sales_id,
+                  product_id,
+                  lot_id,
+                  qty: qtyNum,
+                  cp: lot.cp,
+                  sp: sellingPrice,
+                  line_total: lineTotal,
+                  note: lineNote ?? null,
+                },
+              }),
+            );
           } else {
             const lots = await tx.storeStockLot.findMany({
               where: { owner_id, product_id, qty_remaining: { gt: 0 } },
@@ -167,8 +208,12 @@ class StoreSalesService {
             });
 
             if (lots.length === 0) {
-              const e = new Error(`No stock available for product ${product_id}`);
-              e.status = 400; e.code = "NO_STOCK_AVAILABLE"; throw e;
+              const e = new Error(
+                `No stock available for product ${product_id}`,
+              );
+              e.status = 400;
+              e.code = "NO_STOCK_AVAILABLE";
+              throw e;
             }
 
             let remaining = qtyNum;
@@ -186,63 +231,79 @@ class StoreSalesService {
               const sellingPrice = new Decimal(itemSp ?? lot.sp);
               if (sellingPrice.lt(0)) {
                 const e = new Error("sp must be >= 0");
-                e.status = 400; e.code = "VALIDATION_SP_INVALID"; throw e;
+                e.status = 400;
+                e.code = "VALIDATION_SP_INVALID";
+                throw e;
               }
 
               const lineTotal = sellingPrice.mul(deduct);
               totalAmount = totalAmount.add(lineTotal);
 
-              createdItems.push(await tx.storeSalesItem.create({
-                data: {
-                  owner_id,
-                  sales_id: header.sales_id,
-                  product_id,
-                  lot_id: lot.lot_id,
-                  qty: deduct,
-                  cp: lot.cp,
-                  sp: sellingPrice,
-                  line_total: lineTotal,
-                  note: lineNote ?? null,
-                },
-              }));
+              createdItems.push(
+                await tx.storeSalesItem.create({
+                  data: {
+                    owner_id,
+                    sales_id: header.sales_id,
+                    product_id,
+                    lot_id: lot.lot_id,
+                    qty: deduct,
+                    cp: lot.cp,
+                    sp: sellingPrice,
+                    line_total: lineTotal,
+                    note: lineNote ?? null,
+                  },
+                }),
+              );
 
               remaining -= deduct;
             }
 
             if (remaining > 0) {
-              const e = new Error(`Not enough stock for product ${product_id}. Short by ${remaining} unit(s)`);
-              e.status = 400; e.code = "STOCK_NOT_ENOUGH"; throw e;
+              const e = new Error(
+                `Not enough stock for product ${product_id}. Short by ${remaining} unit(s)`,
+              );
+              e.status = 400;
+              e.code = "STOCK_NOT_ENOUGH";
+              throw e;
             }
           }
         } else {
           const sellingPrice = new Decimal(itemSp ?? product.sp ?? 0);
           if (sellingPrice.lte(0)) {
-            const e = new Error(`sp is required and must be > 0 for service product ${product_id}`);
-            e.status = 400; e.code = "VALIDATION_SP_REQUIRED"; throw e;
+            const e = new Error(
+              `sp is required and must be > 0 for service product ${product_id}`,
+            );
+            e.status = 400;
+            e.code = "VALIDATION_SP_REQUIRED";
+            throw e;
           }
 
           const lineTotal = sellingPrice.mul(qtyNum);
           totalAmount = totalAmount.add(lineTotal);
 
-          createdItems.push(await tx.storeSalesItem.create({
-            data: {
-              owner_id,
-              sales_id: header.sales_id,
-              product_id,
-              lot_id: null,
-              qty: qtyNum,
-              cp: product.cp ?? null,
-              sp: sellingPrice,
-              line_total: lineTotal,
-              note: lineNote ?? null,
-            },
-          }));
+          createdItems.push(
+            await tx.storeSalesItem.create({
+              data: {
+                owner_id,
+                sales_id: header.sales_id,
+                product_id,
+                lot_id: null,
+                qty: qtyNum,
+                cp: product.cp ?? null,
+                sp: sellingPrice,
+                line_total: lineTotal,
+                note: lineNote ?? null,
+              },
+            }),
+          );
         }
       }
 
       if (disc.gt(totalAmount)) {
         const e = new Error("Discount cannot exceed total amount");
-        e.status = 400; e.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL"; throw e;
+        e.status = 400;
+        e.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL";
+        throw e;
       }
 
       const effectiveTotal = totalAmount.sub(disc);
@@ -257,12 +318,18 @@ class StoreSalesService {
       }
 
       if (payment_status === "paid" && paid.lt(effectiveTotal)) {
-        const e = new Error("Cannot mark as paid when paid_amount is less than total");
-        e.status = 400; e.code = "VALIDATION_STATUS_INCONSISTENT"; throw e;
+        const e = new Error(
+          "Cannot mark as paid when paid_amount is less than total",
+        );
+        e.status = 400;
+        e.code = "VALIDATION_STATUS_INCONSISTENT";
+        throw e;
       }
       if (payment_status === "partial" && paid.lte(0)) {
         const e = new Error("Cannot mark as partial when paid_amount is 0");
-        e.status = 400; e.code = "VALIDATION_STATUS_INCONSISTENT"; throw e;
+        e.status = 400;
+        e.code = "VALIDATION_STATUS_INCONSISTENT";
+        throw e;
       }
 
       const dueAmount = Decimal.max(new Decimal(0), effectiveTotal.sub(paid));
@@ -317,8 +384,29 @@ class StoreSalesService {
       where: { sales_id, owner_id },
       include: {
         customer: {
-          select: { customer_id: true, full_name: true, phone: true, email: true, address: true },
+          select: {
+            customer_id: true,
+            full_name: true,
+            phone: true,
+            email: true,
+            address: true,
+          },
         },
+        // items: {
+        //   orderBy: { created_at: "asc" },
+        //   include: {
+        //     product: {
+        //       select: {
+        //         product_name: true,
+        //         type: true,
+        //         unit: { select: { unit_name: true } },
+        //       },
+        //     },
+        //     lot: {
+        //       select: { lot_id: true, notes: true },
+        //     },
+        //   },
+        // },
         items: {
           orderBy: { created_at: "asc" },
           include: {
@@ -326,11 +414,23 @@ class StoreSalesService {
               select: {
                 product_name: true,
                 type: true,
-                unit: { select: { unit_name: true } },
+                unit: {
+                  select: {
+                    unit_name: true,
+                  },
+                },
               },
             },
             lot: {
-              select: { lot_id: true, notes: true },
+              select: {
+                lot_id: true,
+                notes: true,
+                supplier: {
+                  select: {
+                    supplier_name: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -339,7 +439,9 @@ class StoreSalesService {
 
     if (!sale) {
       const e = new Error("Sale not found");
-      e.status = 404; e.code = "SALE_NOT_FOUND"; throw e;
+      e.status = 404;
+      e.code = "SALE_NOT_FOUND";
+      throw e;
     }
 
     return sale;
@@ -349,42 +451,69 @@ class StoreSalesService {
     const validMethods = ["cash", "online"];
     if (payment_method && !validMethods.includes(payment_method)) {
       const e = new Error("payment_method must be cash or online");
-      e.status = 400; e.code = "VALIDATION_PAYMENT_METHOD_INVALID"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
+      throw e;
     }
 
     const add = new Decimal(Number(add_amount));
     if (add.lte(0)) {
       const e = new Error("amount must be a positive number");
-      e.status = 400; e.code = "VALIDATION_AMOUNT_INVALID"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_AMOUNT_INVALID";
+      throw e;
     }
 
     return prisma.$transaction(async (tx) => {
       const sale = await tx.storeSales.findFirst({
         where: { owner_id, sales_id },
-        select: { sales_id: true, total_amount: true, discount: true, paid_amount: true },
+        select: {
+          sales_id: true,
+          total_amount: true,
+          discount: true,
+          paid_amount: true,
+        },
       });
 
       if (!sale) {
         const e = new Error("Sale not found");
-        e.status = 404; e.code = "SALE_NOT_FOUND"; throw e;
+        e.status = 404;
+        e.code = "SALE_NOT_FOUND";
+        throw e;
       }
 
-      const effectiveTotal = new Decimal(sale.total_amount).sub(new Decimal(sale.discount ?? 0));
+      const effectiveTotal = new Decimal(sale.total_amount).sub(
+        new Decimal(sale.discount ?? 0),
+      );
       const currentPaid = new Decimal(sale.paid_amount);
       const remaining = effectiveTotal.sub(currentPaid);
 
       if (add.gt(remaining)) {
-        const e = new Error(`Payment exceeds remaining amount. Remaining: ${remaining.toFixed(2)}`);
-        e.status = 400; e.code = "PAYMENT_EXCEEDS_TOTAL"; throw e;
+        const e = new Error(
+          `Payment exceeds remaining amount. Remaining: ${remaining.toFixed(2)}`,
+        );
+        e.status = 400;
+        e.code = "PAYMENT_EXCEEDS_TOTAL";
+        throw e;
       }
 
       const finalPaid = currentPaid.add(add);
-      const finalDue = Decimal.max(new Decimal(0), effectiveTotal.sub(finalPaid));
-      const status = finalPaid.gte(effectiveTotal) && effectiveTotal.gt(0)
-        ? "paid"
-        : finalPaid.gt(0) ? "partial" : "pending";
+      const finalDue = Decimal.max(
+        new Decimal(0),
+        effectiveTotal.sub(finalPaid),
+      );
+      const status =
+        finalPaid.gte(effectiveTotal) && effectiveTotal.gt(0)
+          ? "paid"
+          : finalPaid.gt(0)
+            ? "partial"
+            : "pending";
 
-      const updateData = { paid_amount: finalPaid, due_amount: finalDue, payment_status: status };
+      const updateData = {
+        paid_amount: finalPaid,
+        due_amount: finalDue,
+        payment_status: status,
+      };
       if (payment_method) updateData.payment_method = payment_method;
 
       return tx.storeSales.update({
@@ -412,7 +541,9 @@ class StoreSalesService {
           paid_amount: true,
           due_amount: true,
           created_at: true,
-          customer: { select: { customer_id: true, full_name: true, phone: true } },
+          customer: {
+            select: { customer_id: true, full_name: true, phone: true },
+          },
         },
       }),
       prisma.storeSales.count({ where: { owner_id, due_amount: { gt: 0 } } }),
