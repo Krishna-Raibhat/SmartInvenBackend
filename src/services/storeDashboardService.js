@@ -369,6 +369,22 @@ class StoreDashboardService {
       qty_remaining: Number(r.total_qty),
     }));
   }
-}
 
+  async getInventoryValue(owner_id) {
+    const rows = await prisma.$queryRaw`
+      SELECT
+        COALESCE(SUM(qty_remaining), 0)::int                    AS total_qty,
+        COALESCE(SUM(cp::numeric * qty_remaining), 0)::numeric  AS total_cost_value
+      FROM store_stock_lots
+      WHERE owner_id = ${owner_id}
+        AND qty_remaining > 0
+    `;
+
+    const r = rows[0] || {};
+    return {
+      total_qty_remaining: Number(r.total_qty || 0),
+      total_cost_value:    Number(Number(r.total_cost_value || 0).toFixed(2)),
+    };
+  }
+}
 export default new StoreDashboardService();

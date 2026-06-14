@@ -23,3 +23,14 @@ export const getRecentActivities = async (req, res) => {
     res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: err.message });
   }
 };
+
+export const getInventoryValue = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const data = await storeDashboardService.getInventoryValue(owner_id);
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error("Store inventory value error:", err);
+    res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: err.message });
+  }
+};
