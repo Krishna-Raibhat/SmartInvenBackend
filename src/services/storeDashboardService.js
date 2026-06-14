@@ -393,13 +393,15 @@ class StoreDashboardService {
           p.product_id,
           p.product_name,
           u.unit_name,
+          c.category_name,  
           COALESCE(SUM(sl.qty_remaining), 0)::int AS total_qty
         FROM store_products p
         LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
         LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        LEFT JOIN store_categories c ON c.category_id = p.category_id
         WHERE p.owner_id = ${owner_id}
           AND p.type = 'item'
-        GROUP BY p.product_id, p.product_name, u.unit_name
+        GROUP BY p.product_id, p.product_name, u.unit_name,c.category_name
         HAVING COALESCE(SUM(sl.qty_remaining), 0) > 0
           AND COALESCE(SUM(sl.qty_remaining), 0) < ${threshold}
         ORDER BY total_qty ASC
@@ -410,13 +412,15 @@ class StoreDashboardService {
           p.product_id,
           p.product_name,
           u.unit_name,
+          c.category_name, 
           0::int AS total_qty
         FROM store_products p
         LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
         LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        LEFT JOIN store_categories c ON c.category_id = p.category_id
         WHERE p.owner_id = ${owner_id}
           AND p.type = 'item'
-        GROUP BY p.product_id, p.product_name, u.unit_name
+        GROUP BY p.product_id, p.product_name, u.unit_name, c.category_name
         HAVING COALESCE(SUM(sl.qty_remaining), 0) = 0
         ORDER BY p.product_name ASC
         LIMIT ${limit};
@@ -428,6 +432,7 @@ class StoreDashboardService {
       product_id:    r.product_id,
       product_name:  r.product_name,
       unit:          r.unit_name || "units",
+      category:      r.category_name || null,
       qty_remaining: Number(r.total_qty),
     });
 
