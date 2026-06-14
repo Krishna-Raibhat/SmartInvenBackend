@@ -44,7 +44,7 @@ class StoreDashboardService {
         this._getStats(owner_id, null, null),
         this._getSalesChart(owner_id, last7Start, nowUTC),
         this._getRecentActivities(owner_id, 6),
-        this._getLowStockItems(owner_id, 5),
+        this._getLowStockItems(owner_id, 40,5),
       ]);
 
     return {
@@ -344,7 +344,32 @@ class StoreDashboardService {
     return activities.slice(0, limit);
   }
 
-  async _getLowStockItems(owner_id, threshold = 40) {
+  // async _getLowStockItems(owner_id, threshold = 40) {
+  //   const rows = await prisma.$queryRaw`
+  //     SELECT
+  //       p.product_id,
+  //       p.product_name,
+  //       u.unit_name,
+  //       COALESCE(SUM(sl.qty_remaining), 0)::int AS total_qty
+  //     FROM store_products p
+  //     LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
+  //     LEFT JOIN store_units u ON u.unit_id = p.unit_id
+  //     WHERE p.owner_id = ${owner_id}
+  //       AND p.type = 'item'
+  //     GROUP BY p.product_id, p.product_name, u.unit_name
+  //     HAVING COALESCE(SUM(sl.qty_remaining), 0) < ${threshold}
+  //     ORDER BY total_qty ASC
+  //     LIMIT 10;
+  //   `;
+
+  //   return rows.map((r) => ({
+  //     product_id:   r.product_id,
+  //     product_name: r.product_name,
+  //     unit:         r.unit_name || "units",
+  //     qty_remaining: Number(r.total_qty),
+  //   }));
+  // }
+  async _getLowStockItems(owner_id, threshold = 40, limit = 10) {
     const rows = await prisma.$queryRaw`
       SELECT
         p.product_id,
@@ -359,17 +384,16 @@ class StoreDashboardService {
       GROUP BY p.product_id, p.product_name, u.unit_name
       HAVING COALESCE(SUM(sl.qty_remaining), 0) < ${threshold}
       ORDER BY total_qty ASC
-      LIMIT 10;
+      LIMIT ${limit};
     `;
 
     return rows.map((r) => ({
-      product_id:   r.product_id,
-      product_name: r.product_name,
-      unit:         r.unit_name || "units",
+      product_id:    r.product_id,
+      product_name:  r.product_name,
+      unit:          r.unit_name || "units",
       qty_remaining: Number(r.total_qty),
     }));
   }
-
   async getInventoryValue(owner_id) {
     const rows = await prisma.$queryRaw`
       SELECT
@@ -385,6 +409,13 @@ class StoreDashboardService {
       total_qty_remaining: Number(r.total_qty || 0),
       total_cost_value:    Number(Number(r.total_cost_value || 0).toFixed(2)),
     };
+  }
+  async getLowStockItems(owner_id, threshold = 40, limit = 10) {
+    return this._getLowStockItems(owner_id, threshold, limit);
+  }
+
+  async getRecentActivities(owner_id, limit = 6) {
+    return this._getRecentActivities(owner_id, limit);
   }
 }
 export default new StoreDashboardService();
