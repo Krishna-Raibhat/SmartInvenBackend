@@ -67,6 +67,18 @@ import groceryNotificationPreferenceRoutes from "./routes/groceryNotificationPre
 import groceryBatchSyncRoutes from "./routes/groceryBatchSyncRoutes.js";
 import clothingBatchSyncRoutes from "./routes/clothingBatchSyncRoutes.js";
 import hardwareBatchSyncRoutes from "./routes/hardwareBatchSyncRoutes.js";
+import storeCategoryRoutes from "./routes/storeCategoryRoutes.js";
+import storeUnitRoutes from "./routes/storeUnitRoutes.js";
+import storeSupplierRoutes from "./routes/storeSupplierRoutes.js";
+import storeProductRoutes from "./routes/storeProductRoutes.js";
+import storeStockLotRoutes from "./routes/storeStockLotRoutes.js";
+import storeSupplierReturnRoutes from "./routes/storeSupplierReturnRoutes.js";
+import storeSalesRoutes from "./routes/storeSalesRoutes.js";
+import storeCustomerReturnRoutes from "./routes/storeCustomerReturnRoutes.js";
+import storeNotificationRoutes from "./routes/storeNotificationRoutes.js";
+import storeNotificationPreferenceRoutes from "./routes/storeNotificationPreferenceRoutes.js";
+import storeProfitLossRoutes from "./routes/storeProfitLossRoutes.js";
+import storeDashboardRoutes from "./routes/storeDashboardRoutes.js";
 
 
 const app = express();
@@ -157,6 +169,20 @@ app.use("/api/grocery/reports", groceryReportRoutes);
 app.use("/api/grocery/notifications", groceryNotificationRoutes);
 app.use("/api/grocery/notification-preferences", groceryNotificationPreferenceRoutes);
 app.use("/api/grocery/sync", groceryBatchSyncRoutes);
+
+// Store routes
+app.use("/api/store/categories", storeCategoryRoutes);
+app.use("/api/store/units", storeUnitRoutes);
+app.use("/api/store/suppliers", storeSupplierRoutes);
+app.use("/api/store/products", storeProductRoutes);
+app.use("/api/store/stock-lots", storeStockLotRoutes);
+app.use("/api/store/supplier-returns", storeSupplierReturnRoutes);
+app.use("/api/store/sales", storeSalesRoutes);
+app.use("/api/store/returns/customer", storeCustomerReturnRoutes);
+app.use("/api/store/notifications", storeNotificationRoutes);
+app.use("/api/store/notification-preferences", storeNotificationPreferenceRoutes);
+app.use("/api/store/profit-loss", storeProfitLossRoutes);
+app.use("/api/store/dashboard", storeDashboardRoutes);
 
 /* ==========================
    SERVER START
