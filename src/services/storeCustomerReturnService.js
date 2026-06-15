@@ -214,6 +214,42 @@ class StoreCustomerReturnService {
     return this._format(ret);
   }
 
+  async list(owner_id) {
+    const returns = await prisma.storeCustomerReturn.findMany({
+      where: { owner_id },
+      orderBy: { created_at: "desc" },
+      include: {
+        sales: {
+          select: {
+            sales_id: true,
+            total_amount: true,
+            discount: true,
+            paid_amount: true,
+            created_at: true,
+            customer: {
+              select: { customer_id: true, full_name: true, phone: true },
+            },
+          },
+        },
+        items: {
+          include: {
+            lot: {
+              select: {
+                lot_id: true,
+                cp: true,
+                sp: true,
+                product: { select: { product_id: true, product_name: true } },
+              },
+            },
+          },
+        },
+      },
+      take: 100,
+    });
+
+    return returns.map((ret) => this._format(ret));
+  }
+
   _format(ret) {
     return {
       return: {
