@@ -11,24 +11,32 @@ class StoreCustomerReturnService {
 
     if (!sales_id) {
       const e = new Error("sales_id is required");
-      e.status = 400; e.code = "VALIDATION_SALES_ID_REQUIRED"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_SALES_ID_REQUIRED";
+      throw e;
     }
 
     if (!Array.isArray(items) || items.length === 0) {
       const e = new Error("At least one return item is required");
-      e.status = 400; e.code = "VALIDATION_NO_ITEMS"; throw e;
+      e.status = 400;
+      e.code = "VALIDATION_NO_ITEMS";
+      throw e;
     }
 
     // Validate amounts upfront
     for (const item of items) {
       if (item.amount === undefined || item.amount === null) {
         const e = new Error("Each return item must have an amount");
-        e.status = 400; e.code = "VALIDATION_AMOUNT_REQUIRED"; throw e;
+        e.status = 400;
+        e.code = "VALIDATION_AMOUNT_REQUIRED";
+        throw e;
       }
       const amt = Number(item.amount);
       if (!Number.isFinite(amt) || amt < 0) {
         const e = new Error("Item amount must be a valid non-negative number");
-        e.status = 400; e.code = "VALIDATION_AMOUNT_INVALID"; throw e;
+        e.status = 400;
+        e.code = "VALIDATION_AMOUNT_INVALID";
+        throw e;
       }
     }
 
@@ -41,7 +49,9 @@ class StoreCustomerReturnService {
 
       if (!sale) {
         const e = new Error("Sale not found");
-        e.status = 404; e.code = "SALE_NOT_FOUND"; throw e;
+        e.status = 404;
+        e.code = "SALE_NOT_FOUND";
+        throw e;
       }
 
       // Create return header
@@ -57,12 +67,16 @@ class StoreCustomerReturnService {
 
         if (!sales_item_id) {
           const e = new Error("sales_item_id is required for each item");
-          e.status = 400; e.code = "VALIDATION_SALES_ITEM_ID_REQUIRED"; throw e;
+          e.status = 400;
+          e.code = "VALIDATION_SALES_ITEM_ID_REQUIRED";
+          throw e;
         }
 
         if (!Number.isInteger(qty) || qty <= 0) {
           const e = new Error("qty must be a positive integer");
-          e.status = 400; e.code = "VALIDATION_QTY_INVALID"; throw e;
+          e.status = 400;
+          e.code = "VALIDATION_QTY_INVALID";
+          throw e;
         }
 
         // Load the sales item
@@ -80,28 +94,38 @@ class StoreCustomerReturnService {
 
         if (!salesItem) {
           const e = new Error(`Sales item ${sales_item_id} not found`);
-          e.status = 404; e.code = "SALES_ITEM_NOT_FOUND"; throw e;
+          e.status = 404;
+          e.code = "SALES_ITEM_NOT_FOUND";
+          throw e;
         }
 
         // Only allow returns for items (not services)
         if (salesItem.product.type !== "item") {
           const e = new Error(
-            `"${salesItem.product.product_name}" is a service and cannot be returned`
+            `"${salesItem.product.product_name}" is a service and cannot be returned`,
           );
-          e.status = 400; e.code = "SERVICE_NOT_RETURNABLE"; throw e;
+          e.status = 400;
+          e.code = "SERVICE_NOT_RETURNABLE";
+          throw e;
         }
 
         if (!salesItem.lot_id) {
-          const e = new Error(`Sales item ${sales_item_id} has no associated lot`);
-          e.status = 400; e.code = "NO_LOT_ON_ITEM"; throw e;
+          const e = new Error(
+            `Sales item ${sales_item_id} has no associated lot`,
+          );
+          e.status = 400;
+          e.code = "NO_LOT_ON_ITEM";
+          throw e;
         }
 
         const availableToReturn = salesItem.qty - (salesItem.returned_qty ?? 0);
         if (qty > availableToReturn) {
           const e = new Error(
-            `Return qty (${qty}) exceeds available qty to return (${availableToReturn})`
+            `Return qty (${qty}) exceeds available qty to return (${availableToReturn})`,
           );
-          e.status = 400; e.code = "RETURN_EXCEEDS_SOLD"; throw e;
+          e.status = 400;
+          e.code = "RETURN_EXCEEDS_SOLD";
+          throw e;
         }
 
         const itemAmount = Number(it.amount);
@@ -109,9 +133,12 @@ class StoreCustomerReturnService {
         // Create return item
         await tx.storeCustomerReturnItem.create({
           data: {
+            owner_id,
+
             return_id: ret.return_id,
             sales_item_id,
             lot_id: salesItem.lot_id,
+
             qty,
             amount: itemAmount,
             note: it.note ?? null,
@@ -152,40 +179,6 @@ class StoreCustomerReturnService {
     });
   }
 
-  async list(owner_id) {
-    const returns = await prisma.storeCustomerReturn.findMany({
-      where: { owner_id },
-      orderBy: { created_at: "desc" },
-      include: {
-        sales: {
-          select: {
-            sales_id: true,
-            total_amount: true,
-            discount: true,
-            paid_amount: true,
-            created_at: true,
-            customer: { select: { customer_id: true, full_name: true, phone: true } },
-          },
-        },
-        items: {
-          include: {
-            lot: {
-              select: {
-                lot_id: true,
-                cp: true,
-                sp: true,
-                product: { select: { product_id: true, product_name: true } },
-              },
-            },
-          },
-        },
-      },
-      take: 100,
-    });
-
-    return returns.map((ret) => this._format(ret));
-  }
-
   async getById(owner_id, return_id) {
     const ret = await prisma.storeCustomerReturn.findFirst({
       where: { return_id, owner_id },
@@ -197,7 +190,9 @@ class StoreCustomerReturnService {
             discount: true,
             paid_amount: true,
             created_at: true,
-            customer: { select: { customer_id: true, full_name: true, phone: true } },
+            customer: {
+              select: { customer_id: true, full_name: true, phone: true },
+            },
           },
         },
         items: {

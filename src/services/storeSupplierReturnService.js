@@ -250,6 +250,7 @@ class StoreSupplierReturnService {
             lot: {
               select: {
                 lot_id: true,
+                cp: true,
                 product: {
                   select: {
                     product_id: true,

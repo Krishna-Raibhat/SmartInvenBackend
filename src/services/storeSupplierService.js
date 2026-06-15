@@ -145,7 +145,7 @@ class StoreSupplierService {
       };
     }
 
-    return prisma.storeStockLot.findMany({
+    const lots = await prisma.storeStockLot.findMany({
       where: {
         owner_id,
         supplier_id,
@@ -163,8 +163,21 @@ class StoreSupplierService {
             unit: true,
           },
         },
+        supplierReturnItems: {
+          select: {
+            qty: true,
+          },
+        },
       },
     });
+
+    return lots.map((lot) => ({
+      ...lot,
+      qty_returned: lot.supplierReturnItems.reduce(
+        (sum, item) => sum + item.qty,
+        0,
+      ),
+    }));
   }
 
   /**
