@@ -69,6 +69,8 @@ model Owner {
   storeNotifications         StoreNotification[]
   storeNotificationPrefs     StoreNotificationPreference[]
   storeCustomerReturnItems  StoreCustomerReturnItem[] 
+  storeExpenseTitles StoreExpenseTitle[]
+  storeExpenses      StoreExpense[]
 
   @@map("owners")
 }
@@ -1092,6 +1094,37 @@ model StoreNotificationPreference {
 
   @@unique([owner_id, type])
   @@map("store_notification_preferences")
+}
+
+model StoreExpenseTitle {
+  title_id   String         @id @default(uuid())
+  owner_id   String
+  title      String
+  created_at DateTime       @default(now())
+  updated_at DateTime       @updatedAt
+  owner      Owner          @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  expenses   StoreExpense[]
+
+  @@unique([owner_id, title])
+  @@index([owner_id])
+  @@map("store_expense_titles")
+}
+
+model StoreExpense {
+  expense_id String            @id @default(uuid())
+  owner_id   String
+  title_id   String
+  amount     Decimal           @db.Decimal(10, 2)
+  note       String?
+  created_at DateTime          @default(now())
+  updated_at DateTime          @updatedAt
+  owner      Owner             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  title      StoreExpenseTitle @relation(fields: [title_id], references: [title_id])
+
+  @@index([owner_id])
+  @@index([owner_id, title_id])
+  @@index([owner_id, created_at])
+  @@map("store_expenses")
 }
 enum StorePaymentMethod {
   cash
