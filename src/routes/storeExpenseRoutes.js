@@ -27,4 +27,5 @@ router.get("/by-title/:title_id", auth, expenseController.getByTitle);
 router.get("/:id", auth, expenseController.getById);
 router.patch("/:id", auth, expenseController.update);
 router.delete("/:id", auth, expenseController.delete);
+
 export default router;

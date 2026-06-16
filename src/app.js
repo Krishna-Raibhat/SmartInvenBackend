@@ -80,7 +80,7 @@ import storeNotificationPreferenceRoutes from "./routes/storeNotificationPrefere
 import storeProfitLossRoutes from "./routes/storeProfitLossRoutes.js";
 import storeDashboardRoutes from "./routes/storeDashboardRoutes.js";
 import storeExpenseRoutes from "./routes/storeExpenseRoutes.js";
-
+import storeSalesReportRoutes from "./routes/storeSalesReportRoutes.js"
 
 const app = express();
 
@@ -185,7 +185,7 @@ app.use("/api/store/notification-preferences", storeNotificationPreferenceRoutes
 app.use("/api/store/profit-loss", storeProfitLossRoutes);
 app.use("/api/store/dashboard", storeDashboardRoutes);
 app.use("/api/store/expense", storeExpenseRoutes);
-
+app.use("/api/store/reports", storeSalesReportRoutes);
 /* ==========================
    SERVER START
 ========================== */
