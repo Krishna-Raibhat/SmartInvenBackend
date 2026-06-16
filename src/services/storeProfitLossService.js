@@ -60,6 +60,7 @@ class StoreProfitLossService {
           ), 0)                                          AS returned_cost,
           COUNT(DISTINCT scr.return_id)::int             AS return_count
         FROM store_customer_returns scr
+        INNER JOIN sold s ON s.sales_id = scr.sales_id
         JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
         JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
         WHERE scr.owner_id = ${owner_id}

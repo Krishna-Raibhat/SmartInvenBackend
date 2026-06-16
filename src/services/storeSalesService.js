@@ -447,6 +447,110 @@ class StoreSalesService {
     return sale;
   }
 
+  // async addPayment(owner_id, sales_id, add_amount, payment_method) {
+  //   const validMethods = ["cash", "online"];
+  //   if (payment_method && !validMethods.includes(payment_method)) {
+  //     const e = new Error("payment_method must be cash or online");
+  //     e.status = 400;
+  //     e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
+  //     throw e;
+  //   }
+
+  //   const add = new Decimal(Number(add_amount));
+  //   if (add.lte(0)) {
+  //     const e = new Error("amount must be a positive number");
+  //     e.status = 400;
+  //     e.code = "VALIDATION_AMOUNT_INVALID";
+  //     throw e;
+  //   }
+
+  //   return prisma.$transaction(async (tx) => {
+  //     const sale = await tx.storeSales.findFirst({
+  //       where: { owner_id, sales_id },
+  //       select: {
+  //         sales_id: true,
+  //         total_amount: true,
+  //         discount: true,
+  //         paid_amount: true,
+  //       },
+  //     });
+
+  //     if (!sale) {
+  //       const e = new Error("Sale not found");
+  //       e.status = 404;
+  //       e.code = "SALE_NOT_FOUND";
+  //       throw e;
+  //     }
+
+  //     const effectiveTotal = new Decimal(sale.total_amount).sub(
+  //       new Decimal(sale.discount ?? 0),
+  //     );
+  //     const currentPaid = new Decimal(sale.paid_amount);
+  //     const remaining = effectiveTotal.sub(currentPaid);
+
+  //     if (add.gt(remaining)) {
+  //       const e = new Error(
+  //         `Payment exceeds remaining amount. Remaining: ${remaining.toFixed(2)}`,
+  //       );
+  //       e.status = 400;
+  //       e.code = "PAYMENT_EXCEEDS_TOTAL";
+  //       throw e;
+  //     }
+
+  //     const finalPaid = currentPaid.add(add);
+  //     const finalDue = Decimal.max(
+  //       new Decimal(0),
+  //       effectiveTotal.sub(finalPaid),
+  //     );
+  //     const status =
+  //       finalPaid.gte(effectiveTotal) && effectiveTotal.gt(0)
+  //         ? "paid"
+  //         : finalPaid.gt(0)
+  //           ? "partial"
+  //           : "pending";
+
+  //     const updateData = {
+  //       paid_amount: finalPaid,
+  //       due_amount: finalDue,
+  //       payment_status: status,
+  //     };
+  //     if (payment_method) updateData.payment_method = payment_method;
+
+  //     return tx.storeSales.update({
+  //       where: { sales_id },
+  //       data: updateData,
+  //     });
+  //   });
+  // }
+
+  // async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
+  //   const skip = (page - 1) * limit;
+
+  //   const [data, total] = await Promise.all([
+  //     prisma.storeSales.findMany({
+  //       where: { owner_id, due_amount: { gt: 0 } },
+  //       orderBy: { created_at: "desc" },
+  //       skip,
+  //       take: limit,
+  //       select: {
+  //         sales_id: true,
+  //         payment_status: true,
+  //         payment_method: true,
+  //         total_amount: true,
+  //         discount: true,
+  //         paid_amount: true,
+  //         due_amount: true,
+  //         created_at: true,
+  //         customer: {
+  //           select: { customer_id: true, full_name: true, phone: true },
+  //         },
+  //       },
+  //     }),
+  //     prisma.storeSales.count({ where: { owner_id, due_amount: { gt: 0 } } }),
+  //   ]);
+
+  //   return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  // }
   async addPayment(owner_id, sales_id, add_amount, payment_method) {
     const validMethods = ["cash", "online"];
     if (payment_method && !validMethods.includes(payment_method)) {
@@ -482,32 +586,39 @@ class StoreSalesService {
         throw e;
       }
 
-      const effectiveTotal = new Decimal(sale.total_amount).sub(
-        new Decimal(sale.discount ?? 0),
-      );
-      const currentPaid = new Decimal(sale.paid_amount);
-      const remaining = effectiveTotal.sub(currentPaid);
+      // Fetch total refunds for this sale
+      const refundAgg = await tx.storeCustomerReturn.aggregate({
+        where: { sales_id },
+        _sum: { refund_amount: true },
+      });
+      const totalRefunded = Number(refundAgg._sum.refund_amount || 0);
 
-      if (add.gt(remaining)) {
+      const effectiveTotal =
+        Number(sale.total_amount) - Number(sale.discount ?? 0);
+      const currentPaid = Number(sale.paid_amount);
+
+      // Real due = effectiveTotal - refunds - currentPaid
+      const realDue = Math.max(0, effectiveTotal - totalRefunded - currentPaid);
+
+      if (add.gt(new Decimal(realDue).add(new Decimal("0.01")))) {
         const e = new Error(
-          `Payment exceeds remaining amount. Remaining: ${remaining.toFixed(2)}`,
+          `Payment exceeds remaining due of ${realDue.toFixed(2)}`
         );
         e.status = 400;
         e.code = "PAYMENT_EXCEEDS_TOTAL";
         throw e;
       }
 
-      const finalPaid = currentPaid.add(add);
-      const finalDue = Decimal.max(
-        new Decimal(0),
-        effectiveTotal.sub(finalPaid),
-      );
+      const finalPaid = new Decimal(currentPaid).add(add);
+      const netTotal = new Decimal(effectiveTotal).sub(new Decimal(totalRefunded));
+      const finalDue = Decimal.max(new Decimal(0), netTotal.sub(finalPaid));
+
       const status =
-        finalPaid.gte(effectiveTotal) && effectiveTotal.gt(0)
+        finalPaid.gte(netTotal) && netTotal.gt(0)
           ? "paid"
           : finalPaid.gt(0)
-            ? "partial"
-            : "pending";
+          ? "partial"
+          : "pending";
 
       const updateData = {
         paid_amount: finalPaid,
@@ -524,32 +635,67 @@ class StoreSalesService {
   }
 
   async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
-    const skip = (page - 1) * limit;
-
-    const [data, total] = await Promise.all([
-      prisma.storeSales.findMany({
-        where: { owner_id, due_amount: { gt: 0 } },
-        orderBy: { created_at: "desc" },
-        skip,
-        take: limit,
-        select: {
-          sales_id: true,
-          payment_status: true,
-          payment_method: true,
-          total_amount: true,
-          discount: true,
-          paid_amount: true,
-          due_amount: true,
-          created_at: true,
-          customer: {
-            select: { customer_id: true, full_name: true, phone: true },
-          },
+    // Fetch all sales with their returns — can't filter by due_amount in DB
+    // because returns aren't reflected in that field
+    const sales = await prisma.storeSales.findMany({
+      where: { owner_id },
+      orderBy: { created_at: "desc" },
+      select: {
+        sales_id: true,
+        payment_status: true,
+        payment_method: true,
+        total_amount: true,
+        discount: true,
+        paid_amount: true,
+        created_at: true,
+        customer: {
+          select: { customer_id: true, full_name: true, phone: true },
         },
-      }),
-      prisma.storeSales.count({ where: { owner_id, due_amount: { gt: 0 } } }),
-    ]);
+        customerReturns: {
+          select: { refund_amount: true },
+        },
+      },
+    });
 
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+    // Calculate actual due on-the-fly (same as clothing)
+    const mapped = sales
+      .map((sale) => {
+        const effectiveTotal =
+          Number(sale.total_amount) - Number(sale.discount || 0);
+        const paidRaw = Number(sale.paid_amount);
+        const totalRefunded = sale.customerReturns.reduce(
+          (sum, r) => sum + Number(r.refund_amount || 0),
+          0
+        );
+
+        const dueBeforeRefund = Math.max(0, effectiveTotal - paidRaw);
+        const excessRefund = Math.max(0, totalRefunded - dueBeforeRefund);
+        const netPaid = Math.max(0, paidRaw - excessRefund);
+        const due = Math.max(0, effectiveTotal - paidRaw - totalRefunded);
+
+        const { customerReturns, ...rest } = sale;
+        return {
+          ...rest,
+          paid_amount: netPaid,
+          due_amount: due,
+          total_refunded: totalRefunded,
+        };
+      })
+      .filter((s) => s.due_amount > 0);
+
+    // Paginate in JS since we filtered after DB fetch
+    const total = mapped.length;
+    const page_num = Number(page);
+    const limit_num = Number(limit);
+    const data = mapped.slice((page_num - 1) * limit_num, page_num * limit_num);
+
+    return {
+      data,
+      total,
+      page: page_num,
+      limit: limit_num,
+      totalPages: Math.ceil(total / limit_num),
+    };
   }
 }
 
