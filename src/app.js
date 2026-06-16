@@ -82,6 +82,7 @@ import storeDashboardRoutes from "./routes/storeDashboardRoutes.js";
 import storeExpenseRoutes from "./routes/storeExpenseRoutes.js";
 import storeSalesReportRoutes from "./routes/storeSalesReportRoutes.js"
 import storeSalesItemReportRoutes from "./routes/storeSalesItemReportRoutes.js";
+import storeReportRoute from "./routes/storeReportRoutes.js";
 const app = express();
 
 // Middlewares
@@ -185,8 +186,9 @@ app.use("/api/store/notification-preferences", storeNotificationPreferenceRoutes
 app.use("/api/store/profit-loss", storeProfitLossRoutes);
 app.use("/api/store/dashboard", storeDashboardRoutes);
 app.use("/api/store/expense", storeExpenseRoutes);
-app.use("/api/store/reports", storeSalesReportRoutes);
-app.use("/api/store/reports", storeSalesItemReportRoutes);
+app.use("/api/store/service-reports", storeSalesReportRoutes);
+app.use("/api/store/item-reports", storeSalesItemReportRoutes);
+app.use("/api/store/reports", storeReportRoute);
 /* ==========================
    SERVER START
 ========================== */
