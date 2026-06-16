@@ -22,10 +22,9 @@ router.delete("/titles/:id", auth, expenseTitleController.delete);
 router.post("/", auth, expenseController.create);
 router.get("/", auth, expenseController.list);
 router.get("/summary", auth, expenseController.summaryByTitle);
+router.get("/report", auth, expenseController.getReport);        // ← before /:id
 router.get("/by-title/:title_id", auth, expenseController.getByTitle);
 router.get("/:id", auth, expenseController.getById);
 router.patch("/:id", auth, expenseController.update);
 router.delete("/:id", auth, expenseController.delete);
-router.get("/expenses/report", getExpenseReport);
-
 export default router;
