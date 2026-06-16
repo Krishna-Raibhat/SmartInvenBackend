@@ -296,6 +296,140 @@ class StoreExpenseService {
       }))
       .sort((a, b) => b.total_amount - a.total_amount);
   }
+
+    async getReport(owner_id, { start, end, group = "day" } = {}) {
+        const g = ["day", "week", "month", "year"].includes(group) ? group : "day";
+
+        const now = new Date();
+        const endFinal = end ? new Date(end) : now;
+        endFinal.setHours(23, 59, 59, 999);
+
+        const startFinal = start
+            ? new Date(start)
+            : new Date(now.getFullYear(), now.getMonth(), 1); // default: this month
+        startFinal.setHours(0, 0, 0, 0);
+
+        // Previous period (same duration)
+        const duration = endFinal - startFinal;
+        const prevEnd = new Date(startFinal.getTime() - 1);
+        const prevStart = new Date(startFinal.getTime() - duration - 1);
+
+        // ── 1. Summary + category count + largest category
+        const [summaryRows, prevRows, categoryRows, trendRows] = await Promise.all([
+
+            // Current period summary
+            prisma.$queryRaw`
+            SELECT
+                COALESCE(SUM(e.amount), 0)::numeric          AS total_expenses,
+                COUNT(e.expense_id)::int                     AS total_transactions,
+                COUNT(DISTINCT e.title_id)::int              AS category_count
+            FROM store_expenses e
+            WHERE e.owner_id = ${owner_id}
+                AND e.created_at >= ${startFinal}
+                AND e.created_at <= ${endFinal}
+            `,
+
+            // Previous period total (for % comparison)
+            prisma.$queryRaw`
+            SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
+            FROM store_expenses
+            WHERE owner_id = ${owner_id}
+                AND created_at >= ${prevStart}
+                AND created_at <= ${prevEnd}
+            `,
+
+            // Breakdown by category
+            prisma.$queryRaw`
+            SELECT
+                t.title_id,
+                t.title,
+                COALESCE(SUM(e.amount), 0)::numeric   AS total_amount,
+                COUNT(e.expense_id)::int              AS entry_count
+            FROM store_expense_titles t
+            LEFT JOIN store_expenses e
+                ON e.title_id = t.title_id
+                AND e.owner_id = ${owner_id}
+                AND e.created_at >= ${startFinal}
+                AND e.created_at <= ${endFinal}
+            WHERE t.owner_id = ${owner_id}
+            GROUP BY t.title_id, t.title
+            HAVING COALESCE(SUM(e.amount), 0) > 0
+            ORDER BY total_amount DESC
+            `,
+
+            // Trend: per period per category
+            prisma.$queryRaw`
+            SELECT
+                date_trunc(${g}, e.created_at)        AS period,
+                t.title_id,
+                t.title,
+                COALESCE(SUM(e.amount), 0)::numeric   AS amount
+            FROM store_expenses e
+            JOIN store_expense_titles t ON t.title_id = e.title_id
+            WHERE e.owner_id = ${owner_id}
+                AND e.created_at >= ${startFinal}
+                AND e.created_at <= ${endFinal}
+            GROUP BY 1, t.title_id, t.title
+            ORDER BY 1 ASC
+            `,
+        ]);
+
+        const s = summaryRows[0] || {};
+        const totalExpenses     = Number(s.total_expenses     || 0);
+        const totalTransactions = Number(s.total_transactions || 0);
+        const categoryCount     = Number(s.category_count     || 0);
+        const prevTotal         = Number(prevRows[0]?.total_expenses || 0);
+
+        // % change vs last period
+        const vsLastPeriod = prevTotal === 0
+            ? null
+            : Number((((totalExpenses - prevTotal) / prevTotal) * 100).toFixed(1));
+
+        // Category breakdown with percentage
+        const categories = categoryRows.map((r) => ({
+            title_id:    r.title_id,
+            title:       r.title,
+            total_amount: Number(r.total_amount),
+            entry_count:  Number(r.entry_count),
+            percentage:   totalExpenses > 0
+            ? Number(((Number(r.total_amount) / totalExpenses) * 100).toFixed(1))
+            : 0,
+        }));
+
+        const largestCategory = categories[0] ?? null;
+
+        // Trend: group by period, each period has array of categories
+        const trendMap = {};
+        for (const row of trendRows) {
+            const period = new Date(row.period).toISOString();
+            if (!trendMap[period]) trendMap[period] = { period, categories: [] };
+            trendMap[period].categories.push({
+            title_id: row.title_id,
+            title:    row.title,
+            amount:   Number(row.amount),
+            });
+        }
+        const trend = Object.values(trendMap);
+
+        return {
+            date_range: {
+            start: startFinal.toISOString(),
+            end:   endFinal.toISOString(),
+            },
+            summary: {
+            total_expenses:     totalExpenses,
+            total_transactions: totalTransactions,
+            category_count:     categoryCount,
+            vs_last_period:     vsLastPeriod,   // null if no previous data
+            largest_category:   largestCategory
+                ? { title: largestCategory.title, amount: largestCategory.total_amount, percentage: largestCategory.percentage }
+                : null,
+            },
+            categories,  // for donut + bar chart + list
+            trend,       // for trend chart grouped by day/week/month
+        };
+    }
+
 }
 
 export const expenseTitleService = new StoreExpenseTitleService();

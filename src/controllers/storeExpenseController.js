@@ -166,4 +166,15 @@ export const expenseController = {
       return fail(res, 500, "SERVER_ERROR", "Failed to fetch expense summary.");
     }
   },
+
+  // ── inside expenseController object, remove the export const and make it a normal method:
+    async getReport(req, res) {
+        try {
+            const { start, end, group } = req.query;
+            const data = await expenseService.getReport(req.owner.owner_id, { start, end, group });
+            return res.json({ success: true, data });
+        } catch (err) {
+            return res.status(err.status || 500).json({ success: false, message: err.message });
+        }
+    },
 };
