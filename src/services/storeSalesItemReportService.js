@@ -64,6 +64,7 @@ class StoreSalesItemReportService {
         },
         salesItem: {
           select: {
+            cp: true,   // ← needed to deduct returned COGS
             product: {
               select: { product_id: true, product_name: true },
             },
@@ -187,19 +188,35 @@ class StoreSalesItemReportService {
     // ── 5. Returns aggregation ──────────────────────────────────────
     let totalReturnedUnits = 0;
     let totalRefundAmount = 0;
+    let totalReturnedCogs = 0;
+
+    // per-product return maps for deducting from prodMap
+    const prodReturnSales = new Map(); // product_id → refund amount
+    const prodReturnCogs  = new Map(); // product_id → returned cogs
+    const prodReturnUnits = new Map(); // product_id → returned units
 
     for (const r of returnItems) {
-      totalReturnedUnits += r.qty;
-      totalRefundAmount += Number(r.amount);
+      const qty = r.qty;
+      const refund = Number(r.amount ?? 0);
+      const cp = Number(r.salesItem?.cp ?? 0);
+      const returnedCogs = cp * qty;
+      const pid = r.salesItem?.product?.product_id;
+
+      totalReturnedUnits += qty;
+      totalRefundAmount  += refund;
+      totalReturnedCogs  += returnedCogs;
+
+      if (pid) {
+        prodReturnSales.set(pid, (prodReturnSales.get(pid) ?? 0) + refund);
+        prodReturnCogs.set(pid,  (prodReturnCogs.get(pid)  ?? 0) + returnedCogs);
+        prodReturnUnits.set(pid, (prodReturnUnits.get(pid) ?? 0) + qty);
+      }
     }
 
-    const netSales = totalSales - totalRefundAmount;
-    const grossProfit = totalSales - totalCogs;
-    const netGrossProfit = grossProfit - totalRefundAmount;
-    const marginPct =
-      totalSales > 0
-        ? Number(((grossProfit / totalSales) * 100).toFixed(1))
-        : 0;
+    const netSales      = totalSales - totalRefundAmount;
+    const netCogs       = totalCogs  - totalReturnedCogs;
+    const grossProfit   = totalSales - totalCogs;
+    const netGrossProfit = netSales  - netCogs;
 
     // ── 6. Shape output ─────────────────────────────────────────────
     const categories = [...catMap.values()]
@@ -216,18 +233,26 @@ class StoreSalesItemReportService {
     const top_products = [...prodMap.values()]
       .sort((a, b) => b.total_sales - a.total_sales)
       .slice(0, 10)
-      .map((p) => ({
-        ...p,
-        total_sales: Number(p.total_sales.toFixed(2)),
-        total_cogs: Number(p.total_cogs.toFixed(2)),
-        gross_profit: Number((p.total_sales - p.total_cogs).toFixed(2)),
-        margin_percent:
-          p.total_sales > 0
-            ? Number(
-                (((p.total_sales - p.total_cogs) / p.total_sales) * 100).toFixed(1)
-              )
-            : 0,
-      }));
+      .map((p) => {
+        const netProdSales = p.total_sales - (prodReturnSales.get(p.product_id) ?? 0);
+        const netProdCogs  = p.total_cogs  - (prodReturnCogs.get(p.product_id)  ?? 0);
+        const netProdUnits = p.total_units - (prodReturnUnits.get(p.product_id) ?? 0);
+        const netProdProfit = netProdSales - netProdCogs;
+        return {
+          ...p,
+          total_units: netProdUnits,
+          total_sales: Number(netProdSales.toFixed(2)),
+          total_cogs: Number(netProdCogs.toFixed(2)),
+          gross_profit: Number(netProdProfit.toFixed(2)),
+          margin_percent:
+            netProdSales > 0
+              ? Number(((netProdProfit / netProdSales) * 100).toFixed(1))
+              : 0,
+        };
+      })
+      // Re-sort by net sales after deductions, filter out fully returned products
+      .filter((p) => p.total_units > 0)
+      .sort((a, b) => b.total_sales - a.total_sales);
 
     const suppliers = [...supplierMap.values()]
       .sort((a, b) => b.total_sales - a.total_sales)
@@ -258,11 +283,13 @@ class StoreSalesItemReportService {
 
     return {
       summary: {
-        total_item_sales: Number(totalSales.toFixed(2)),
-        total_units_sold: totalUnits,
-        total_cogs: Number(totalCogs.toFixed(2)),
-        gross_profit: Number(grossProfit.toFixed(2)),
-        margin_percent: marginPct,
+        total_item_sales: Number(netSales.toFixed(2)),          // net of returns
+        total_units_sold: totalUnits - totalReturnedUnits,      // net units
+        total_cogs: Number(netCogs.toFixed(2)),                 // net of returned cost
+        gross_profit: Number(netGrossProfit.toFixed(2)),        // net sales - net cogs
+        margin_percent: netSales > 0
+          ? Number(((netGrossProfit / netSales) * 100).toFixed(1))
+          : 0,
       },
       returns: {
         gross_sales: Number(totalSales.toFixed(2)),

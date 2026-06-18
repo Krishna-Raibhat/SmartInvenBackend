@@ -10,11 +10,9 @@ function getNPTRanges() {
   const todayStart = new Date(
     Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), npt.getUTCDate(), 0, 0, 0, 0) - NPT_OFFSET_MS
   );
-
   const last7Start = new Date(
     Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), npt.getUTCDate() - 6, 0, 0, 0, 0) - NPT_OFFSET_MS
   );
-
   const monthStart = new Date(
     Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), 1, 0, 0, 0, 0) - NPT_OFFSET_MS
   );
@@ -22,122 +20,147 @@ function getNPTRanges() {
   return { todayStart, last7Start, monthStart, nowUTC };
 }
 
-class StoreDashboardReportService {
+class StoreReportService {
   async getSummary(owner_id) {
     const { todayStart, last7Start, monthStart, nowUTC } = getNPTRanges();
 
-    const [
-      salesToday, salesLast7, salesMonth, salesAll,
-      expToday,   expLast7,   expMonth,   expAll,
-      duesToday,  duesLast7,  duesMonth,  duesAll,
-    ] = await Promise.all([
-      // ── Sales ────────────────────────────────────────────────────
-      prisma.$queryRaw`
-        SELECT
-          COALESCE(SUM(GREATEST(s.total_amount - COALESCE(s.discount,0), 0)), 0)::numeric AS net_sales,
-          COALESCE(SUM(r.refund_amount), 0)::numeric AS refunds
-        FROM store_sales s
-        LEFT JOIN store_customer_returns r ON r.sales_id = s.sales_id
-        WHERE s.owner_id = ${owner_id}
-          AND s.created_at >= ${todayStart} AND s.created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT
-          COALESCE(SUM(GREATEST(s.total_amount - COALESCE(s.discount,0), 0)), 0)::numeric AS net_sales,
-          COALESCE(SUM(r.refund_amount), 0)::numeric AS refunds
-        FROM store_sales s
-        LEFT JOIN store_customer_returns r ON r.sales_id = s.sales_id
-        WHERE s.owner_id = ${owner_id}
-          AND s.created_at >= ${last7Start} AND s.created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT
-          COALESCE(SUM(GREATEST(s.total_amount - COALESCE(s.discount,0), 0)), 0)::numeric AS net_sales,
-          COALESCE(SUM(r.refund_amount), 0)::numeric AS refunds
-        FROM store_sales s
-        LEFT JOIN store_customer_returns r ON r.sales_id = s.sales_id
-        WHERE s.owner_id = ${owner_id}
-          AND s.created_at >= ${monthStart} AND s.created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT
-          COALESCE(SUM(GREATEST(s.total_amount - COALESCE(s.discount,0), 0)), 0)::numeric AS net_sales,
-          COALESCE(SUM(r.refund_amount), 0)::numeric AS refunds
-        FROM store_sales s
-        LEFT JOIN store_customer_returns r ON r.sales_id = s.sales_id
-        WHERE s.owner_id = ${owner_id}
-      `,
+    const periods = [
+      { key: "today",       start: todayStart },
+      { key: "last_7_days", start: last7Start },
+      { key: "this_month",  start: monthStart },
+      { key: "all_time",    start: null },
+    ];
 
-      // ── Expenses ─────────────────────────────────────────────────
+    const [periodResults, duesRow] = await Promise.all([
+      Promise.all(periods.map((p) => this._getPeriodStats(owner_id, p.start, nowUTC))),
       prisma.$queryRaw`
-        SELECT COALESCE(SUM(amount),0)::numeric AS total
-        FROM store_expenses
-        WHERE owner_id = ${owner_id}
-          AND created_at >= ${todayStart} AND created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT COALESCE(SUM(amount),0)::numeric AS total
-        FROM store_expenses
-        WHERE owner_id = ${owner_id}
-          AND created_at >= ${last7Start} AND created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT COALESCE(SUM(amount),0)::numeric AS total
-        FROM store_expenses
-        WHERE owner_id = ${owner_id}
-          AND created_at >= ${monthStart} AND created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT COALESCE(SUM(amount),0)::numeric AS total
-        FROM store_expenses
-        WHERE owner_id = ${owner_id}
-      `,
-
-      // ── Dues ─────────────────────────────────────────────────────
-      prisma.$queryRaw`
-        SELECT COALESCE(SUM(due_amount),0)::numeric AS total
-        FROM store_sales
-        WHERE owner_id = ${owner_id} AND due_amount > 0
-          AND created_at >= ${todayStart} AND created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT COALESCE(SUM(due_amount),0)::numeric AS total
-        FROM store_sales
-        WHERE owner_id = ${owner_id} AND due_amount > 0
-          AND created_at >= ${last7Start} AND created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT COALESCE(SUM(due_amount),0)::numeric AS total
-        FROM store_sales
-        WHERE owner_id = ${owner_id} AND due_amount > 0
-          AND created_at >= ${monthStart} AND created_at <= ${nowUTC}
-      `,
-      prisma.$queryRaw`
-        SELECT COALESCE(SUM(due_amount),0)::numeric AS total
+        SELECT COALESCE(SUM(due_amount), 0)::numeric AS total
         FROM store_sales
         WHERE owner_id = ${owner_id} AND due_amount > 0
       `,
     ]);
 
-    const shape = (salesRow, expRow, duesRow) => {
-      const sales    = Math.max(0, Number(salesRow[0]?.net_sales || 0) - Number(salesRow[0]?.refunds || 0));
-      const expenses = Number(expRow[0]?.total || 0);
-      const profit   = sales - expenses;
-      return {
-        sales:    Number(sales.toFixed(2)),
-        expenses: Number(expenses.toFixed(2)),
-        profit:   Number(profit.toFixed(2)),
-        dues:     Number(Number(duesRow[0]?.total || 0).toFixed(2)),
-      };
-    };
+    const totalDue = Number(Number(duesRow[0]?.total || 0).toFixed(2));
+
+    const results = {};
+    periods.forEach((p, i) => {
+      results[p.key] = { ...periodResults[i], total_due: totalDue };
+    });
+
+    return results;
+  }
+
+  async _getPeriodStats(owner_id, startDate, endDate) {
+    const hasDate = !!startDate;
+
+    // Single consolidated query per period — matches storeDashboardService pattern exactly
+    const [profitRows, refundRows] = await Promise.all([
+      hasDate
+        ? prisma.$queryRaw`
+            WITH sold AS (
+              SELECT
+                ss.sales_id,
+                GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
+                COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0)         AS sold_cost
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              WHERE ss.owner_id = ${owner_id}
+                AND ss.created_at >= ${startDate}
+                AND ss.created_at <= ${endDate}
+              GROUP BY ss.sales_id, ss.total_amount, ss.discount
+            ),
+            returns AS (
+              SELECT
+                scr.sales_id,
+                COALESCE(SUM(scr.refund_amount), 0)                AS total_refund,
+                COALESCE(SUM(COALESCE(ssi.cp, 0) * scri.qty), 0)  AS returned_cost
+              FROM store_customer_returns scr
+              INNER JOIN sold s ON s.sales_id = scr.sales_id
+              LEFT JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
+              LEFT JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+              WHERE scr.owner_id = ${owner_id}
+              GROUP BY scr.sales_id
+            )
+            SELECT
+              COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund),  0) AS actual_revenue,
+              COALESCE(SUM(s.sold_cost),       0) - COALESCE(SUM(r.returned_cost), 0) AS net_cost,
+              COALESCE(SUM(r.total_refund),    0)                                      AS total_refund
+            FROM sold s
+            LEFT JOIN returns r ON r.sales_id = s.sales_id
+          `
+        : prisma.$queryRaw`
+            WITH sold AS (
+              SELECT
+                ss.sales_id,
+                GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
+                COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0)         AS sold_cost
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              WHERE ss.owner_id = ${owner_id}
+              GROUP BY ss.sales_id, ss.total_amount, ss.discount
+            ),
+            returns AS (
+              SELECT
+                scr.sales_id,
+                COALESCE(SUM(scr.refund_amount), 0)                AS total_refund,
+                COALESCE(SUM(COALESCE(ssi.cp, 0) * scri.qty), 0)  AS returned_cost
+              FROM store_customer_returns scr
+              INNER JOIN sold s ON s.sales_id = scr.sales_id
+              LEFT JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
+              LEFT JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+              WHERE scr.owner_id = ${owner_id}
+              GROUP BY scr.sales_id
+            )
+            SELECT
+              COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund),  0) AS actual_revenue,
+              COALESCE(SUM(s.sold_cost),       0) - COALESCE(SUM(r.returned_cost), 0) AS net_cost,
+              COALESCE(SUM(r.total_refund),    0)                                      AS total_refund
+            FROM sold s
+            LEFT JOIN returns r ON r.sales_id = s.sales_id
+          `,
+
+      // Sales count + paid separately (simpler query)
+      hasDate
+        ? prisma.$queryRaw`
+            SELECT
+              COUNT(sales_id)::int                                                       AS sales_count,
+              COALESCE(SUM(GREATEST(total_amount - COALESCE(discount,0),0)),0)::numeric AS effective_total,
+              COALESCE(SUM(paid_amount), 0)::numeric                                    AS total_paid
+            FROM store_sales
+            WHERE owner_id = ${owner_id}
+              AND created_at >= ${startDate}
+              AND created_at <= ${endDate}
+          `
+        : prisma.$queryRaw`
+            SELECT
+              COUNT(sales_id)::int                                                       AS sales_count,
+              COALESCE(SUM(GREATEST(total_amount - COALESCE(discount,0),0)),0)::numeric AS effective_total,
+              COALESCE(SUM(paid_amount), 0)::numeric                                    AS total_paid
+            FROM store_sales
+            WHERE owner_id = ${owner_id}
+          `,
+    ]);
+
+    const pr = profitRows[0] || {};
+    const sr = refundRows[0] || {};
+
+    const actualRevenue = Number(pr.actual_revenue || 0);
+    const netCost       = Number(pr.net_cost       || 0);
+    const totalRefund   = Number(pr.total_refund   || 0);
+    const profit        = actualRevenue - netCost;
 
     return {
-      today:       shape(salesToday, expToday, duesToday),
-      last_7_days: shape(salesLast7, expLast7, duesLast7),
-      this_month:  shape(salesMonth, expMonth, duesMonth),
-      all_time:    shape(salesAll,   expAll,   duesAll),
+      sales_count:    Number(sr.sales_count    || 0),
+      sales:          Number(actualRevenue.toFixed(2)),
+      gross_sales:    Number(sr.effective_total|| 0),
+      actual_revenue: Number(actualRevenue.toFixed(2)),
+      total_refund:   Number(totalRefund.toFixed(2)),
+      total_cost:     Number(netCost.toFixed(2)),
+      total_paid:     Number(Number(sr.total_paid || 0).toFixed(2)),
+      profit:         Number(profit.toFixed(2)),
+      expenses:       0,  // placeholder — no expense tracking per period yet
     };
   }
 }
 
-export default new StoreDashboardReportService();
+export default new StoreReportService();
