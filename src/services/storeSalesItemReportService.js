@@ -1,301 +1,310 @@
+// src/services/storeSalesItemReportService.js
 import { prisma } from "../prisma/client.js";
 
 class StoreSalesItemReportService {
   async salesByItem(owner_id, { from, to } = {}) {
-    const dateFilter = {};
-    if (from) dateFilter.gte = new Date(from);
-    if (to) {
-      const end = new Date(to);
-      end.setHours(23, 59, 59, 999);
-      dateFilter.lte = end;
-    }
+    const startDate = from ? new Date(from) : null;
+    const endDate   = to   ? (() => { const d = new Date(to); d.setHours(23,59,59,999); return d; })() : null;
 
-    const salesWhere = {
-      owner_id,
-      ...(Object.keys(dateFilter).length && { created_at: dateFilter }),
-    };
+    // All heavy aggregation done in the DB via raw SQL — no row-by-row JS looping
+    const [summaryRows, categoryRows, productRows, supplierRows, trendRows, returnRows, lowStockRows] =
+      await Promise.all([
 
-    const itemWhere = {
-      owner_id,
-      sales: salesWhere,
-      product: { type: "item" },
-    };
+        // ── Summary totals ──────────────────────────────────────────────────
+        startDate && endDate
+          ? prisma.$queryRaw`
+              SELECT
+                COALESCE(SUM(ssi.line_total), 0)::numeric                   AS total_sales,
+                COALESCE(SUM(COALESCE(ssi.cp,0) * ssi.qty), 0)::numeric    AS total_cogs,
+                COALESCE(SUM(ssi.qty), 0)::int                              AS total_units
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+                AND ss.created_at >= ${startDate}
+                AND ss.created_at <= ${endDate}
+            `
+          : prisma.$queryRaw`
+              SELECT
+                COALESCE(SUM(ssi.line_total), 0)::numeric                   AS total_sales,
+                COALESCE(SUM(COALESCE(ssi.cp,0) * ssi.qty), 0)::numeric    AS total_cogs,
+                COALESCE(SUM(ssi.qty), 0)::int                              AS total_units
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+            `,
 
-    // ── 1. Raw sales items ──────────────────────────────────────────
-    const salesItems = await prisma.storeSalesItem.findMany({
-      where: itemWhere,
-      select: {
-        qty: true,
-        cp: true,
-        line_total: true,
-        sales: { select: { created_at: true } },
-        product: {
-          select: {
-            product_id: true,
-            product_name: true,
-            category: {
-              select: { category_id: true, category_name: true },
-            },
-          },
-        },
-        lot: {
-          select: {
-            supplier: {
-              select: { supplier_id: true, supplier_name: true },
-            },
-          },
-        },
-      },
-    });
+        // ── By category ────────────────────────────────────────────────────
+        startDate && endDate
+          ? prisma.$queryRaw`
+              SELECT
+                COALESCE(c.category_id::text, '__uncat__')  AS category_id,
+                COALESCE(c.category_name, 'Uncategorized')  AS category_name,
+                SUM(ssi.line_total)::numeric                AS total_sales,
+                SUM(ssi.qty)::int                           AS total_units
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              LEFT JOIN store_categories c ON c.category_id = p.category_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+                AND ss.created_at >= ${startDate}
+                AND ss.created_at <= ${endDate}
+              GROUP BY c.category_id, c.category_name
+              ORDER BY total_sales DESC
+            `
+          : prisma.$queryRaw`
+              SELECT
+                COALESCE(c.category_id::text, '__uncat__')  AS category_id,
+                COALESCE(c.category_name, 'Uncategorized')  AS category_name,
+                SUM(ssi.line_total)::numeric                AS total_sales,
+                SUM(ssi.qty)::int                           AS total_units
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              LEFT JOIN store_categories c ON c.category_id = p.category_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+              GROUP BY c.category_id, c.category_name
+              ORDER BY total_sales DESC
+            `,
 
-    // ── 2. Returns in date range ────────────────────────────────────
-    const allReturnItems = await prisma.storeCustomerReturnItem.findMany({
-      where: {
-        owner_id,
-        salesItem: { product: { type: "item" } },
-      },
-      select: {
-        qty: true,
-        amount: true,
-        return: {
-          select: {
-            created_at: true,
-          },
-        },
-        salesItem: {
-          select: {
-            cp: true,   // ← needed to deduct returned COGS
-            product: {
-              select: { product_id: true, product_name: true },
-            },
-          },
-        },
-      },
-    });
+        // ── By product (top 10) ─────────────────────────────────────────────
+        startDate && endDate
+          ? prisma.$queryRaw`
+              SELECT
+                p.product_id,
+                p.product_name,
+                COALESCE(c.category_name, 'Uncategorized') AS category_name,
+                SUM(ssi.line_total)::numeric                AS total_sales,
+                SUM(ssi.qty)::int                           AS total_units,
+                SUM(COALESCE(ssi.cp,0) * ssi.qty)::numeric AS total_cogs
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              LEFT JOIN store_categories c ON c.category_id = p.category_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+                AND ss.created_at >= ${startDate}
+                AND ss.created_at <= ${endDate}
+              GROUP BY p.product_id, p.product_name, c.category_name
+              ORDER BY total_sales DESC
+              LIMIT 10
+            `
+          : prisma.$queryRaw`
+              SELECT
+                p.product_id,
+                p.product_name,
+                COALESCE(c.category_name, 'Uncategorized') AS category_name,
+                SUM(ssi.line_total)::numeric                AS total_sales,
+                SUM(ssi.qty)::int                           AS total_units,
+                SUM(COALESCE(ssi.cp,0) * ssi.qty)::numeric AS total_cogs
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              LEFT JOIN store_categories c ON c.category_id = p.category_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+              GROUP BY p.product_id, p.product_name, c.category_name
+              ORDER BY total_sales DESC
+              LIMIT 10
+            `,
 
-    const returnItems = allReturnItems.filter((r) => {
-      const createdAt = r.return?.created_at;
-      if (!createdAt) return false;
-      if (dateFilter.gte && createdAt < dateFilter.gte) return false;
-      if (dateFilter.lte && createdAt > dateFilter.lte) return false;
-      return true;
-    });
+        // ── By supplier ────────────────────────────────────────────────────
+        startDate && endDate
+          ? prisma.$queryRaw`
+              SELECT
+                sup.supplier_id,
+                sup.supplier_name,
+                SUM(ssi.line_total)::numeric AS total_sales,
+                SUM(ssi.qty)::int            AS total_units
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              JOIN store_stock_lots sl ON sl.lot_id = ssi.lot_id
+              JOIN store_suppliers sup ON sup.supplier_id = sl.supplier_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+                AND ss.created_at >= ${startDate}
+                AND ss.created_at <= ${endDate}
+              GROUP BY sup.supplier_id, sup.supplier_name
+              ORDER BY total_sales DESC
+            `
+          : prisma.$queryRaw`
+              SELECT
+                sup.supplier_id,
+                sup.supplier_name,
+                SUM(ssi.line_total)::numeric AS total_sales,
+                SUM(ssi.qty)::int            AS total_units
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              JOIN store_stock_lots sl ON sl.lot_id = ssi.lot_id
+              JOIN store_suppliers sup ON sup.supplier_id = sl.supplier_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+              GROUP BY sup.supplier_id, sup.supplier_name
+              ORDER BY total_sales DESC
+            `,
 
-    // ── 3. Low stock products (item type, owned) ────────────────────
-    const lowStockLots = await prisma.storeStockLot.groupBy({
-      by: ["product_id"],
-      where: { owner_id },
-      _sum: { qty_remaining: true },
-    });
+        // ── Daily trend ────────────────────────────────────────────────────
+        startDate && endDate
+          ? prisma.$queryRaw`
+              SELECT
+                DATE(ss.created_at)::text   AS date,
+                SUM(ssi.line_total)::numeric AS total
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+                AND ss.created_at >= ${startDate}
+                AND ss.created_at <= ${endDate}
+              GROUP BY DATE(ss.created_at)
+              ORDER BY date ASC
+            `
+          : prisma.$queryRaw`
+              SELECT
+                DATE(ss.created_at)::text   AS date,
+                SUM(ssi.line_total)::numeric AS total
+              FROM store_sales_items ssi
+              JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              WHERE ss.owner_id = ${owner_id}
+                AND p.type = 'item'
+              GROUP BY DATE(ss.created_at)
+              ORDER BY date ASC
+            `,
 
-    const lowStockProductIds = lowStockLots
-      .filter((l) => (l._sum.qty_remaining ?? 0) <= 10)
-      .map((l) => l.product_id);
+        // ── Returns aggregation ────────────────────────────────────────────
+        startDate && endDate
+          ? prisma.$queryRaw`
+              SELECT
+                COALESCE(SUM(scri.qty), 0)::int                           AS returned_units,
+                COALESCE(SUM(scri.amount), 0)::numeric                    AS refund_amount,
+                COALESCE(SUM(COALESCE(ssi.cp,0) * scri.qty), 0)::numeric AS returned_cogs,
+                COALESCE(SUM(CASE WHEN ssi.product_id IS NOT NULL THEN scri.qty END), 0)::int AS ret_units_by_prod
+              FROM store_customer_return_items scri
+              JOIN store_customer_returns scr ON scr.return_id = scri.return_id
+              JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              WHERE scr.owner_id = ${owner_id}
+                AND p.type = 'item'
+                AND scr.created_at >= ${startDate}
+                AND scr.created_at <= ${endDate}
+            `
+          : prisma.$queryRaw`
+              SELECT
+                COALESCE(SUM(scri.qty), 0)::int                           AS returned_units,
+                COALESCE(SUM(scri.amount), 0)::numeric                    AS refund_amount,
+                COALESCE(SUM(COALESCE(ssi.cp,0) * scri.qty), 0)::numeric AS returned_cogs
+              FROM store_customer_return_items scri
+              JOIN store_customer_returns scr ON scr.return_id = scri.return_id
+              JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+              JOIN store_products p ON p.product_id = ssi.product_id
+              WHERE scr.owner_id = ${owner_id}
+                AND p.type = 'item'
+            `,
 
-    const lowStockProducts = lowStockProductIds.length
-      ? await prisma.storeProduct.findMany({
-          where: {
-            owner_id,
-            product_id: { in: lowStockProductIds },
-            type: "item",
-          },
-          select: {
-            product_id: true,
-            product_name: true,
-            category: { select: { category_name: true } },
-            stockLots: {
-              where: { owner_id },
-              select: { qty_remaining: true, qty_in: true },
-            },
-          },
-        })
-      : [];
+        // ── Low stock ──────────────────────────────────────────────────────
+        prisma.$queryRaw`
+          SELECT
+            p.product_id,
+            p.product_name,
+            COALESCE(c.category_name, 'Uncategorized') AS category_name,
+            COALESCE(SUM(sl.qty_remaining), 0)::int     AS qty_remaining,
+            COALESCE(SUM(sl.qty_in), 0)::int            AS qty_in
+          FROM store_products p
+          LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = ${owner_id}
+          LEFT JOIN store_categories c ON c.category_id = p.category_id
+          WHERE p.owner_id = ${owner_id}
+            AND p.type = 'item'
+          GROUP BY p.product_id, p.product_name, c.category_name
+          HAVING COALESCE(SUM(sl.qty_remaining), 0) <= 10
+          ORDER BY qty_remaining ASC
+        `,
+      ]);
 
-    // ── 4. Aggregate summary ────────────────────────────────────────
-    let totalSales = 0;
-    let totalCogs = 0;
-    let totalUnits = 0;
+    // ── Shape results ────────────────────────────────────────────────────────
+    const sr  = summaryRows[0]  || {};
+    const rr  = returnRows[0]   || {};
 
-    const catMap = new Map();
-    const prodMap = new Map();
-    const supplierMap = new Map();
-    const trendMap = new Map();
+    const totalSales        = Number(sr.total_sales   || 0);
+    const totalCogs         = Number(sr.total_cogs    || 0);
+    const totalUnits        = Number(sr.total_units   || 0);
+    const returnedUnits     = Number(rr.returned_units|| 0);
+    const refundAmount      = Number(rr.refund_amount || 0);
+    const returnedCogs      = Number(rr.returned_cogs || 0);
 
-    for (const item of salesItems) {
-      const lineTotal = Number(item.line_total);
-      const qty = item.qty;
-      const cp = Number(item.cp ?? 0);
-      const cogs = cp * qty;
+    const netSales          = totalSales - refundAmount;
+    const netCogs           = totalCogs  - returnedCogs;
+    const netGrossProfit    = netSales   - netCogs;
 
-      totalSales += lineTotal;
-      totalCogs += cogs;
-      totalUnits += qty;
+    const categories = categoryRows.map((c) => ({
+      category_id:   c.category_id,
+      category_name: c.category_name,
+      total_sales:   Number(c.total_sales),
+      total_units:   Number(c.total_units),
+      share_percent: totalSales > 0
+        ? Number(((Number(c.total_sales) / totalSales) * 100).toFixed(1))
+        : 0,
+    }));
 
-      // Category
-      const cat = item.product.category;
-      const catKey = cat?.category_id ?? "__uncat__";
-      if (!catMap.has(catKey)) {
-        catMap.set(catKey, {
-          category_id: cat?.category_id ?? null,
-          category_name: cat?.category_name ?? "Uncategorized",
-          total_sales: 0,
-          total_units: 0,
-        });
-      }
-      const ce = catMap.get(catKey);
-      ce.total_sales += lineTotal;
-      ce.total_units += qty;
-
-      // Product
-      const pid = item.product.product_id;
-      if (!prodMap.has(pid)) {
-        prodMap.set(pid, {
-          product_id: pid,
-          product_name: item.product.product_name,
-          category_name: cat?.category_name ?? "Uncategorized",
-          total_sales: 0,
-          total_units: 0,
-          total_cogs: 0,
-        });
-      }
-      const pe = prodMap.get(pid);
-      pe.total_sales += lineTotal;
-      pe.total_units += qty;
-      pe.total_cogs += cogs;
-
-      // Supplier
-      const sup = item.lot?.supplier;
-      if (sup) {
-        const sk = sup.supplier_id;
-        if (!supplierMap.has(sk)) {
-          supplierMap.set(sk, {
-            supplier_id: sk,
-            supplier_name: sup.supplier_name,
-            total_sales: 0,
-            total_units: 0,
-          });
-        }
-        const se = supplierMap.get(sk);
-        se.total_sales += lineTotal;
-        se.total_units += qty;
-      }
-
-      // Trend
-      const day = item.sales.created_at.toISOString().slice(0, 10);
-      trendMap.set(day, (trendMap.get(day) ?? 0) + lineTotal);
-    }
-
-    // ── 5. Returns aggregation ──────────────────────────────────────
-    let totalReturnedUnits = 0;
-    let totalRefundAmount = 0;
-    let totalReturnedCogs = 0;
-
-    // per-product return maps for deducting from prodMap
-    const prodReturnSales = new Map(); // product_id → refund amount
-    const prodReturnCogs  = new Map(); // product_id → returned cogs
-    const prodReturnUnits = new Map(); // product_id → returned units
-
-    for (const r of returnItems) {
-      const qty = r.qty;
-      const refund = Number(r.amount ?? 0);
-      const cp = Number(r.salesItem?.cp ?? 0);
-      const returnedCogs = cp * qty;
-      const pid = r.salesItem?.product?.product_id;
-
-      totalReturnedUnits += qty;
-      totalRefundAmount  += refund;
-      totalReturnedCogs  += returnedCogs;
-
-      if (pid) {
-        prodReturnSales.set(pid, (prodReturnSales.get(pid) ?? 0) + refund);
-        prodReturnCogs.set(pid,  (prodReturnCogs.get(pid)  ?? 0) + returnedCogs);
-        prodReturnUnits.set(pid, (prodReturnUnits.get(pid) ?? 0) + qty);
-      }
-    }
-
-    const netSales      = totalSales - totalRefundAmount;
-    const netCogs       = totalCogs  - totalReturnedCogs;
-    const grossProfit   = totalSales - totalCogs;
-    const netGrossProfit = netSales  - netCogs;
-
-    // ── 6. Shape output ─────────────────────────────────────────────
-    const categories = [...catMap.values()]
-      .sort((a, b) => b.total_sales - a.total_sales)
-      .map((c) => ({
-        ...c,
-        total_sales: Number(c.total_sales.toFixed(2)),
-        share_percent:
-          totalSales > 0
-            ? Number(((c.total_sales / totalSales) * 100).toFixed(1))
-            : 0,
-      }));
-
-    const top_products = [...prodMap.values()]
-      .sort((a, b) => b.total_sales - a.total_sales)
-      .slice(0, 10)
-      .map((p) => {
-        const netProdSales = p.total_sales - (prodReturnSales.get(p.product_id) ?? 0);
-        const netProdCogs  = p.total_cogs  - (prodReturnCogs.get(p.product_id)  ?? 0);
-        const netProdUnits = p.total_units - (prodReturnUnits.get(p.product_id) ?? 0);
-        const netProdProfit = netProdSales - netProdCogs;
-        return {
-          ...p,
-          total_units: netProdUnits,
-          total_sales: Number(netProdSales.toFixed(2)),
-          total_cogs: Number(netProdCogs.toFixed(2)),
-          gross_profit: Number(netProdProfit.toFixed(2)),
-          margin_percent:
-            netProdSales > 0
-              ? Number(((netProdProfit / netProdSales) * 100).toFixed(1))
-              : 0,
-        };
-      })
-      // Re-sort by net sales after deductions, filter out fully returned products
-      .filter((p) => p.total_units > 0)
-      .sort((a, b) => b.total_sales - a.total_sales);
-
-    const suppliers = [...supplierMap.values()]
-      .sort((a, b) => b.total_sales - a.total_sales)
-      .map((s) => ({
-        ...s,
-        total_sales: Number(s.total_sales.toFixed(2)),
-      }));
-
-    const trend = [...trendMap.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, total]) => ({ date, total: Number(total.toFixed(2)) }));
-
-    const low_stock = lowStockProducts.map((p) => {
-      const totalRemaining = p.stockLots.reduce(
-        (s, l) => s + l.qty_remaining,
-        0
-      );
-      const totalIn = p.stockLots.reduce((s, l) => s + l.qty_in, 0);
+    const top_products = productRows.map((p) => {
+      const ps = Number(p.total_sales);
+      const pc = Number(p.total_cogs);
+      const gp = ps - pc;
       return {
-        product_id: p.product_id,
-        product_name: p.product_name,
-        category_name: p.category?.category_name ?? "Uncategorized",
-        qty_remaining: totalRemaining,
-        qty_in: totalIn,
-        level: totalRemaining <= 5 ? "critical" : "low",
+        product_id:    p.product_id,
+        product_name:  p.product_name,
+        category_name: p.category_name,
+        total_units:   Number(p.total_units),
+        total_sales:   Number(ps.toFixed(2)),
+        total_cogs:    Number(pc.toFixed(2)),
+        gross_profit:  Number(gp.toFixed(2)),
+        margin_percent: ps > 0 ? Number(((gp / ps) * 100).toFixed(1)) : 0,
       };
     });
 
+    const suppliers = supplierRows.map((s) => ({
+      supplier_id:   s.supplier_id,
+      supplier_name: s.supplier_name,
+      total_sales:   Number(Number(s.total_sales).toFixed(2)),
+      total_units:   Number(s.total_units),
+    }));
+
+    const trend = trendRows.map((t) => ({
+      date:  t.date,
+      total: Number(Number(t.total).toFixed(2)),
+    }));
+
+    const low_stock = lowStockRows.map((l) => ({
+      product_id:    l.product_id,
+      product_name:  l.product_name,
+      category_name: l.category_name,
+      qty_remaining: Number(l.qty_remaining),
+      qty_in:        Number(l.qty_in),
+      level:         Number(l.qty_remaining) <= 5 ? "critical" : "low",
+    }));
+
     return {
       summary: {
-        total_item_sales: Number(netSales.toFixed(2)),          // net of returns
-        total_units_sold: totalUnits - totalReturnedUnits,      // net units
-        total_cogs: Number(netCogs.toFixed(2)),                 // net of returned cost
-        gross_profit: Number(netGrossProfit.toFixed(2)),        // net sales - net cogs
-        margin_percent: netSales > 0
+        total_item_sales: Number(netSales.toFixed(2)),
+        total_units_sold: totalUnits - returnedUnits,
+        total_cogs:       Number(netCogs.toFixed(2)),
+        gross_profit:     Number(netGrossProfit.toFixed(2)),
+        margin_percent:   netSales > 0
           ? Number(((netGrossProfit / netSales) * 100).toFixed(1))
           : 0,
       },
       returns: {
-        gross_sales: Number(totalSales.toFixed(2)),
-        returned_units: totalReturnedUnits,
-        refund_amount: Number(totalRefundAmount.toFixed(2)),
-        net_sales: Number(netSales.toFixed(2)),
+        gross_sales:      Number(totalSales.toFixed(2)),
+        returned_units:   returnedUnits,
+        refund_amount:    Number(refundAmount.toFixed(2)),
+        net_sales:        Number(netSales.toFixed(2)),
         net_gross_profit: Number(netGrossProfit.toFixed(2)),
       },
       categories,
