@@ -1,196 +1,237 @@
 // src/services/storeTopSellingService.js
 import { prisma } from "../prisma/client.js";
 
+const fmt = (iso) => {
+  const d = new Date(iso);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
+};
+
+// Simple in-memory cache — 60s TTL
+const cache = new Map();
+const CACHE_TTL_MS = 60_000;
+
+function cacheKey(owner_id, from, to) {
+  return `${owner_id}:${from ?? ""}:${to ?? ""}`;
+}
+
 class StoreTopSellingService {
   async getReport(owner_id, { from, to } = {}) {
-    // ── Date range ─────────────────────────────────────────────────
-    const dateFilter = {};
-    if (from) dateFilter.gte = new Date(from);
-    if (to) {
-      const end = new Date(to);
-      end.setHours(23, 59, 59, 999);
-      dateFilter.lte = end;
+    const key = cacheKey(owner_id, from, to);
+    const cached = cache.get(key);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return cached.data;
+    }
+    const startDate = from ? new Date(from) : null;
+    const endDate   = to   ? (() => { const d = new Date(to); d.setHours(23,59,59,999); return d; })() : null;
+
+    // Previous period for growth comparison
+    let prevStart = null;
+    let prevEnd   = null;
+    if (startDate && endDate) {
+      const rangeMs = endDate.getTime() - startDate.getTime();
+      prevEnd   = new Date(startDate.getTime() - 1);
+      prevStart = new Date(startDate.getTime() - rangeMs);
     }
 
-    const hasDates = Object.keys(dateFilter).length > 0;
+    // ── All queries in parallel ─────────────────────────────────────────────
+    const [topRows, returnRows, stockRows, prevRows, trendRawRows] = await Promise.all([
 
-    const salesWhere = {
-      owner_id,
-      ...(hasDates && { created_at: dateFilter }),
-    };
+      // Top products by net revenue (DB-side aggregation)
+      startDate && endDate
+        ? prisma.$queryRaw`
+            SELECT
+              p.product_id,
+              p.product_name,
+              COALESCE(c.category_name, 'Uncategorized') AS category_name,
+              COALESCE(c.category_id::text, null)        AS category_id,
+              COALESCE(u.unit_name, 'pcs')               AS unit_name,
+              COALESCE(p.cp, 0)::numeric                 AS cp,
+              COALESCE(p.sp, 0)::numeric                 AS sp,
+              SUM(ssi.qty)::int                          AS qty_sold,
+              SUM(ssi.line_total)::numeric               AS revenue
+            FROM store_sales_items ssi
+            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+            JOIN store_products p ON p.product_id = ssi.product_id
+            LEFT JOIN store_categories c ON c.category_id = p.category_id
+            LEFT JOIN store_units u ON u.unit_id = p.unit_id
+            WHERE ss.owner_id = ${owner_id}
+              AND p.type = 'item'
+              AND ss.created_at >= ${startDate}
+              AND ss.created_at <= ${endDate}
+            GROUP BY p.product_id, p.product_name, c.category_name, c.category_id, u.unit_name, p.cp, p.sp
+            ORDER BY revenue DESC
+            LIMIT 10
+          `
+        : prisma.$queryRaw`
+            SELECT
+              p.product_id,
+              p.product_name,
+              COALESCE(c.category_name, 'Uncategorized') AS category_name,
+              COALESCE(c.category_id::text, null)        AS category_id,
+              COALESCE(u.unit_name, 'pcs')               AS unit_name,
+              COALESCE(p.cp, 0)::numeric                 AS cp,
+              COALESCE(p.sp, 0)::numeric                 AS sp,
+              SUM(ssi.qty)::int                          AS qty_sold,
+              SUM(ssi.line_total)::numeric               AS revenue
+            FROM store_sales_items ssi
+            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+            JOIN store_products p ON p.product_id = ssi.product_id
+            LEFT JOIN store_categories c ON c.category_id = p.category_id
+            LEFT JOIN store_units u ON u.unit_id = p.unit_id
+            WHERE ss.owner_id = ${owner_id}
+              AND p.type = 'item'
+            GROUP BY p.product_id, p.product_name, c.category_name, c.category_id, u.unit_name, p.cp, p.sp
+            ORDER BY revenue DESC
+            LIMIT 10
+          `,
 
-    // ── Previous period for growth comparison ──────────────────────
-    let prevDateFilter = {};
-    if (from && to) {
-      const startMs = new Date(from).getTime();
-      const endMs   = new Date(to);
-      endMs.setHours(23, 59, 59, 999);
-      const rangMs = endMs.getTime() - startMs;
-      prevDateFilter = {
-        gte: new Date(startMs - rangMs),
-        lte: new Date(startMs - 1),
-      };
-    }
+      // Returns for those products in the same period
+      startDate && endDate
+        ? prisma.$queryRaw`
+            SELECT
+              ssi.product_id,
+              SUM(scri.qty)::int           AS refunded_qty,
+              SUM(scri.amount)::numeric    AS refund_amount
+            FROM store_customer_return_items scri
+            JOIN store_customer_returns scr ON scr.return_id = scri.return_id
+            JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+            JOIN store_products p ON p.product_id = ssi.product_id
+            WHERE scr.owner_id = ${owner_id}
+              AND p.type = 'item'
+              AND scr.created_at >= ${startDate}
+              AND scr.created_at <= ${endDate}
+            GROUP BY ssi.product_id
+          `
+        : prisma.$queryRaw`
+            SELECT
+              ssi.product_id,
+              SUM(scri.qty)::int           AS refunded_qty,
+              SUM(scri.amount)::numeric    AS refund_amount
+            FROM store_customer_return_items scri
+            JOIN store_customer_returns scr ON scr.return_id = scri.return_id
+            JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+            JOIN store_products p ON p.product_id = ssi.product_id
+            WHERE scr.owner_id = ${owner_id}
+              AND p.type = 'item'
+            GROUP BY ssi.product_id
+          `,
 
-    // ── 1. Sales items (item-type only) ────────────────────────────
-    const salesItems = await prisma.storeSalesItem.findMany({
-      where: {
-        owner_id,
-        sales: salesWhere,
-        product: { type: "item" },
-      },
-      select: {
-        qty: true,
-        cp: true,
-        sp: true,
-        line_total: true,
-        product_id: true,
-        sales: { select: { created_at: true } },
-        product: {
-          select: {
-            product_name: true,
-            cp: true,
-            sp: true,
-            category: { select: { category_id: true, category_name: true } },
-            unit: { select: { unit_name: true } },
-          },
-        },
-      },
-    });
+      // Current stock per product
+      prisma.$queryRaw`
+        SELECT product_id, COALESCE(SUM(qty_remaining), 0)::int AS stock
+        FROM store_stock_lots
+        WHERE owner_id = ${owner_id}
+        GROUP BY product_id
+      `,
 
-    // ── 2. Returns (item-type, filtered to same date range) ──────────
-    const returnWhere = {
-      owner_id,
-      salesItem: { product: { type: "item" } },
-      ...(hasDates && { return: { created_at: dateFilter } }),
-    };
+      // Previous period totals (for growth)
+      prevStart && prevEnd
+        ? prisma.$queryRaw`
+            SELECT
+              COALESCE(SUM(ssi.line_total), 0)::numeric AS prev_revenue,
+              COALESCE(SUM(ssi.qty), 0)::int            AS prev_qty
+            FROM store_sales_items ssi
+            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+            JOIN store_products p ON p.product_id = ssi.product_id
+            WHERE ss.owner_id = ${owner_id}
+              AND p.type = 'item'
+              AND ss.created_at >= ${prevStart}
+              AND ss.created_at <= ${prevEnd}
+          `
+        : Promise.resolve([{ prev_revenue: 0, prev_qty: 0 }]),
 
-    const returnItems = await prisma.storeCustomerReturnItem.findMany({
-      where: returnWhere,
-      select: {
-        qty: true,
-        amount: true,
-        salesItem: {
-          select: {
-            product_id: true,
-            cp: true,
-          },
-        },
-      },
-    });
+      // Daily trend for top-5 products (by product_id via subquery)
+      startDate && endDate
+        ? prisma.$queryRaw`
+            SELECT
+              DATE(ss.created_at)::text AS day,
+              p.product_id,
+              p.product_name,
+              SUM(ssi.qty)::int AS qty
+            FROM store_sales_items ssi
+            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+            JOIN store_products p ON p.product_id = ssi.product_id
+            WHERE ss.owner_id = ${owner_id}
+              AND p.type = 'item'
+              AND ss.created_at >= ${startDate}
+              AND ss.created_at <= ${endDate}
+              AND ssi.product_id IN (
+                SELECT ssi2.product_id
+                FROM store_sales_items ssi2
+                JOIN store_sales ss2 ON ss2.sales_id = ssi2.sales_id
+                JOIN store_products p2 ON p2.product_id = ssi2.product_id
+                WHERE ss2.owner_id = ${owner_id}
+                  AND p2.type = 'item'
+                  AND ss2.created_at >= ${startDate}
+                  AND ss2.created_at <= ${endDate}
+                GROUP BY ssi2.product_id
+                ORDER BY SUM(ssi2.line_total) DESC
+                LIMIT 5
+              )
+            GROUP BY DATE(ss.created_at), p.product_id, p.product_name
+            ORDER BY day ASC
+          `
+        : Promise.resolve([]),
+    ]);
 
-    // ── 3. Previous period revenue (for growth %) ──────────────────
-    let prevRevenue = 0;
-    let prevQty = 0;
-    if (Object.keys(prevDateFilter).length) {
-      const prevItems = await prisma.storeSalesItem.findMany({
-        where: {
-          owner_id,
-          sales: {
-            owner_id,
-            created_at: prevDateFilter,
-          },
-          product: { type: "item" },
-        },
-        select: { qty: true, line_total: true },
-      });
-      prevRevenue = prevItems.reduce((s, i) => s + Number(i.line_total), 0);
-      prevQty     = prevItems.reduce((s, i) => s + i.qty, 0);
-    }
+    // ── Build lookup maps ───────────────────────────────────────────────────
+    const returnMap = new Map(returnRows.map((r) => [r.product_id, r]));
+    const stockMap  = new Map(stockRows.map((s) => [s.product_id, Number(s.stock)]));
 
-    // ── 4. Current stock per product ──────────────────────────────
-    const stockGroups = await prisma.storeStockLot.groupBy({
-      by: ["product_id"],
-      where: { owner_id },
-      _sum: { qty_remaining: true },
-    });
-    const stockMap = new Map(
-      stockGroups.map((g) => [g.product_id, g._sum.qty_remaining ?? 0])
-    );
+    const prevRevenue = Number(prevRows[0]?.prev_revenue || 0);
+    const prevQty     = Number(prevRows[0]?.prev_qty     || 0);
 
-    // ── 5. Aggregate per product ───────────────────────────────────
-    const prodMap = new Map(); // product_id → aggregated data
+    // ── Shape top products ──────────────────────────────────────────────────
+    const products = topRows
+      .map((p) => {
+        const ret          = returnMap.get(p.product_id);
+        const refundedQty  = Number(ret?.refunded_qty  || 0);
+        const refundAmt    = Number(ret?.refund_amount  || 0);
+        const grossRev     = Number(p.revenue);
+        const netRev       = grossRev - refundAmt;
+        const netQty       = Number(p.qty_sold) - refundedQty;
+        const cp           = Number(p.cp);
+        const sp           = Number(p.sp);
+        const margin       = sp > 0 ? ((sp - cp) / sp) * 100 : 0;
 
-    for (const item of salesItems) {
-      const pid  = item.product_id;
-      const qty  = item.qty;
-      const lt   = Number(item.line_total);
-      const cp   = Number(item.cp ?? item.product?.cp ?? 0);
-      const sp   = Number(item.sp ?? item.product?.sp ?? 0);
-
-      if (!prodMap.has(pid)) {
-        prodMap.set(pid, {
-          product_id:   pid,
-          product_name: item.product.product_name,
-          category:     item.product.category?.category_name ?? "Uncategorized",
-          category_id:  item.product.category?.category_id ?? null,
-          unit:         item.product.unit?.unit_name ?? "pcs",
+        return {
+          product_id:       p.product_id,
+          product_name:     p.product_name,
+          category:         p.category_name,
+          category_id:      p.category_id,
+          unit:             p.unit_name,
           cp,
           sp,
-          qty_sold:       0,
-          revenue:        0,
-          refunded_qty:   0,
-          refund_amount:  0,
-        });
-      }
-
-      const pe = prodMap.get(pid);
-      pe.qty_sold += qty;
-      pe.revenue  += lt;
-    }
-
-    // ── 6. Deduct returns per product ──────────────────────────────
-    for (const r of returnItems) {
-      const pid = r.salesItem?.product_id;
-      if (!pid) continue;
-      if (!prodMap.has(pid)) continue;
-      const pe = prodMap.get(pid);
-      pe.refunded_qty  += Number(r.qty ?? 0);
-      pe.refund_amount += Number(r.amount ?? 0);
-    }
-
-    // ── 7. Sort by net revenue (descending), keep top 10 ──────────
-    const allProducts = [...prodMap.values()]
-      .map((p) => {
-        const netRev  = p.revenue - p.refund_amount;
-        const netQty  = p.qty_sold - p.refunded_qty;
-        const margin  = p.sp > 0 ? ((p.sp - p.cp) / p.sp) * 100 : 0;
-        return {
-          ...p,
-          revenue:        Number(netRev.toFixed(2)),
-          qty_sold:       netQty,
-          stock_remaining: stockMap.get(p.product_id) ?? 0,
-          margin_percent:  Number(margin.toFixed(1)),
+          qty_sold:         netQty,
+          revenue:          Number(netRev.toFixed(2)),
+          refunded_qty:     refundedQty,
+          refund_amount:    Number(refundAmt.toFixed(2)),
+          stock_remaining:  stockMap.get(p.product_id) ?? 0,
+          margin_percent:   Number(margin.toFixed(1)),
         };
       })
       .filter((p) => p.qty_sold > 0)
       .sort((a, b) => b.revenue - a.revenue);
 
-    const top10 = allProducts.slice(0, 10);
-
-    // ── 8. Summary KPIs ────────────────────────────────────────────
-    const totalRevenue = top10.reduce((s, p) => s + p.revenue, 0);
-    const totalQty     = top10.reduce((s, p) => s + p.qty_sold, 0);
-
-    // Weighted average margin across top-10
-    const avgMargin = totalRevenue > 0
-      ? top10.reduce((s, p) => s + p.margin_percent * p.revenue, 0) / totalRevenue
+    // ── Summary KPIs ────────────────────────────────────────────────────────
+    const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
+    const totalQty     = products.reduce((s, p) => s + p.qty_sold, 0);
+    const avgMargin    = totalRevenue > 0
+      ? products.reduce((s, p) => s + p.margin_percent * p.revenue, 0) / totalRevenue
       : 0;
-
-    const bestSeller = top10[0] ?? null;
-
-    const growthPct = prevRevenue > 0
+    const bestSeller   = products[0] ?? null;
+    const growthPct    = prevRevenue > 0
       ? Number((((totalRevenue - prevRevenue) / prevRevenue) * 100).toFixed(1))
       : 0;
-    const qtyGrowth = prevQty > 0
+    const qtyGrowth    = prevQty > 0
       ? Number((((totalQty - prevQty) / prevQty) * 100).toFixed(1))
       : 0;
 
-    // ── 9. Category breakdown ──────────────────────────────────────
+    // ── Category breakdown ───────────────────────────────────────────────────
     const catMap = new Map();
-    for (const p of top10) {
-      const key = p.category;
-      catMap.set(key, (catMap.get(key) ?? 0) + p.revenue);
+    for (const p of products) {
+      catMap.set(p.category, (catMap.get(p.category) ?? 0) + p.revenue);
     }
     const catTotal = [...catMap.values()].reduce((s, v) => s + v, 0);
     const categories = [...catMap.entries()]
@@ -201,55 +242,46 @@ class StoreTopSellingService {
         pct:   catTotal > 0 ? Number(((total / catTotal) * 100).toFixed(1)) : 0,
       }));
 
-    // ── 10. Daily trend for top-5 products ────────────────────────
-    // Format: [{ d: '10 Jun', ProductA: qty, ProductB: qty, ... }]
-    const top5Names = top10.slice(0, 5).map((p) => p.product_name);
-    const top5Ids   = top10.slice(0, 5).map((p) => p.product_id);
-
-    const trendMap = new Map(); // 'YYYY-MM-DD' → { productName → qty }
-
-    for (const item of salesItems) {
-      if (!top5Ids.includes(item.product_id)) continue;
-      const day     = item.sales.created_at.toISOString().slice(0, 10);
-      const pName   = item.product.product_name;
-      if (!trendMap.has(day)) {
-        trendMap.set(day, {});
-      }
-      const entry = trendMap.get(day);
-      entry[pName] = (entry[pName] ?? 0) + item.qty;
+    // ── Daily trend ──────────────────────────────────────────────────────────
+    const top5Names = products.slice(0, 5).map((p) => p.product_name);
+    const trendMap  = new Map();
+    for (const row of trendRawRows) {
+      const day = row.day;
+      if (!trendMap.has(day)) trendMap.set(day, {});
+      trendMap.get(day)[row.product_name] = Number(row.qty);
     }
-
-    // Format day label as 'DD Mon'
-    const fmt = (iso) => {
-      const d = new Date(iso);
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
-    };
-
     const trend = [...trendMap.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([iso, vals]) => {
-        const row = { d: fmt(iso) };
-        for (const name of top5Names) {
-          row[name] = vals[name] ?? 0;
-        }
-        return row;
+        const entry = { d: fmt(iso) };
+        for (const name of top5Names) entry[name] = vals[name] ?? 0;
+        return entry;
       });
 
-    return {
+    const result = {
       summary: {
-        total_revenue:    Number(totalRevenue.toFixed(2)),
-        total_qty_sold:   totalQty,
-        avg_margin:       Number(avgMargin.toFixed(1)),
-        best_seller:      bestSeller?.product_name ?? null,
-        best_seller_qty:  bestSeller?.qty_sold ?? 0,
-        growth_percent:   growthPct,
-        qty_growth:       qtyGrowth,
+        total_revenue:   Number(totalRevenue.toFixed(2)),
+        total_qty_sold:  totalQty,
+        avg_margin:      Number(avgMargin.toFixed(1)),
+        best_seller:     bestSeller?.product_name ?? null,
+        best_seller_qty: bestSeller?.qty_sold ?? 0,
+        growth_percent:  growthPct,
+        qty_growth:      qtyGrowth,
       },
-      products: top10,
+      products,
       trend,
       categories,
     };
+
+    cache.set(key, { ts: Date.now(), data: result });
+    return result;
+  }
+
+  // Call this after a sale or return is created to invalidate cached reports
+  invalidate(owner_id) {
+    for (const k of cache.keys()) {
+      if (k.startsWith(`${owner_id}:`)) cache.delete(k);
+    }
   }
 }
 

@@ -19,7 +19,7 @@ const router = Router();
 
 // Registration with OTP (Step 1: Submit form, Step 2: Verify OTP & Create account)
 router.post("/register", register);
-router.post("/register/send-otp", sendRegistrationOtp);
+router.post("/register/", sendRegistrationOtp);
 router.post("/register/verify-otp", verifyRegistrationOtp);
 
 router.post("/login", login);
