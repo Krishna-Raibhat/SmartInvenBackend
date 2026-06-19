@@ -20,7 +20,6 @@ const storeSalesController = {
   async list(req, res) {
     try {
       const owner_id = req.owner.owner_id;
-      // Fix #4: read pagination params from query
       const page = Math.max(1, parseInt(req.query.page) || 1);
       const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
       const result = await storeSalesService.list(owner_id, { page, limit });
@@ -30,7 +29,7 @@ const storeSalesController = {
       return fail(res, 500, "SERVER_ERROR", "Failed to fetch sales.");
     }
   },
-
+  
   async getById(req, res) {
     try {
       const owner_id = req.owner.owner_id;

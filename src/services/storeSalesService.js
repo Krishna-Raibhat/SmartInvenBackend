@@ -378,6 +378,65 @@ class StoreSalesService {
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
+  
+  async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
+    const page_num = Number(page);
+    const limit_num = Number(limit);
+    const skip = (page_num - 1) * limit_num;
+
+    const rows = await prisma.$queryRaw`
+      WITH refunds AS (
+        SELECT sales_id, COALESCE(SUM(refund_amount), 0)::numeric AS total_refunded
+        FROM store_customer_returns
+        GROUP BY sales_id
+      ),
+      computed AS (
+        SELECT
+          ss.sales_id, ss.payment_status, ss.payment_method,
+          ss.total_amount, ss.discount, ss.paid_amount AS paid_raw,
+          ss.created_at, ss.customer_id, c.full_name, c.phone,
+          COALESCE(r.total_refunded, 0)::numeric AS total_refunded,
+          GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total
+        FROM store_sales ss
+        LEFT JOIN refunds r ON r.sales_id = ss.sales_id
+        LEFT JOIN customers c ON c.customer_id = ss.customer_id
+        WHERE ss.owner_id = ${owner_id}
+      ),
+      final AS (
+        SELECT
+          sales_id, payment_status, payment_method, total_amount, discount,
+          created_at, customer_id, full_name, phone, total_refunded,
+          GREATEST(0, effective_total - paid_raw - total_refunded)::numeric AS due_amount,
+          GREATEST(0, paid_raw - GREATEST(0, total_refunded - GREATEST(0, effective_total - paid_raw)))::numeric AS net_paid
+        FROM computed
+      )
+      SELECT *, COUNT(*) OVER()::int AS full_count
+      FROM final
+      WHERE due_amount > 0
+      ORDER BY created_at DESC
+      LIMIT ${limit_num}
+      OFFSET ${skip};
+    `;
+
+    const total = rows[0]?.full_count ?? 0;
+
+    const data = rows.map((row) => ({
+      sales_id:       row.sales_id,
+      payment_status: row.payment_status,
+      payment_method: row.payment_method,
+      total_amount:   Number(row.total_amount),
+      discount:       Number(row.discount),
+      created_at:     row.created_at,
+      customer: row.customer_id
+        ? { customer_id: row.customer_id, full_name: row.full_name, phone: row.phone }
+        : null,
+      paid_amount:    Number(row.net_paid),
+      due_amount:     Number(row.due_amount),
+      total_refunded: Number(row.total_refunded),
+    }));
+
+    return { data, total, page: page_num, limit: limit_num, totalPages: Math.ceil(total / limit_num) };
+  }
 
   async getById(owner_id, sales_id) {
     const sale = await prisma.storeSales.findFirst({
@@ -447,110 +506,7 @@ class StoreSalesService {
     return sale;
   }
 
-  // async addPayment(owner_id, sales_id, add_amount, payment_method) {
-  //   const validMethods = ["cash", "online"];
-  //   if (payment_method && !validMethods.includes(payment_method)) {
-  //     const e = new Error("payment_method must be cash or online");
-  //     e.status = 400;
-  //     e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
-  //     throw e;
-  //   }
-
-  //   const add = new Decimal(Number(add_amount));
-  //   if (add.lte(0)) {
-  //     const e = new Error("amount must be a positive number");
-  //     e.status = 400;
-  //     e.code = "VALIDATION_AMOUNT_INVALID";
-  //     throw e;
-  //   }
-
-  //   return prisma.$transaction(async (tx) => {
-  //     const sale = await tx.storeSales.findFirst({
-  //       where: { owner_id, sales_id },
-  //       select: {
-  //         sales_id: true,
-  //         total_amount: true,
-  //         discount: true,
-  //         paid_amount: true,
-  //       },
-  //     });
-
-  //     if (!sale) {
-  //       const e = new Error("Sale not found");
-  //       e.status = 404;
-  //       e.code = "SALE_NOT_FOUND";
-  //       throw e;
-  //     }
-
-  //     const effectiveTotal = new Decimal(sale.total_amount).sub(
-  //       new Decimal(sale.discount ?? 0),
-  //     );
-  //     const currentPaid = new Decimal(sale.paid_amount);
-  //     const remaining = effectiveTotal.sub(currentPaid);
-
-  //     if (add.gt(remaining)) {
-  //       const e = new Error(
-  //         `Payment exceeds remaining amount. Remaining: ${remaining.toFixed(2)}`,
-  //       );
-  //       e.status = 400;
-  //       e.code = "PAYMENT_EXCEEDS_TOTAL";
-  //       throw e;
-  //     }
-
-  //     const finalPaid = currentPaid.add(add);
-  //     const finalDue = Decimal.max(
-  //       new Decimal(0),
-  //       effectiveTotal.sub(finalPaid),
-  //     );
-  //     const status =
-  //       finalPaid.gte(effectiveTotal) && effectiveTotal.gt(0)
-  //         ? "paid"
-  //         : finalPaid.gt(0)
-  //           ? "partial"
-  //           : "pending";
-
-  //     const updateData = {
-  //       paid_amount: finalPaid,
-  //       due_amount: finalDue,
-  //       payment_status: status,
-  //     };
-  //     if (payment_method) updateData.payment_method = payment_method;
-
-  //     return tx.storeSales.update({
-  //       where: { sales_id },
-  //       data: updateData,
-  //     });
-  //   });
-  // }
-
-  // async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
-  //   const skip = (page - 1) * limit;
-
-  //   const [data, total] = await Promise.all([
-  //     prisma.storeSales.findMany({
-  //       where: { owner_id, due_amount: { gt: 0 } },
-  //       orderBy: { created_at: "desc" },
-  //       skip,
-  //       take: limit,
-  //       select: {
-  //         sales_id: true,
-  //         payment_status: true,
-  //         payment_method: true,
-  //         total_amount: true,
-  //         discount: true,
-  //         paid_amount: true,
-  //         due_amount: true,
-  //         created_at: true,
-  //         customer: {
-  //           select: { customer_id: true, full_name: true, phone: true },
-  //         },
-  //       },
-  //     }),
-  //     prisma.storeSales.count({ where: { owner_id, due_amount: { gt: 0 } } }),
-  //   ]);
-
-  //   return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
-  // }
+ 
   async addPayment(owner_id, sales_id, add_amount, payment_method) {
     const validMethods = ["cash", "online"];
     if (payment_method && !validMethods.includes(payment_method)) {
@@ -634,69 +590,7 @@ class StoreSalesService {
     });
   }
 
-  async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
-    // Fetch all sales with their returns — can't filter by due_amount in DB
-    // because returns aren't reflected in that field
-    const sales = await prisma.storeSales.findMany({
-      where: { owner_id },
-      orderBy: { created_at: "desc" },
-      select: {
-        sales_id: true,
-        payment_status: true,
-        payment_method: true,
-        total_amount: true,
-        discount: true,
-        paid_amount: true,
-        created_at: true,
-        customer: {
-          select: { customer_id: true, full_name: true, phone: true },
-        },
-        customerReturns: {
-          select: { refund_amount: true },
-        },
-      },
-    });
-
-    // Calculate actual due on-the-fly (same as clothing)
-    const mapped = sales
-      .map((sale) => {
-        const effectiveTotal =
-          Number(sale.total_amount) - Number(sale.discount || 0);
-        const paidRaw = Number(sale.paid_amount);
-        const totalRefunded = sale.customerReturns.reduce(
-          (sum, r) => sum + Number(r.refund_amount || 0),
-          0
-        );
-
-        const dueBeforeRefund = Math.max(0, effectiveTotal - paidRaw);
-        const excessRefund = Math.max(0, totalRefunded - dueBeforeRefund);
-        const netPaid = Math.max(0, paidRaw - excessRefund);
-        const due = Math.max(0, effectiveTotal - paidRaw - totalRefunded);
-
-        const { customerReturns, ...rest } = sale;
-        return {
-          ...rest,
-          paid_amount: netPaid,
-          due_amount: due,
-          total_refunded: totalRefunded,
-        };
-      })
-      .filter((s) => s.due_amount > 0);
-
-    // Paginate in JS since we filtered after DB fetch
-    const total = mapped.length;
-    const page_num = Number(page);
-    const limit_num = Number(limit);
-    const data = mapped.slice((page_num - 1) * limit_num, page_num * limit_num);
-
-    return {
-      data,
-      total,
-      page: page_num,
-      limit: limit_num,
-      totalPages: Math.ceil(total / limit_num),
-    };
-  }
+  
 }
 
 export default new StoreSalesService();

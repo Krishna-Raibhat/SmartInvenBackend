@@ -61,6 +61,42 @@ class StoreProductService {
     }
   }
 
+  // async list(owner_id) {
+  //   const products = await prisma.storeProduct.findMany({
+  //     where: { owner_id },
+  //     orderBy: { created_at: "desc" },
+  //     include: {
+  //       category: true,
+  //       unit: true,
+  //       stockLots: {
+  //         select: {
+  //           qty_remaining: true,
+  //         },
+  //       },
+  //     },
+  //   });
+
+  //   return products.map((p) => {
+  //     const stock = p.stockLots.reduce(
+  //       (sum, lot) => sum + Number(lot.qty_remaining),
+  //       0,
+  //     );
+
+  //     let stock_status = "in_stock";
+
+  //     if (stock <= 0) {
+  //       stock_status = "out_of_stock";
+  //     } else if (stock <= 10) {
+  //       stock_status = "low_stock";
+  //     }
+
+  //     return {
+  //       ...p,
+  //       stock,
+  //       stock_status,
+  //     };
+  //   });
+  // }
   async list(owner_id) {
     const products = await prisma.storeProduct.findMany({
       where: { owner_id },
@@ -69,6 +105,7 @@ class StoreProductService {
         category: true,
         unit: true,
         stockLots: {
+          where: { qty_remaining: { gt: 0 } },
           select: {
             qty_remaining: true,
           },
