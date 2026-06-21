@@ -83,6 +83,7 @@ import storeExpenseRoutes from "./routes/storeExpenseRoutes.js";
 import storeSalesReportRoutes from "./routes/storeSalesReportRoutes.js"
 import storeSalesItemReportRoutes from "./routes/storeSalesItemReportRoutes.js";
 import storeReportRoute from "./routes/storeReportRoutes.js";
+import storeBatchSyncRoutes from "./routes/storeBatchSyncRoutes.js";
 const app = express();
 
 // Middlewares
@@ -189,6 +190,7 @@ app.use("/api/store/expense", storeExpenseRoutes);
 app.use("/api/store/service-reports", storeSalesReportRoutes);
 app.use("/api/store/item-reports", storeSalesItemReportRoutes);
 app.use("/api/store/reports", storeReportRoute);
+app.use("/api/store/sync", storeBatchSyncRoutes);
 /* ==========================
    SERVER START
 ========================== */
