@@ -7,6 +7,7 @@ import auth from "../middlewares/authMiddleware.js";
 const router = express.Router();
 
 router.get("/summary", auth, storeReportController.getSummary);
+router.get("/sales-by-service", auth, storeReportController.salesByService);
 router.get("/top-selling", auth, storeTopSellingController.getReport);
 router.get("/purchase-summary", auth, storePurchaseSummaryController.getReport);
 

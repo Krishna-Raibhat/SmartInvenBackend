@@ -1,5 +1,6 @@
 // src/controllers/storeReportController.js
 import storeDashboardReportService from "../services/storeReportService.js";
+import storeSalesByServiceReportService from "../services/storeSalesByServiceReportService.js";
 
 const fail = (res, status, code, message) =>
   res.status(status).json({ success: false, error_code: code, message });
@@ -13,6 +14,18 @@ const storeDashboardReportController = {
     } catch (err) {
       console.error("Error fetching dashboard summary:", err);
       return fail(res, 500, "SERVER_ERROR", "Failed to fetch dashboard summary.");
+    }
+  },
+
+  async salesByService(req, res) {
+    try {
+      const owner_id = req.owner.owner_id;
+      const { from, to } = req.query;
+      const data = await storeSalesByServiceReportService.salesByService(owner_id, { from, to });
+      return res.json({ success: true, data });
+    } catch (err) {
+      console.error("Error fetching sales by service report:", err);
+      return fail(res, 500, "SERVER_ERROR", "Failed to fetch sales by service report.");
     }
   },
 };
