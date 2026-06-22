@@ -967,6 +967,7 @@ model StoreSales {
   customer        Customer?               @relation(fields: [customer_id], references: [customer_id])
   owner           Owner                   @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
   items           StoreSalesItem[]
+  
 
   @@index([owner_id, created_at])
   @@index([customer_id])

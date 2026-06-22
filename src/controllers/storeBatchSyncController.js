@@ -157,3 +157,96 @@ export const getMasterData = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
+
+
+// GET /api/store/sync/stock-lots/product/:product_id
+export const getStockLotsByProduct = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { product_id } = req.params;
+
+    if (!product_id) {
+      return fail(res, 400, "VALIDATION_NO_DATA", "product_id is required");
+    }
+
+    const lots = await storeStockLotService.getByProduct(owner_id, product_id);
+
+    return res.json({ success: true, data: lots });
+  } catch (err) {
+    console.error("Error fetching stock lots by product:", err);
+    if (err.code === "PRODUCT_NOT_FOUND") return fail(res, 404, err.code, err.message);
+    if (err.code === "VALIDATION_ERROR") return fail(res, 400, err.code, err.message);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
+// GET /api/store/sync/stock-lots/supplier/:supplier_id
+export const getStockLotsBySupplier = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { supplier_id } = req.params;
+
+    if (!supplier_id) {
+      return fail(res, 400, "VALIDATION_NO_DATA", "supplier_id is required");
+    }
+
+    const lots = await storeSupplierService.getLots(owner_id, supplier_id);
+
+    return res.json({ success: true, data: lots });
+  } catch (err) {
+    console.error("Error fetching stock lots by supplier:", err);
+    if (err.code === "NOT_FOUND") return fail(res, 404, err.code, err.message);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
+// GET /api/store/sync/sales
+export const getSalesList = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { page, limit } = req.query;
+
+    const result = await storeSalesService.list(owner_id, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    console.error("Error fetching sales list:", err);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
+// GET /api/store/sync/sales/:sales_id
+export const getSaleById = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { sales_id } = req.params;
+
+    if (!sales_id) {
+      return fail(res, 400, "VALIDATION_NO_DATA", "sales_id is required");
+    }
+
+    const sale = await storeSalesService.getById(owner_id, sales_id);
+
+    return res.json({ success: true, data: sale });
+  } catch (err) {
+    console.error("Error fetching sale by id:", err);
+    if (err.code === "SALE_NOT_FOUND") return fail(res, 404, err.code, err.message);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
+// GET /api/store/sync/customer-returns
+export const getCustomerReturnsList = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const returns = await storeCustomerReturnService.list(owner_id);
+
+    return res.json({ success: true, data: returns });
+  } catch (err) {
+    console.error("Error fetching customer returns list:", err);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
