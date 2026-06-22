@@ -10,7 +10,7 @@ import auth from "../middlewares/authMiddleware.js";
 const router = express.Router();
 
 router.get("/master-data", auth, getMasterData);
-router.get("/master-data", auth, getMasterData);
+
 router.get("/stock-lots/product/:product_id", auth, getStockLotsByProduct);
 router.get("/stock-lots/supplier/:supplier_id", auth, getStockLotsBySupplier);
 router.get("/sales", auth, getSalesList);
