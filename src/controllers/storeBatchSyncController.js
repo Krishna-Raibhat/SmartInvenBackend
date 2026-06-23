@@ -250,3 +250,20 @@ export const getCustomerReturnsList = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
+
+export const getCreditList = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { page, limit } = req.query;
+
+    const result = await storeSalesService.listCredit(owner_id, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    console.error("Error fetching credit list:", err);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
