@@ -53,33 +53,50 @@ class StoreReportService {
   async _getPeriodStats(owner_id, startDate, endDate) {
     const hasDate = !!startDate;
 
-    // Single consolidated query per period — matches storeDashboardService pattern exactly
-    const [profitRows, refundRows] = await Promise.all([
+    // Single consolidated query per period — matches clothing logic exactly
+    const [profitRows, refundRows, expenseRows] = await Promise.all([
       hasDate
         ? prisma.$queryRaw`
-            WITH sold AS (
+            WITH sales_in_period AS (
+              SELECT sales_id
+              FROM store_sales
+              WHERE owner_id = ${owner_id}
+                AND created_at >= ${startDate}
+                AND created_at <= ${endDate}
+            ),
+            sold AS (
               SELECT
                 ss.sales_id,
                 GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
                 COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0)         AS sold_cost
               FROM store_sales_items ssi
+              JOIN sales_in_period sip ON sip.sales_id = ssi.sales_id
               JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-              WHERE ss.owner_id = ${owner_id}
-                AND ss.created_at >= ${startDate}
-                AND ss.created_at <= ${endDate}
               GROUP BY ss.sales_id, ss.total_amount, ss.discount
             ),
             returns AS (
               SELECT
-                scr.sales_id,
-                COALESCE(SUM(scr.refund_amount), 0)                AS total_refund,
-                COALESCE(SUM(COALESCE(ssi.cp, 0) * scri.qty), 0)  AS returned_cost
-              FROM store_customer_returns scr
-              INNER JOIN sold s ON s.sales_id = scr.sales_id
-              LEFT JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
-              LEFT JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-              WHERE scr.owner_id = ${owner_id}
-              GROUP BY scr.sales_id
+                r_refund.sales_id,
+                COALESCE(r_refund.total_refund, 0) AS total_refund,
+                COALESCE(r_cost.returned_cost, 0) AS returned_cost
+              FROM (
+                SELECT sales_id, SUM(refund_amount) AS total_refund
+                FROM store_customer_returns
+                WHERE owner_id = ${owner_id}
+                  AND created_at >= ${startDate}
+                  AND created_at <= ${endDate}
+                GROUP BY sales_id
+              ) r_refund
+              LEFT JOIN (
+                SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+                FROM store_customer_returns scr
+                JOIN store_customer_return_items scri ON scri.return_id = scri.return_id
+                JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+                WHERE scr.owner_id = ${owner_id}
+                  AND scr.created_at >= ${startDate}
+                  AND scr.created_at <= ${endDate}
+                GROUP BY scr.sales_id
+              ) r_cost ON r_cost.sales_id = r_refund.sales_id
             )
             SELECT
               COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund),  0) AS actual_revenue,
@@ -101,15 +118,23 @@ class StoreReportService {
             ),
             returns AS (
               SELECT
-                scr.sales_id,
-                COALESCE(SUM(scr.refund_amount), 0)                AS total_refund,
-                COALESCE(SUM(COALESCE(ssi.cp, 0) * scri.qty), 0)  AS returned_cost
-              FROM store_customer_returns scr
-              INNER JOIN sold s ON s.sales_id = scr.sales_id
-              LEFT JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
-              LEFT JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-              WHERE scr.owner_id = ${owner_id}
-              GROUP BY scr.sales_id
+                r_refund.sales_id,
+                COALESCE(r_refund.total_refund, 0) AS total_refund,
+                COALESCE(r_cost.returned_cost, 0) AS returned_cost
+              FROM (
+                SELECT sales_id, SUM(refund_amount) AS total_refund
+                FROM store_customer_returns
+                WHERE owner_id = ${owner_id}
+                GROUP BY sales_id
+              ) r_refund
+              LEFT JOIN (
+                SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+                FROM store_customer_returns scr
+                JOIN store_customer_return_items scri ON scri.return_id = scri.return_id
+                JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+                WHERE scr.owner_id = ${owner_id}
+                GROUP BY scr.sales_id
+              ) r_cost ON r_cost.sales_id = r_refund.sales_id
             )
             SELECT
               COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund),  0) AS actual_revenue,
@@ -139,15 +164,32 @@ class StoreReportService {
             FROM store_sales
             WHERE owner_id = ${owner_id}
           `,
+      
+      // Get expenses for the period
+      hasDate
+        ? prisma.$queryRaw`
+            SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
+            FROM store_expenses
+            WHERE owner_id = ${owner_id}
+              AND created_at >= ${startDate}
+              AND created_at <= ${endDate}
+          `
+        : prisma.$queryRaw`
+            SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
+            FROM store_expenses
+            WHERE owner_id = ${owner_id}
+          `,
     ]);
 
     const pr = profitRows[0] || {};
     const sr = refundRows[0] || {};
+    const er = expenseRows[0] || {};
 
     const actualRevenue = Number(pr.actual_revenue || 0);
     const netCost       = Number(pr.net_cost       || 0);
     const totalRefund   = Number(pr.total_refund   || 0);
-    const profit        = actualRevenue - netCost;
+    const totalExpenses = Number(er.total_expenses || 0);
+    const profit        = actualRevenue - netCost - totalExpenses;
 
     return {
       sales_count:    Number(sr.sales_count    || 0),
@@ -157,8 +199,8 @@ class StoreReportService {
       total_refund:   Number(totalRefund.toFixed(2)),
       total_cost:     Number(netCost.toFixed(2)),
       total_paid:     Number(Number(sr.total_paid || 0).toFixed(2)),
+      expenses:       Number(totalExpenses.toFixed(2)),
       profit:         Number(profit.toFixed(2)),
-      expenses:       0,  // placeholder — no expense tracking per period yet
     };
   }
 }

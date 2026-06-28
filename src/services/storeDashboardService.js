@@ -1,5 +1,6 @@
 // src/services/storeDashboardService.js
 import { prisma } from "../prisma/client.js";
+import storeStockAlertService from "./storeStockAlertService.js";
 
 const NPT_OFFSET_MS = 5 * 60 * 60 * 1000 + 45 * 60 * 1000; // UTC+5:45
 
@@ -251,7 +252,14 @@ class StoreDashboardService {
 
     const rows = hasDate
       ? await prisma.$queryRaw`
-          WITH sales_totals AS (
+          WITH sales_in_period AS (
+            SELECT sales_id
+            FROM store_sales
+            WHERE owner_id = ${owner_id}
+              AND created_at >= ${startDate}
+              AND created_at <= ${endDate}
+          ),
+          sales_totals AS (
             SELECT
               COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
               COALESCE(SUM(discount), 0)::numeric      AS total_discount,
@@ -269,23 +277,31 @@ class StoreDashboardService {
               GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
               COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0)         AS sold_cost
             FROM store_sales_items ssi
+            JOIN sales_in_period sip ON sip.sales_id = ssi.sales_id
             JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            WHERE ss.owner_id = ${owner_id}
-              AND ss.created_at >= ${startDate}
-              AND ss.created_at <= ${endDate}
             GROUP BY ss.sales_id, ss.total_amount, ss.discount
           ),
           returns AS (
             SELECT
-              scr.sales_id,
-              COALESCE(SUM(scr.refund_amount), 0)              AS total_refund,
-              COALESCE(SUM(COALESCE(ssi.cp, 0) * scri.qty), 0) AS returned_cost
-            FROM store_customer_returns scr
-            INNER JOIN sold s ON s.sales_id = scr.sales_id
-            LEFT JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
-            LEFT JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-            WHERE scr.owner_id = ${owner_id}
-            GROUP BY scr.sales_id
+              r_refund.sales_id,
+              COALESCE(r_refund.total_refund, 0) AS total_refund,
+              COALESCE(r_cost.returned_cost, 0) AS returned_cost
+            FROM (
+              SELECT scr.sales_id, SUM(scr.refund_amount) AS total_refund
+              FROM store_customer_returns scr
+              INNER JOIN sold s ON s.sales_id = scr.sales_id
+              WHERE scr.owner_id = ${owner_id}
+              GROUP BY scr.sales_id
+            ) r_refund
+            LEFT JOIN (
+              SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+              FROM store_customer_returns scr
+              INNER JOIN sold s ON s.sales_id = scr.sales_id
+              JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
+              JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+              WHERE scr.owner_id = ${owner_id}
+              GROUP BY scr.sales_id
+            ) r_cost ON r_cost.sales_id = r_refund.sales_id
           ),
           profit_calc AS (
             SELECT
@@ -305,17 +321,7 @@ class StoreDashboardService {
           SELECT * FROM sales_totals, profit_calc, expense_totals
         `
       : await prisma.$queryRaw`
-          WITH sales_totals AS (
-            SELECT
-              COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
-              COALESCE(SUM(discount), 0)::numeric      AS total_discount,
-              COALESCE(SUM(paid_amount), 0)::numeric   AS total_paid,
-              COALESCE(SUM(due_amount), 0)::numeric    AS total_due,
-              COUNT(sales_id)::int                     AS sales_count
-            FROM store_sales
-            WHERE owner_id = ${owner_id}
-          ),
-          sold AS (
+          WITH sold AS (
             SELECT
               ss.sales_id,
               GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
@@ -327,15 +333,25 @@ class StoreDashboardService {
           ),
           returns AS (
             SELECT
-              scr.sales_id,
-              COALESCE(SUM(scr.refund_amount), 0)              AS total_refund,
-              COALESCE(SUM(COALESCE(ssi.cp, 0) * scri.qty), 0) AS returned_cost
-            FROM store_customer_returns scr
-            INNER JOIN sold s ON s.sales_id = scr.sales_id
-            LEFT JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
-            LEFT JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-            WHERE scr.owner_id = ${owner_id}
-            GROUP BY scr.sales_id
+              r_refund.sales_id,
+              COALESCE(r_refund.total_refund, 0) AS total_refund,
+              COALESCE(r_cost.returned_cost, 0) AS returned_cost
+            FROM (
+              SELECT scr.sales_id, SUM(scr.refund_amount) AS total_refund
+              FROM store_customer_returns scr
+              INNER JOIN sold s ON s.sales_id = scr.sales_id
+              WHERE scr.owner_id = ${owner_id}
+              GROUP BY scr.sales_id
+            ) r_refund
+            LEFT JOIN (
+              SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+              FROM store_customer_returns scr
+              INNER JOIN sold s ON s.sales_id = scr.sales_id
+              JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
+              JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+              WHERE scr.owner_id = ${owner_id}
+              GROUP BY scr.sales_id
+            ) r_cost ON r_cost.sales_id = r_refund.sales_id
           ),
           profit_calc AS (
             SELECT
@@ -344,6 +360,16 @@ class StoreDashboardService {
               COALESCE(SUM(r.total_refund), 0)                                        AS total_refund
             FROM sold s
             LEFT JOIN returns r ON r.sales_id = s.sales_id
+          ),
+          sales_totals AS (
+            SELECT
+              COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
+              COALESCE(SUM(discount), 0)::numeric      AS total_discount,
+              COALESCE(SUM(paid_amount), 0)::numeric   AS total_paid,
+              COALESCE(SUM(due_amount), 0)::numeric    AS total_due,
+              COUNT(sales_id)::int                     AS sales_count
+            FROM store_sales
+            WHERE owner_id = ${owner_id}
           ),
           expense_totals AS (
             SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
@@ -384,66 +410,96 @@ class StoreDashboardService {
   
   async _getSalesChart(owner_id, startDate, endDate) {
     const rows = await prisma.$queryRaw`
-      WITH sales_base AS (
+      WITH sales_with_effective AS (
         SELECT
-          date_trunc('day', ss.created_at)                                      AS period,
-          GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0)              AS effective_total,
+          date_trunc('day', ss.created_at) AS period,
+          ss.sales_id,
+          GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
           ss.paid_amount
         FROM store_sales ss
         WHERE ss.owner_id = ${owner_id}
           AND ss.created_at >= ${startDate}
           AND ss.created_at <= ${endDate}
       ),
-      sales_grouped AS (
-        SELECT period,
-          SUM(effective_total)::numeric AS effective_total,
-          SUM(paid_amount)::numeric     AS paid_total
-        FROM sales_base
-        GROUP BY period
+      returns_per_sale AS (
+        SELECT
+          r_refund.sales_id,
+          COALESCE(r_refund.total_refund, 0)::numeric AS refund_total,
+          COALESCE(r_cost.returned_cost, 0)::numeric AS returned_cost
+        FROM (
+          SELECT sales_id, SUM(refund_amount) AS total_refund
+          FROM store_customer_returns
+          WHERE owner_id = ${owner_id}
+            AND created_at >= ${startDate}
+            AND created_at <= ${endDate}
+          GROUP BY sales_id
+        ) r_refund
+        LEFT JOIN (
+          SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+          FROM store_customer_returns scr
+          JOIN store_customer_return_items scri ON scri.return_id = scri.return_id
+          JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+          WHERE scr.owner_id = ${owner_id}
+            AND scr.created_at >= ${startDate}
+            AND scr.created_at <= ${endDate}
+          GROUP BY scr.sales_id
+        ) r_cost ON r_cost.sales_id = r_refund.sales_id
+      ),
+      per_sale AS (
+        SELECT
+          s.period,
+          s.sales_id,
+          s.effective_total,
+          s.paid_amount,
+          COALESCE(r.refund_total, 0) AS refund_total,
+          COALESCE(r.returned_cost, 0) AS returned_cost,
+          GREATEST(0,
+            s.paid_amount - GREATEST(0,
+              COALESCE(r.refund_total, 0) - GREATEST(0, s.effective_total - s.paid_amount)
+            )
+          )::numeric AS net_paid
+        FROM sales_with_effective s
+        LEFT JOIN returns_per_sale r ON r.sales_id = s.sales_id
       ),
       cost_grouped AS (
         SELECT
           date_trunc('day', ss.created_at) AS period,
-          COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0)::numeric AS cost
+          SUM(COALESCE(ssi.cp, 0) * ssi.qty)::numeric AS cost
         FROM store_sales_items ssi
         JOIN store_sales ss ON ss.sales_id = ssi.sales_id
         WHERE ss.owner_id = ${owner_id}
           AND ss.created_at >= ${startDate}
           AND ss.created_at <= ${endDate}
         GROUP BY 1
-      ),
-      returns_grouped AS (
-        SELECT
-          date_trunc('day', scr.created_at) AS period,
-          SUM(scr.refund_amount)::numeric   AS refund_total
-        FROM store_customer_returns scr
-        WHERE scr.owner_id = ${owner_id}
-          AND scr.created_at >= ${startDate}
-          AND scr.created_at <= ${endDate}
-        GROUP BY 1
       )
       SELECT
-        COALESCE(sg.period, cg.period, rg.period)   AS period,
-        COALESCE(sg.effective_total, 0)             AS effective_sales,
-        COALESCE(cg.cost, 0)                        AS cost,
-        COALESCE(sg.paid_total, 0)                  AS paid,
-        COALESCE(rg.refund_total, 0)                AS refund
-      FROM sales_grouped sg
-      FULL OUTER JOIN cost_grouped cg ON cg.period = sg.period
-      FULL OUTER JOIN returns_grouped rg ON rg.period = COALESCE(sg.period, cg.period)
-      ORDER BY period ASC;
+        ps.period,
+        SUM(ps.effective_total)::numeric AS effective_sales,
+        SUM(ps.refund_total)::numeric AS refund_total,
+        SUM(ps.returned_cost)::numeric AS returned_cost,
+        SUM(ps.net_paid)::numeric AS net_paid,
+        COALESCE(MAX(cg.cost), 0)::numeric AS cost
+      FROM per_sale ps
+      LEFT JOIN cost_grouped cg ON cg.period = ps.period
+      GROUP BY ps.period
+      ORDER BY ps.period ASC;
     `;
 
     return rows.map((r) => {
-      const sales   = Number(r.effective_sales || 0) - Number(r.refund || 0);
-      const cost    = Number(r.cost  || 0);
-      const profit  = sales - cost;
+      const effectiveSales = Number(r.effective_sales || 0);
+      const refund = Number(r.refund_total || 0);
+      const returnedCost = Number(r.returned_cost || 0);
+      const revenue = effectiveSales - refund;
+      const cost = Number(r.cost || 0) - returnedCost;
+      const netPaid = Number(r.net_paid || 0);
+      const profit = revenue - cost;
+
       return {
-        period:  new Date(r.period).toISOString(),
-        sales,
+        period: new Date(r.period).toISOString(),
+        sales: revenue,
         cost,
-        paid:    Number(r.paid   || 0),
-        refund:  Number(r.refund || 0),
+        paid: netPaid,
+        refund,
         profit,
       };
     });
@@ -545,81 +601,57 @@ class StoreDashboardService {
   }
 
   async getLowStockItems(owner_id, threshold = 40, limit = 10) {
-    const [summaryRows, lowStockRows, outOfStockRows] = await Promise.all([
-      prisma.$queryRaw`
-        SELECT
-          COUNT(p.product_id)::int AS total_products,
-          COUNT(CASE WHEN COALESCE(sq.total_qty, 0) >= ${threshold} THEN 1 END)::int AS in_stock,
-          COUNT(CASE WHEN COALESCE(sq.total_qty, 0) > 0
-                      AND COALESCE(sq.total_qty, 0) < ${threshold} THEN 1 END)::int AS low_stock,
-          COUNT(CASE WHEN COALESCE(sq.total_qty, 0) = 0 THEN 1 END)::int AS out_of_stock
-        FROM store_products p
-        LEFT JOIN (
-          SELECT product_id, SUM(qty_remaining) AS total_qty
-          FROM store_stock_lots
-          WHERE owner_id = ${owner_id}
-          GROUP BY product_id
-        ) sq ON sq.product_id = p.product_id
-        WHERE p.owner_id = ${owner_id}
-          AND p.type = 'item'
-      `,
-      prisma.$queryRaw`
-        SELECT
-          p.product_id,
-          p.product_name,
-          u.unit_name,
-          c.category_name,  
-          COALESCE(SUM(sl.qty_remaining), 0)::int AS total_qty
-        FROM store_products p
-        LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
-        LEFT JOIN store_units u ON u.unit_id = p.unit_id
-        LEFT JOIN store_categories c ON c.category_id = p.category_id
-        WHERE p.owner_id = ${owner_id}
-          AND p.type = 'item'
-        GROUP BY p.product_id, p.product_name, u.unit_name,c.category_name
-        HAVING COALESCE(SUM(sl.qty_remaining), 0) > 0
-          AND COALESCE(SUM(sl.qty_remaining), 0) < ${threshold}
-        ORDER BY total_qty ASC
-        LIMIT ${limit};
-      `,
-      prisma.$queryRaw`
-        SELECT
-          p.product_id,
-          p.product_name,
-          u.unit_name,
-          c.category_name, 
-          0::int AS total_qty
-        FROM store_products p
-        LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = p.owner_id
-        LEFT JOIN store_units u ON u.unit_id = p.unit_id
-        LEFT JOIN store_categories c ON c.category_id = p.category_id
-        WHERE p.owner_id = ${owner_id}
-          AND p.type = 'item'
-        GROUP BY p.product_id, p.product_name, u.unit_name, c.category_name
-        HAVING COALESCE(SUM(sl.qty_remaining), 0) = 0
-        ORDER BY p.product_name ASC
-        LIMIT ${limit};
-      `,
-    ]);
+    // Use the stock alerts service with the provided threshold
+    const result = await storeStockAlertService.getStockAlerts(owner_id, {
+      lowThreshold: threshold,
+      criticalThreshold: Math.floor(threshold / 2),
+    });
 
-    const s = summaryRows[0] || {};
-    const mapItem = (r) => ({
-      product_id:    r.product_id,
-      product_name:  r.product_name,
-      unit:          r.unit_name || "units",
-      category:      r.category_name || null,
-      qty_remaining: Number(r.total_qty),
+    if (!result.success) {
+      return {
+        summary: {
+          total_products: 0,
+          in_stock: 0,
+          low_stock: 0,
+          out_of_stock: 0,
+        },
+        low_stock_items: [],
+        out_of_stock_items: [],
+      };
+    }
+
+    const { summary, low_stock, out_of_stock } = result.data;
+
+    // Calculate total products and in-stock count
+    const totalProducts = await prisma.$queryRaw`
+      SELECT COUNT(p.product_id)::int AS total
+      FROM store_products p
+      WHERE p.owner_id = ${owner_id} AND p.type = 'item'
+    `;
+
+    const totalCount = Number(totalProducts[0]?.total || 0);
+    const lowStockCount = summary.low_stock_count + summary.critical_stock_count;
+    const outOfStockCount = summary.out_of_stock_count;
+    const inStockCount = totalCount - lowStockCount - outOfStockCount;
+
+    // Map to dashboard format (simplified, just the first 'limit' items)
+    const mapItem = (item) => ({
+      product_id: item.product_id,
+      product_name: item.product_name,
+      unit: item.unit || 'units',
+      category: item.category || null,
+      qty_remaining: item.qty_remaining || 0,
     });
 
     return {
       summary: {
-        total_products: Number(s.total_products || 0),
-        in_stock:       Number(s.in_stock       || 0),
-        low_stock:      Number(s.low_stock      || 0),
-        out_of_stock:   Number(s.out_of_stock   || 0),
+        total_products: totalCount,
+        in_stock: Math.max(0, inStockCount),
+        low_stock: lowStockCount,
+        out_of_stock: outOfStockCount,
       },
-      low_stock_items:    lowStockRows.map(mapItem),
-      out_of_stock_items: outOfStockRows.map(mapItem),
+      low_stock_items: low_stock.slice(0, limit).map(mapItem),
+      out_of_stock_items: out_of_stock.slice(0, limit).map(mapItem),
     };
   }
   async getInventoryValue(owner_id) {

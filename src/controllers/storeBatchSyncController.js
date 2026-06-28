@@ -267,3 +267,31 @@ export const getCreditList = async (req, res) => {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }
 };
+
+export const getProductsByIds = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { product_ids } = req.body;
+
+    const products = [];
+    const not_found = [];
+
+    for (const product_id of product_ids) {
+      try {
+        const product = await storeProductService.getById(owner_id, product_id);
+        products.push(product);
+      } catch (err) {
+        if (err.code === "NOT_FOUND") {
+          not_found.push(product_id);
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    return res.json({ success: true, data: { products, not_found } });
+  } catch (err) {
+    console.error("Error fetching products by ids:", err);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};

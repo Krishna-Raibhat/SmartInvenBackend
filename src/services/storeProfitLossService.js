@@ -53,20 +53,33 @@ class StoreProfitLossService {
       ),
       returns AS (
         SELECT
-          scr.sales_id,
-          COALESCE(SUM(scr.refund_amount), 0)           AS total_refund,
-          COALESCE(SUM(
-            COALESCE(ssi.cp, 0) * scri.qty
-          ), 0)                                          AS returned_cost,
-          COUNT(DISTINCT scr.return_id)::int             AS return_count
-        FROM store_customer_returns scr
-        INNER JOIN sold s ON s.sales_id = scr.sales_id
-        JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
-        JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-        WHERE scr.owner_id = ${owner_id}
-          AND scr.created_at >= ${startFinal}
-          AND scr.created_at <= ${endFinal}
-        GROUP BY scr.sales_id
+          r_refund.sales_id,
+          COALESCE(r_refund.total_refund, 0) AS total_refund,
+          COALESCE(r_cost.returned_cost, 0) AS returned_cost,
+          COALESCE(r_refund.return_count, 0)::int AS return_count
+        FROM (
+          SELECT
+            scr.sales_id,
+            SUM(scr.refund_amount) AS total_refund,
+            COUNT(DISTINCT scr.return_id) AS return_count
+          FROM store_customer_returns scr
+          INNER JOIN sold s ON s.sales_id = scr.sales_id
+          WHERE scr.owner_id = ${owner_id}
+            AND scr.created_at >= ${startFinal}
+            AND scr.created_at <= ${endFinal}
+          GROUP BY scr.sales_id
+        ) r_refund
+        LEFT JOIN (
+          SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+          FROM store_customer_returns scr
+          INNER JOIN sold s ON s.sales_id = scr.sales_id
+          JOIN store_customer_return_items scri ON scri.return_id = scri.return_id
+          JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+          WHERE scr.owner_id = ${owner_id}
+            AND scr.created_at >= ${startFinal}
+            AND scr.created_at <= ${endFinal}
+          GROUP BY scr.sales_id
+        ) r_cost ON r_cost.sales_id = r_refund.sales_id
       ),
       per_sale AS (
         SELECT
@@ -160,16 +173,27 @@ class StoreProfitLossService {
       ),
       returns_by_sale AS (
         SELECT
-          scr.sales_id,
-          COALESCE(SUM(scr.refund_amount), 0)           AS total_refund,
-          COALESCE(SUM(COALESCE(ssi.cp,0) * scri.qty), 0) AS returned_cost
-        FROM store_customer_returns scr
-        JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
-        JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-        WHERE scr.owner_id = ${owner_id}
-          AND scr.created_at >= ${startFinal}
-          AND scr.created_at <= ${endFinal}
-        GROUP BY scr.sales_id
+          r_refund.sales_id,
+          COALESCE(r_refund.total_refund, 0) AS total_refund,
+          COALESCE(r_cost.returned_cost, 0) AS returned_cost
+        FROM (
+          SELECT sales_id, SUM(refund_amount) AS total_refund
+          FROM store_customer_returns
+          WHERE owner_id = ${owner_id}
+            AND created_at >= ${startFinal}
+            AND created_at <= ${endFinal}
+          GROUP BY sales_id
+        ) r_refund
+        LEFT JOIN (
+          SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+          FROM store_customer_returns scr
+          JOIN store_customer_return_items scri ON scri.return_id = scri.return_id
+          JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+          WHERE scr.owner_id = ${owner_id}
+            AND scr.created_at >= ${startFinal}
+            AND scr.created_at <= ${endFinal}
+          GROUP BY scr.sales_id
+        ) r_cost ON r_cost.sales_id = r_refund.sales_id
       ),
       per_sale AS (
         SELECT
@@ -308,7 +332,16 @@ class StoreProfitLossService {
       SELECT
         COUNT(DISTINCT scr.return_id)::int                        AS total_returns,
         COALESCE(SUM(scri.qty), 0)::int                           AS total_qty,
-        COALESCE(SUM(scr.refund_amount), 0)::numeric              AS total_refund,
+        COALESCE(
+          (
+            SELECT SUM(refund_amount)
+            FROM store_customer_returns
+            WHERE owner_id = ${owner_id}
+              AND created_at >= ${startFinal}
+              AND created_at <= ${endFinal}
+          ),
+          0
+        )::numeric                                                AS total_refund,
         COALESCE(SUM(ssi.sp * scri.qty), 0)::numeric              AS return_value
       FROM store_customer_return_items scri
       JOIN store_customer_returns scr ON scr.return_id = scri.return_id

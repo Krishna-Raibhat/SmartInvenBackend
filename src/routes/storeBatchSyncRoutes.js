@@ -4,7 +4,7 @@ import { batchSync, getMasterData,getStockLotsByProduct,
   getStockLotsBySupplier,
   getSalesList,
   getSaleById,
-  getCustomerReturnsList,getCreditList, } from "../controllers/storeBatchSyncController.js";
+  getCustomerReturnsList,getCreditList, getProductsByIds,} from "../controllers/storeBatchSyncController.js";
 import auth from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
@@ -19,6 +19,7 @@ router.get("/sales", auth, getSalesList);
 router.get("/sales/:sales_id", auth, getSaleById);
 router.get("/customer-returns", auth, getCustomerReturnsList);
 router.get("/credit", auth, getCreditList);
+router.post("/products/batch-get", getProductsByIds);
 
 router.post("/", auth, batchSync);
 
