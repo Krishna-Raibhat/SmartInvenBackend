@@ -3,10 +3,19 @@ import { prisma } from "../prisma/client.js";
 
 class StoreStockLotService {
   async create({ owner_id, product_id, supplier_id, qty_in, cp, sp }) {
-    const product = await prisma.storeProduct.findFirst({
-      where: { product_id, owner_id },
-      include: { category: true, unit: true },
-    });
+    if (!supplier_id) {
+      throw { code: "REQUIRED_FIELDS", message: "supplier_id is required." };
+    }
+
+    const [product, supplier] = await Promise.all([
+      prisma.storeProduct.findFirst({
+        where: { product_id, owner_id },
+        include: { category: true, unit: true },
+      }),
+      prisma.storeSupplier.findFirst({
+        where: { supplier_id, owner_id },
+      }),
+    ]);
 
     if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
     if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
@@ -20,11 +29,6 @@ class StoreStockLotService {
     if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
     if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
 
-    if (!supplier_id) {
-      throw { code: "REQUIRED_FIELDS", message: "supplier_id is required." };
-    }
-
-    const supplier = await prisma.storeSupplier.findFirst({ where: { supplier_id, owner_id } });
     if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
 
     return prisma.storeStockLot.create({

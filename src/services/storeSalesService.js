@@ -97,6 +97,39 @@ class StoreSalesService {
       }
     }
 
+    // Prefetch all products and lots in parallel to avoid sequential queries inside transaction loops
+    const productIds = [...new Set(items.map(item => item.product_id).filter(Boolean))];
+    const lotIds = [...new Set(items.map(item => item.lot_id).filter(Boolean))];
+
+    const [prefetchedProducts, prefetchedLots, autoSelectedLots] = await Promise.all([
+      prisma.storeProduct.findMany({
+        where: { product_id: { in: productIds }, owner_id },
+        select: { product_id: true, type: true, cp: true, sp: true },
+      }),
+      lotIds.length > 0
+        ? prisma.storeStockLot.findMany({
+            where: { lot_id: { in: lotIds }, owner_id },
+            select: { lot_id: true, product_id: true, cp: true, sp: true, qty_remaining: true },
+          })
+        : Promise.resolve([]),
+      prisma.storeStockLot.findMany({
+        where: { product_id: { in: productIds }, owner_id, qty_remaining: { gt: 0 } },
+        orderBy: { created_at: "asc" },
+        select: { lot_id: true, product_id: true, cp: true, sp: true, qty_remaining: true },
+      }),
+    ]);
+
+    const productMap = new Map(prefetchedProducts.map(p => [p.product_id, p]));
+    const lotMap = new Map(prefetchedLots.map(l => [l.lot_id, l]));
+
+    const autoLotsMap = new Map();
+    for (const lot of autoSelectedLots) {
+      if (!autoLotsMap.has(lot.product_id)) {
+        autoLotsMap.set(lot.product_id, []);
+      }
+      autoLotsMap.get(lot.product_id).push(lot);
+    }
+
     return prisma.$transaction(async (tx) => {
       const header = await tx.storeSales.create({
         data: {
@@ -132,10 +165,7 @@ class StoreSalesService {
           throw e;
         }
 
-        const product = await tx.storeProduct.findFirst({
-          where: { product_id, owner_id },
-          select: { product_id: true, type: true, cp: true, sp: true },
-        });
+        const product = productMap.get(product_id);
 
         if (!product) {
           const e = new Error(`Product ${product_id} not found`);
@@ -146,12 +176,9 @@ class StoreSalesService {
 
         if (product.type === "item") {
           if (lot_id) {
-            const lot = await tx.storeStockLot.findFirst({
-              where: { lot_id, product_id, owner_id },
-              select: { lot_id: true, cp: true, sp: true, qty_remaining: true },
-            });
+            const lot = lotMap.get(lot_id);
 
-            if (!lot) {
+            if (!lot || lot.product_id !== product_id) {
               const e = new Error(
                 `Stock lot ${lot_id} not found for this product`,
               );
@@ -168,6 +195,8 @@ class StoreSalesService {
               e.code = "STOCK_NOT_ENOUGH";
               throw e;
             }
+
+            lot.qty_remaining -= qtyNum;
 
             await tx.storeStockLot.update({
               where: { lot_id },
@@ -201,13 +230,10 @@ class StoreSalesService {
               }),
             );
           } else {
-            const lots = await tx.storeStockLot.findMany({
-              where: { owner_id, product_id, qty_remaining: { gt: 0 } },
-              orderBy: { created_at: "asc" },
-              select: { lot_id: true, cp: true, sp: true, qty_remaining: true },
-            });
+            const lots = autoLotsMap.get(product_id) || [];
+            const availableLots = lots.filter(l => l.qty_remaining > 0);
 
-            if (lots.length === 0) {
+            if (availableLots.length === 0) {
               const e = new Error(
                 `No stock available for product ${product_id}`,
               );
@@ -218,10 +244,11 @@ class StoreSalesService {
 
             let remaining = qtyNum;
 
-            for (const lot of lots) {
+            for (const lot of availableLots) {
               if (remaining <= 0) break;
 
               const deduct = Math.min(remaining, lot.qty_remaining);
+              lot.qty_remaining -= deduct;
 
               await tx.storeStockLot.update({
                 where: { lot_id: lot.lot_id },
