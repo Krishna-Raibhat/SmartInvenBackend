@@ -53,56 +53,13 @@ class StoreSalesService {
 
     // Resolve customer
     let finalCustomerId = customer_id ?? null;
+    let customerPhone = null;
 
-    if (finalCustomerId) {
-      const cust = await prisma.customer.findFirst({
-        where: { customer_id: finalCustomerId, owner_id },
-        select: { customer_id: true },
-      });
-      if (!cust) {
-        const e = new Error("Customer not found for this owner");
-        e.status = 404;
-        e.code = "CUSTOMER_NOT_FOUND";
-        throw e;
-      }
-    } else if (customer?.phone) {
-      const phone = normalizeNepalPhone(String(customer.phone).trim());
-      if (!isValidNepalPhone(phone)) {
-        const e = new Error(
-          "Invalid phone number. Please enter a valid 10-digit Nepali number.",
-        );
-        e.status = 400;
-        e.code = "VALIDATION_PHONE_INVALID";
-        throw e;
-      }
-
-      const existing = await prisma.customer.findFirst({
-        where: { owner_id, phone },
-        select: { customer_id: true },
-      });
-
-      if (existing) {
-        finalCustomerId = existing.customer_id;
-      } else {
-        const created = await prisma.customer.create({
-          data: {
-            owner_id,
-            full_name: String(customer.full_name || "Walk-in Customer").trim(),
-            phone,
-            email: customer.email ? String(customer.email).trim() : null,
-            address: customer.address ? String(customer.address).trim() : null,
-          },
-          select: { customer_id: true },
-        });
-        finalCustomerId = created.customer_id;
-      }
-    }
-
-    // Prefetch all products and lots in parallel to avoid sequential queries inside transaction loops
+    // Prefetch all products, lots, and resolved customer in parallel to avoid sequential queries
     const productIds = [...new Set(items.map(item => item.product_id).filter(Boolean))];
     const lotIds = [...new Set(items.map(item => item.lot_id).filter(Boolean))];
 
-    const [prefetchedProducts, prefetchedLots, autoSelectedLots] = await Promise.all([
+    const promises = [
       prisma.storeProduct.findMany({
         where: { product_id: { in: productIds }, owner_id },
         select: { product_id: true, type: true, cp: true, sp: true },
@@ -118,7 +75,63 @@ class StoreSalesService {
         orderBy: { created_at: "asc" },
         select: { lot_id: true, product_id: true, cp: true, sp: true, qty_remaining: true },
       }),
-    ]);
+    ];
+
+    if (finalCustomerId) {
+      promises.push(
+        prisma.customer.findFirst({
+          where: { customer_id: finalCustomerId, owner_id },
+          select: { customer_id: true },
+        })
+      );
+    } else if (customer?.phone) {
+      customerPhone = normalizeNepalPhone(String(customer.phone).trim());
+      if (!isValidNepalPhone(customerPhone)) {
+        const e = new Error(
+          "Invalid phone number. Please enter a valid 10-digit Nepali number.",
+        );
+        e.status = 400;
+        e.code = "VALIDATION_PHONE_INVALID";
+        throw e;
+      }
+      promises.push(
+        prisma.customer.findFirst({
+          where: { owner_id, phone: customerPhone },
+          select: { customer_id: true },
+        })
+      );
+    }
+
+    const results = await Promise.all(promises);
+    const prefetchedProducts = results[0];
+    const prefetchedLots = results[1];
+    const autoSelectedLots = results[2];
+    const resolvedCustomer = results[3];
+
+    if (finalCustomerId) {
+      if (!resolvedCustomer) {
+        const e = new Error("Customer not found for this owner");
+        e.status = 404;
+        e.code = "CUSTOMER_NOT_FOUND";
+        throw e;
+      }
+    } else if (customer?.phone) {
+      if (resolvedCustomer) {
+        finalCustomerId = resolvedCustomer.customer_id;
+      } else {
+        const created = await prisma.customer.create({
+          data: {
+            owner_id,
+            full_name: String(customer.full_name || "Walk-in Customer").trim(),
+            phone: customerPhone,
+            email: customer.email ? String(customer.email).trim() : null,
+            address: customer.address ? String(customer.address).trim() : null,
+          },
+          select: { customer_id: true },
+        });
+        finalCustomerId = created.customer_id;
+      }
+    }
 
     const productMap = new Map(prefetchedProducts.map(p => [p.product_id, p]));
     const lotMap = new Map(prefetchedLots.map(l => [l.lot_id, l]));
@@ -203,6 +216,7 @@ class StoreSalesService {
           totalAmount = totalAmount.add(lineTotal);
 
           itemsToCreate.push({
+            sales_item_id: uuidv4(),
             owner_id,
             sales_id,
             product_id,
@@ -212,6 +226,8 @@ class StoreSalesService {
             sp: sellingPrice,
             line_total: lineTotal,
             note: lineNote ?? null,
+            created_at: new Date(),
+            returned_qty: 0,
           });
         } else {
           const lots = autoLotsMap.get(product_id) || [];
@@ -251,6 +267,7 @@ class StoreSalesService {
             totalAmount = totalAmount.add(lineTotal);
 
             itemsToCreate.push({
+              sales_item_id: uuidv4(),
               owner_id,
               sales_id,
               product_id,
@@ -260,6 +277,8 @@ class StoreSalesService {
               sp: sellingPrice,
               line_total: lineTotal,
               note: lineNote ?? null,
+              created_at: new Date(),
+              returned_qty: 0,
             });
 
             remaining -= deduct;
@@ -287,6 +306,7 @@ class StoreSalesService {
         totalAmount = totalAmount.add(lineTotal);
 
         itemsToCreate.push({
+          sales_item_id: uuidv4(),
           owner_id,
           sales_id,
           product_id,
@@ -296,6 +316,8 @@ class StoreSalesService {
           sp: sellingPrice,
           line_total: lineTotal,
           note: lineNote ?? null,
+          created_at: new Date(),
+          returned_qty: 0,
         });
       }
     }
@@ -349,20 +371,15 @@ class StoreSalesService {
       },
     });
 
-    const itemsCreatePromises = itemsToCreate.map((data) =>
-      prisma.storeSalesItem.create({ data })
-    );
-
     const transactionResults = await prisma.$transaction([
       salesHeaderPromise,
       ...lotUpdates,
-      ...itemsCreatePromises,
+      prisma.storeSalesItem.createMany({ data: itemsToCreate }),
     ]);
 
     const createdHeader = transactionResults[0];
-    const createdItems = transactionResults.slice(1 + lotUpdates.length);
 
-    return { ...createdHeader, items: createdItems };
+    return { ...createdHeader, items: itemsToCreate };
   }
 
   async list(owner_id, { page = 1, limit = 50 } = {}) {
