@@ -234,36 +234,88 @@ class StoreSupplierReturnService {
    * Get all returns for an owner
    */
   async list(owner_id) {
-    return prisma.storeSupplierReturn.findMany({
-      where: { owner_id },
-      orderBy: { created_at: "desc" },
-      include: {
-        supplier: {
-          select: {
-            supplier_id: true,
-            supplier_name: true,
-            phone: true,
-          },
-        },
-        items: {
-          include: {
-            lot: {
-              select: {
-                lot_id: true,
-                cp: true,
-                product: {
-                  select: {
-                    product_id: true,
-                    product_name: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      take: 200,
-    });
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT
+          r.return_id,
+          r.owner_id,
+          r.supplier_id,
+          r.total_refund::numeric AS total_refund,
+          r.note,
+          r.created_at,
+          CASE WHEN r.supplier_id IS NOT NULL THEN json_build_object(
+            'supplier_id', s.supplier_id,
+            'supplier_name', s.supplier_name,
+            'phone', s.phone
+          ) ELSE NULL END AS supplier,
+          COALESCE(
+            (
+              SELECT json_agg(
+                json_build_object(
+                  'return_item_id', ri.return_item_id,
+                  'return_id', ri.return_id,
+                  'lot_id', ri.lot_id,
+                  'qty', ri.qty,
+                  'refund_amount', ri.refund_amount::numeric,
+                  'reason', ri.reason,
+                  'note', ri.note,
+                  'created_at', ri.created_at,
+                  'owner_id', ri.owner_id,
+                  'lot', json_build_object(
+                    'lot_id', sl.lot_id,
+                    'cp', sl.cp::numeric,
+                    'product', json_build_object(
+                      'product_id', p.product_id,
+                      'product_name', p.product_name
+                    )
+                  )
+                )
+              )
+              FROM store_supplier_return_items ri
+              LEFT JOIN store_stock_lots sl ON sl.lot_id = ri.lot_id
+              LEFT JOIN store_products p ON p.product_id = sl.product_id
+              WHERE ri.return_id = r.return_id
+            ),
+            '[]'::json
+          ) AS items
+        FROM store_supplier_returns r
+        LEFT JOIN store_suppliers s ON s.supplier_id = r.supplier_id
+        WHERE r.owner_id = ${owner_id}
+        ORDER BY r.created_at DESC
+        LIMIT 200
+      `;
+
+      return rows.map((row) => ({
+        return_id: row.return_id,
+        owner_id: row.owner_id,
+        supplier_id: row.supplier_id,
+        total_refund: Number(row.total_refund || 0),
+        note: row.note,
+        created_at: row.created_at,
+        supplier: row.supplier,
+        items: (row.items || []).map((itm) => ({
+          return_item_id: itm.return_item_id,
+          return_id: itm.return_id,
+          lot_id: itm.lot_id,
+          qty: itm.qty,
+          refund_amount: Number(itm.refund_amount || 0),
+          reason: itm.reason,
+          note: itm.note,
+          created_at: itm.created_at,
+          owner_id: itm.owner_id,
+          lot: itm.lot
+            ? {
+                lot_id: itm.lot.lot_id,
+                cp: Number(itm.lot.cp || 0),
+                product: itm.lot.product,
+              }
+            : null,
+        })),
+      }));
+    } catch (err) {
+      console.error("Error in optimized storeSupplierReturnService.list:", err);
+      throw err;
+    }
   }
 
   /**
