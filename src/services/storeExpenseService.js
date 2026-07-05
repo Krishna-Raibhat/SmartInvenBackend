@@ -27,39 +27,63 @@ class StoreExpenseTitleService {
   }
 
   async list(owner_id) {
-    const rows = await prisma.storeExpenseTitle.findMany({
-      where: { owner_id },
-      orderBy: { title: "asc" },
-      include: {
-        _count: { select: { expenses: true } },
-        expenses: { select: { amount: true } },
-      },
-    });
+    const rows = await prisma.$queryRaw`
+      SELECT 
+        t.title_id,
+        t.owner_id,
+        t.title,
+        t.created_at,
+        t.updated_at,
+        COUNT(e.expense_id)::int AS expense_count,
+        COALESCE(SUM(e.amount), 0)::numeric AS total_amount
+      FROM store_expense_titles t
+      LEFT JOIN store_expenses e ON t.title_id = e.title_id
+      WHERE t.owner_id = ${owner_id}
+      GROUP BY t.title_id, t.owner_id, t.title, t.created_at, t.updated_at
+      ORDER BY t.title ASC
+    `;
 
-    return rows.map(({ _count, expenses, ...t }) => ({
-      ...t,
-      expense_count: _count.expenses,
-      total_amount: expenses.reduce((s, e) => s + Number(e.amount), 0),
+    return rows.map((r) => ({
+      title_id: r.title_id,
+      owner_id: r.owner_id,
+      title: r.title,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      expense_count: r.expense_count,
+      total_amount: Number(r.total_amount),
     }));
   }
 
   async getById(owner_id, title_id) {
-    const title = await prisma.storeExpenseTitle.findFirst({
-      where: { title_id, owner_id },
-      include: {
-        _count: { select: { expenses: true } },
-        expenses: { select: { amount: true } },
-      },
-    });
+    const rows = await prisma.$queryRaw`
+      SELECT 
+        t.title_id,
+        t.owner_id,
+        t.title,
+        t.created_at,
+        t.updated_at,
+        COUNT(e.expense_id)::int AS expense_count,
+        COALESCE(SUM(e.amount), 0)::numeric AS total_amount
+      FROM store_expense_titles t
+      LEFT JOIN store_expenses e ON t.title_id = e.title_id
+      WHERE t.owner_id = ${owner_id} AND t.title_id = ${title_id}
+      GROUP BY t.title_id, t.owner_id, t.title, t.created_at, t.updated_at
+    `;
+
+    const title = rows[0];
     if (!title) {
       const e = new Error("Title not found.");
       e.status = 404; e.code = "NOT_FOUND"; throw e;
     }
-    const { _count, expenses, ...rest } = title;
+
     return {
-      ...rest,
-      expense_count: _count.expenses,
-      total_amount: expenses.reduce((s, e) => s + Number(e.amount), 0),
+      title_id: title.title_id,
+      owner_id: title.owner_id,
+      title: title.title,
+      created_at: title.created_at,
+      updated_at: title.updated_at,
+      expense_count: title.expense_count,
+      total_amount: Number(title.total_amount),
     };
   }
 
@@ -174,30 +198,39 @@ class StoreExpenseService {
   async getByTitle(owner_id, title_id, { page = 1, limit = 50 } = {}) {
     const title = await prisma.storeExpenseTitle.findFirst({
       where: { title_id, owner_id },
+      include: {
+        _count: { select: { expenses: true } },
+      },
     });
     if (!title) {
       const e = new Error("Expense title not found.");
       e.status = 404; e.code = "NOT_FOUND"; throw e;
     }
+
+    const total = title._count.expenses;
     const skip = (page - 1) * limit;
     const where = { owner_id, title_id };
 
-    const [data, total, agg] = await Promise.all([
+    const [data, agg] = await Promise.all([
       prisma.storeExpense.findMany({
         where,
         orderBy: { created_at: "desc" },
         skip,
         take: limit,
-        include: { title: true },
       }),
-      prisma.storeExpense.count({ where }),
       prisma.storeExpense.aggregate({ where, _sum: { amount: true } }),
     ]);
 
+    const { _count, ...titleWithoutCount } = title;
+    const dataWithTitle = data.map((item) => ({
+      ...item,
+      title: titleWithoutCount,
+    }));
+
     return {
-      title,
+      title: titleWithoutCount,
       total_amount: Number(agg._sum.amount ?? 0),
-      data,
+      data: dataWithTitle,
       total,
       page,
       limit,
@@ -268,33 +301,76 @@ class StoreExpenseService {
   }
 
   async summaryByTitle(owner_id, { start, end } = {}) {
-    const where = { owner_id };
+    let query;
     if (start || end) {
-      where.created_at = {};
-      if (start) where.created_at.gte = new Date(start);
-      if (end) where.created_at.lte = new Date(end);
+      const startFinal = start ? new Date(start) : null;
+      const endFinal = end ? new Date(end) : null;
+      if (startFinal && endFinal) {
+        query = prisma.$queryRaw`
+          SELECT 
+            e.title_id,
+            t.title,
+            COALESCE(SUM(e.amount), 0)::numeric AS total_amount,
+            COUNT(e.expense_id)::int AS count
+          FROM store_expenses e
+          JOIN store_expense_titles t ON e.title_id = t.title_id
+          WHERE e.owner_id = ${owner_id}
+            AND e.created_at >= ${startFinal}
+            AND e.created_at <= ${endFinal}
+          GROUP BY e.title_id, t.title
+          ORDER BY total_amount DESC
+        `;
+      } else if (startFinal) {
+        query = prisma.$queryRaw`
+          SELECT 
+            e.title_id,
+            t.title,
+            COALESCE(SUM(e.amount), 0)::numeric AS total_amount,
+            COUNT(e.expense_id)::int AS count
+          FROM store_expenses e
+          JOIN store_expense_titles t ON e.title_id = t.title_id
+          WHERE e.owner_id = ${owner_id}
+            AND e.created_at >= ${startFinal}
+          GROUP BY e.title_id, t.title
+          ORDER BY total_amount DESC
+        `;
+      } else {
+        query = prisma.$queryRaw`
+          SELECT 
+            e.title_id,
+            t.title,
+            COALESCE(SUM(e.amount), 0)::numeric AS total_amount,
+            COUNT(e.expense_id)::int AS count
+          FROM store_expenses e
+          JOIN store_expense_titles t ON e.title_id = t.title_id
+          WHERE e.owner_id = ${owner_id}
+            AND e.created_at <= ${endFinal}
+          GROUP BY e.title_id, t.title
+          ORDER BY total_amount DESC
+        `;
+      }
+    } else {
+      query = prisma.$queryRaw`
+        SELECT 
+          e.title_id,
+          t.title,
+          COALESCE(SUM(e.amount), 0)::numeric AS total_amount,
+          COUNT(e.expense_id)::int AS count
+        FROM store_expenses e
+        JOIN store_expense_titles t ON e.title_id = t.title_id
+        WHERE e.owner_id = ${owner_id}
+        GROUP BY e.title_id, t.title
+        ORDER BY total_amount DESC
+      `;
     }
-    const rows = await prisma.storeExpense.groupBy({
-      by: ["title_id"],
-      where,
-      _sum: { amount: true },
-      _count: { expense_id: true },
-    });
-    const titleIds = rows.map((r) => r.title_id);
-    const titles = await prisma.storeExpenseTitle.findMany({
-      where: { title_id: { in: titleIds } },
-      select: { title_id: true, title: true },
-    });
-    const titleMap = Object.fromEntries(titles.map((t) => [t.title_id, t.title]));
 
-    return rows
-      .map((r) => ({
-        title_id: r.title_id,
-        title: titleMap[r.title_id] ?? "Unknown",
-        total_amount: Number(r._sum.amount ?? 0),
-        count: r._count.expense_id,
-      }))
-      .sort((a, b) => b.total_amount - a.total_amount);
+    const rows = await query;
+    return rows.map((r) => ({
+      title_id: r.title_id,
+      title: r.title,
+      total_amount: Number(r.total_amount),
+      count: Number(r.count),
+    }));
   }
 
     async getReport(owner_id, { start, end, group = "day" } = {}) {
