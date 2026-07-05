@@ -17,14 +17,12 @@ function cacheKey(owner_id, from, to) {
 
 class StoreTopSellingService {
   async getReport(owner_id, { from, to } = {}) {
-    console.log("🔍 TOP SELLING REPORT - Using SP * qty calculation");
     const key = cacheKey(owner_id, from, to);
     const cached = cache.get(key);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-      console.log("⚠️ Returning CACHED data");
       return cached.data;
     }
-    console.log("✅ Fetching FRESH data from database");
+
     const startDate = from ? new Date(from) : null;
     const endDate   = to   ? (() => { const d = new Date(to); d.setHours(23,59,59,999); return d; })() : null;
 
@@ -186,13 +184,6 @@ class StoreTopSellingService {
     const returnMap = new Map(returnRows.map((r) => [r.product_id, r]));
     const stockMap  = new Map(stockRows.map((s) => [s.product_id, Number(s.stock)]));
 
-    console.log("📊 Return rows:", returnRows);
-    console.log("📊 Top rows:", topRows.map(r => ({ 
-      product: r.product_name, 
-      revenue: Number(r.revenue),
-      qty: Number(r.qty_sold)
-    })));
-
     const prevRevenue = Number(prevRows[0]?.prev_revenue || 0);
     const prevQty     = Number(prevRows[0]?.prev_qty     || 0);
 
@@ -228,15 +219,8 @@ class StoreTopSellingService {
       .filter((p) => p.qty_sold > 0)
       .sort((a, b) => b.revenue - a.revenue);
 
-    console.log("📈 Products after returns:", products.map(p => ({ 
-      product: p.product_name, 
-      revenue: p.revenue,
-      qty_sold: p.qty_sold
-    })));
-
     // ── Summary KPIs ────────────────────────────────────────────────────────
     const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
-    console.log("💰 Total Revenue (sum of products):", totalRevenue);
     const totalQty     = products.reduce((s, p) => s + p.qty_sold, 0);
     const avgMargin    = totalRevenue > 0
       ? products.reduce((s, p) => s + p.margin_percent * p.revenue, 0) / totalRevenue

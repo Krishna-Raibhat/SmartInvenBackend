@@ -884,9 +884,9 @@ model StoreProduct {
   stockLots                  StoreStockLot[]
 
   @@unique([owner_id, product_name])
-  @@index([owner_id])
   @@index([owner_id, category_id])
   @@index([owner_id, type])
+  @@index([owner_id, created_at])
   @@map("store_products")
 }
 
@@ -911,6 +911,7 @@ model StoreStockLot {
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
+  @@index([owner_id, created_at])
   @@map("store_stock_lots")
 }
 

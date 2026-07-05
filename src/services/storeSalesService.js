@@ -2,6 +2,7 @@
 import { prisma } from "../prisma/client.js";
 import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
 import { Prisma } from "@prisma/client";
+import { v4 as uuidv4 } from "uuid";
 
 const Decimal = Prisma.Decimal;
 
@@ -130,78 +131,113 @@ class StoreSalesService {
       autoLotsMap.get(lot.product_id).push(lot);
     }
 
-    return prisma.$transaction(async (tx) => {
-      const header = await tx.storeSales.create({
-        data: {
-          owner_id,
-          customer_id: finalCustomerId,
-          payment_status: "pending",
-          payment_method: finalPaymentMethod,
-          total_amount: 0,
-          discount: disc,
-          paid_amount: paid,
-          note: note ?? null,
-        },
-      });
+    // --- PRE-CALCULATIONS & WRITES DATA BUILD ---
+    const sales_id = uuidv4();
+    let totalAmount = new Decimal(0);
+    const lotUpdates = [];
+    const itemsToCreate = [];
 
-      let totalAmount = new Decimal(0);
-      const createdItems = [];
+    for (const item of items) {
+      const { product_id, lot_id, qty, sp: itemSp, note: lineNote } = item;
 
-      for (const item of items) {
-        const { product_id, lot_id, qty, sp: itemSp, note: lineNote } = item;
+      if (!product_id) {
+        const e = new Error("product_id is required for each item");
+        e.status = 400;
+        e.code = "VALIDATION_PRODUCT_REQUIRED";
+        throw e;
+      }
 
-        if (!product_id) {
-          const e = new Error("product_id is required for each item");
-          e.status = 400;
-          e.code = "VALIDATION_PRODUCT_REQUIRED";
-          throw e;
-        }
+      const qtyNum = Number(qty);
+      if (!Number.isInteger(qtyNum) || qtyNum <= 0) {
+        const e = new Error("qty must be a positive integer");
+        e.status = 400;
+        e.code = "VALIDATION_QTY_INVALID";
+        throw e;
+      }
 
-        const qtyNum = Number(qty);
-        if (!Number.isInteger(qtyNum) || qtyNum <= 0) {
-          const e = new Error("qty must be a positive integer");
-          e.status = 400;
-          e.code = "VALIDATION_QTY_INVALID";
-          throw e;
-        }
+      const product = productMap.get(product_id);
+      if (!product) {
+        const e = new Error(`Product ${product_id} not found`);
+        e.status = 404;
+        e.code = "PRODUCT_NOT_FOUND";
+        throw e;
+      }
 
-        const product = productMap.get(product_id);
+      if (product.type === "item") {
+        if (lot_id) {
+          const lot = lotMap.get(lot_id);
+          if (!lot || lot.product_id !== product_id) {
+            const e = new Error(`Stock lot ${lot_id} not found for this product`);
+            e.status = 404;
+            e.code = "LOT_NOT_FOUND";
+            throw e;
+          }
 
-        if (!product) {
-          const e = new Error(`Product ${product_id} not found`);
-          e.status = 404;
-          e.code = "PRODUCT_NOT_FOUND";
-          throw e;
-        }
+          if (lot.qty_remaining < qtyNum) {
+            const e = new Error(
+              `Not enough stock in lot ${lot_id}. Available: ${lot.qty_remaining}, Requested: ${qtyNum}`,
+            );
+            e.status = 400;
+            e.code = "STOCK_NOT_ENOUGH";
+            throw e;
+          }
 
-        if (product.type === "item") {
-          if (lot_id) {
-            const lot = lotMap.get(lot_id);
+          lot.qty_remaining -= qtyNum;
 
-            if (!lot || lot.product_id !== product_id) {
-              const e = new Error(
-                `Stock lot ${lot_id} not found for this product`,
-              );
-              e.status = 404;
-              e.code = "LOT_NOT_FOUND";
-              throw e;
-            }
-
-            if (lot.qty_remaining < qtyNum) {
-              const e = new Error(
-                `Not enough stock in lot ${lot_id}. Available: ${lot.qty_remaining}, Requested: ${qtyNum}`,
-              );
-              e.status = 400;
-              e.code = "STOCK_NOT_ENOUGH";
-              throw e;
-            }
-
-            lot.qty_remaining -= qtyNum;
-
-            await tx.storeStockLot.update({
+          lotUpdates.push(
+            prisma.storeStockLot.update({
               where: { lot_id },
               data: { qty_remaining: { decrement: qtyNum } },
-            });
+            })
+          );
+
+          const sellingPrice = new Decimal(itemSp ?? lot.sp);
+          if (sellingPrice.lt(0)) {
+            const e = new Error("sp must be >= 0");
+            e.status = 400;
+            e.code = "VALIDATION_SP_INVALID";
+            throw e;
+          }
+
+          const lineTotal = sellingPrice.mul(qtyNum);
+          totalAmount = totalAmount.add(lineTotal);
+
+          itemsToCreate.push({
+            owner_id,
+            sales_id,
+            product_id,
+            lot_id,
+            qty: qtyNum,
+            cp: lot.cp,
+            sp: sellingPrice,
+            line_total: lineTotal,
+            note: lineNote ?? null,
+          });
+        } else {
+          const lots = autoLotsMap.get(product_id) || [];
+          const availableLots = lots.filter(l => l.qty_remaining > 0);
+
+          if (availableLots.length === 0) {
+            const e = new Error(`No stock available for product ${product_id}`);
+            e.status = 400;
+            e.code = "NO_STOCK_AVAILABLE";
+            throw e;
+          }
+
+          let remaining = qtyNum;
+
+          for (const lot of availableLots) {
+            if (remaining <= 0) break;
+
+            const deduct = Math.min(remaining, lot.qty_remaining);
+            lot.qty_remaining -= deduct;
+
+            lotUpdates.push(
+              prisma.storeStockLot.update({
+                where: { lot_id: lot.lot_id },
+                data: { qty_remaining: { decrement: deduct } },
+              })
+            );
 
             const sellingPrice = new Decimal(itemSp ?? lot.sp);
             if (sellingPrice.lt(0)) {
@@ -211,199 +247,220 @@ class StoreSalesService {
               throw e;
             }
 
-            const lineTotal = sellingPrice.mul(qtyNum);
+            const lineTotal = sellingPrice.mul(deduct);
             totalAmount = totalAmount.add(lineTotal);
 
-            createdItems.push(
-              await tx.storeSalesItem.create({
-                data: {
-                  owner_id,
-                  sales_id: header.sales_id,
-                  product_id,
-                  lot_id,
-                  qty: qtyNum,
-                  cp: lot.cp,
-                  sp: sellingPrice,
-                  line_total: lineTotal,
-                  note: lineNote ?? null,
-                },
-              }),
-            );
-          } else {
-            const lots = autoLotsMap.get(product_id) || [];
-            const availableLots = lots.filter(l => l.qty_remaining > 0);
+            itemsToCreate.push({
+              owner_id,
+              sales_id,
+              product_id,
+              lot_id: lot.lot_id,
+              qty: deduct,
+              cp: lot.cp,
+              sp: sellingPrice,
+              line_total: lineTotal,
+              note: lineNote ?? null,
+            });
 
-            if (availableLots.length === 0) {
-              const e = new Error(
-                `No stock available for product ${product_id}`,
-              );
-              e.status = 400;
-              e.code = "NO_STOCK_AVAILABLE";
-              throw e;
-            }
-
-            let remaining = qtyNum;
-
-            for (const lot of availableLots) {
-              if (remaining <= 0) break;
-
-              const deduct = Math.min(remaining, lot.qty_remaining);
-              lot.qty_remaining -= deduct;
-
-              await tx.storeStockLot.update({
-                where: { lot_id: lot.lot_id },
-                data: { qty_remaining: { decrement: deduct } },
-              });
-
-              const sellingPrice = new Decimal(itemSp ?? lot.sp);
-              if (sellingPrice.lt(0)) {
-                const e = new Error("sp must be >= 0");
-                e.status = 400;
-                e.code = "VALIDATION_SP_INVALID";
-                throw e;
-              }
-
-              const lineTotal = sellingPrice.mul(deduct);
-              totalAmount = totalAmount.add(lineTotal);
-
-              createdItems.push(
-                await tx.storeSalesItem.create({
-                  data: {
-                    owner_id,
-                    sales_id: header.sales_id,
-                    product_id,
-                    lot_id: lot.lot_id,
-                    qty: deduct,
-                    cp: lot.cp,
-                    sp: sellingPrice,
-                    line_total: lineTotal,
-                    note: lineNote ?? null,
-                  },
-                }),
-              );
-
-              remaining -= deduct;
-            }
-
-            if (remaining > 0) {
-              const e = new Error(
-                `Not enough stock for product ${product_id}. Short by ${remaining} unit(s)`,
-              );
-              e.status = 400;
-              e.code = "STOCK_NOT_ENOUGH";
-              throw e;
-            }
+            remaining -= deduct;
           }
-        } else {
-          const sellingPrice = new Decimal(itemSp ?? product.sp ?? 0);
-          if (sellingPrice.lte(0)) {
+
+          if (remaining > 0) {
             const e = new Error(
-              `sp is required and must be > 0 for service product ${product_id}`,
+              `Not enough stock for product ${product_id}. Short by ${remaining} unit(s)`,
             );
             e.status = 400;
-            e.code = "VALIDATION_SP_REQUIRED";
+            e.code = "STOCK_NOT_ENOUGH";
             throw e;
           }
-
-          const lineTotal = sellingPrice.mul(qtyNum);
-          totalAmount = totalAmount.add(lineTotal);
-
-          createdItems.push(
-            await tx.storeSalesItem.create({
-              data: {
-                owner_id,
-                sales_id: header.sales_id,
-                product_id,
-                lot_id: null,
-                qty: qtyNum,
-                cp: product.cp ?? null,
-                sp: sellingPrice,
-                line_total: lineTotal,
-                note: lineNote ?? null,
-              },
-            }),
-          );
         }
-      }
-
-      if (disc.gt(totalAmount)) {
-        const e = new Error("Discount cannot exceed total amount");
-        e.status = 400;
-        e.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL";
-        throw e;
-      }
-
-      const effectiveTotal = totalAmount.sub(disc);
-
-      let finalStatus;
-      if (paid.gte(effectiveTotal) && effectiveTotal.gt(0)) {
-        finalStatus = "paid";
-      } else if (paid.gt(0)) {
-        finalStatus = "partial";
       } else {
-        finalStatus = "pending";
+        const sellingPrice = new Decimal(itemSp ?? product.sp ?? 0);
+        if (sellingPrice.lte(0)) {
+          const e = new Error(`sp is required and must be > 0 for service product ${product_id}`);
+          e.status = 400;
+          e.code = "VALIDATION_SP_REQUIRED";
+          throw e;
+        }
+
+        const lineTotal = sellingPrice.mul(qtyNum);
+        totalAmount = totalAmount.add(lineTotal);
+
+        itemsToCreate.push({
+          owner_id,
+          sales_id,
+          product_id,
+          lot_id: null,
+          qty: qtyNum,
+          cp: product.cp ?? null,
+          sp: sellingPrice,
+          line_total: lineTotal,
+          note: lineNote ?? null,
+        });
       }
+    }
 
-      if (payment_status === "paid" && paid.lt(effectiveTotal)) {
-        const e = new Error(
-          "Cannot mark as paid when paid_amount is less than total",
-        );
-        e.status = 400;
-        e.code = "VALIDATION_STATUS_INCONSISTENT";
-        throw e;
-      }
-      if (payment_status === "partial" && paid.lte(0)) {
-        const e = new Error("Cannot mark as partial when paid_amount is 0");
-        e.status = 400;
-        e.code = "VALIDATION_STATUS_INCONSISTENT";
-        throw e;
-      }
+    if (disc.gt(totalAmount)) {
+      const e = new Error("Discount cannot exceed total amount");
+      e.status = 400;
+      e.code = "VALIDATION_DISCOUNT_EXCEEDS_TOTAL";
+      throw e;
+    }
 
-      const dueAmount = Decimal.max(new Decimal(0), effectiveTotal.sub(paid));
+    const effectiveTotal = totalAmount.sub(disc);
 
-      const updatedHeader = await tx.storeSales.update({
-        where: { sales_id: header.sales_id },
-        data: {
-          total_amount: totalAmount,
-          discount: disc,
-          paid_amount: paid,
-          due_amount: dueAmount,
-          payment_status: finalStatus,
-          payment_method: finalPaymentMethod,
-        },
-      });
+    let finalStatus;
+    if (paid.gte(effectiveTotal) && effectiveTotal.gt(0)) {
+      finalStatus = "paid";
+    } else if (paid.gt(0)) {
+      finalStatus = "partial";
+    } else {
+      finalStatus = "pending";
+    }
 
-      return { ...updatedHeader, items: createdItems };
+    if (payment_status === "paid" && paid.lt(effectiveTotal)) {
+      const e = new Error("Cannot mark as paid when paid_amount is less than total");
+      e.status = 400;
+      e.code = "VALIDATION_STATUS_INCONSISTENT";
+      throw e;
+    }
+    if (payment_status === "partial" && paid.lte(0)) {
+      const e = new Error("Cannot mark as partial when paid_amount is 0");
+      e.status = 400;
+      e.code = "VALIDATION_STATUS_INCONSISTENT";
+      throw e;
+    }
+
+    const dueAmount = Decimal.max(new Decimal(0), effectiveTotal.sub(paid));
+
+    // --- TRANSACTION BATCH ---
+    const salesHeaderPromise = prisma.storeSales.create({
+      data: {
+        sales_id,
+        owner_id,
+        customer_id: finalCustomerId,
+        total_amount: totalAmount,
+        discount: disc,
+        paid_amount: paid,
+        due_amount: dueAmount,
+        payment_status: finalStatus,
+        payment_method: finalPaymentMethod,
+        note: note ?? null,
+      },
     });
+
+    const itemsCreatePromises = itemsToCreate.map((data) =>
+      prisma.storeSalesItem.create({ data })
+    );
+
+    const transactionResults = await prisma.$transaction([
+      salesHeaderPromise,
+      ...lotUpdates,
+      ...itemsCreatePromises,
+    ]);
+
+    const createdHeader = transactionResults[0];
+    const createdItems = transactionResults.slice(1 + lotUpdates.length);
+
+    return { ...createdHeader, items: createdItems };
   }
 
   async list(owner_id, { page = 1, limit = 50 } = {}) {
-    const skip = (page - 1) * limit;
+    try {
+      const page_num = Number(page);
+      const limit_num = Number(limit);
+      const skip = (page_num - 1) * limit_num;
 
-    const [data, total] = await Promise.all([
-      prisma.storeSales.findMany({
-        where: { owner_id },
-        orderBy: { created_at: "desc" },
-        skip,
-        take: limit,
-        include: {
-          customer: {
-            select: { customer_id: true, full_name: true, phone: true },
-          },
-          items: {
-            select: {
-              qty: true,
-              sp: true,
-              line_total: true,
-              product: { select: { product_name: true, type: true } },
-            },
-          },
-        },
-      }),
-      prisma.storeSales.count({ where: { owner_id } }),
-    ]);
+      const rows = await prisma.$queryRaw`
+        SELECT
+          s.sales_id,
+          s.payment_status,
+          s.payment_method,
+          s.total_amount::numeric,
+          s.discount::numeric,
+          s.paid_amount::numeric,
+          s.due_amount::numeric,
+          s.note,
+          s.created_at,
+          s.updated_at,
+          s.customer_id,
+          CASE WHEN s.customer_id IS NOT NULL THEN json_build_object(
+            'customer_id', c.customer_id,
+            'full_name', c.full_name,
+            'phone', c.phone
+          ) ELSE NULL END AS customer,
+          COALESCE(
+            (
+              SELECT json_agg(
+                json_build_object(
+                  'sales_item_id', si.sales_item_id,
+                  'product_id', si.product_id,
+                  'lot_id', si.lot_id,
+                  'qty', si.qty,
+                  'cp', si.cp::numeric,
+                  'sp', si.sp::numeric,
+                  'line_total', si.line_total::numeric,
+                  'note', si.note,
+                  'created_at', si.created_at,
+                  'returned_qty', si.returned_qty,
+                  'product', json_build_object(
+                    'product_name', p.product_name,
+                    'type', p.type::text
+                  )
+                )
+              )
+              FROM store_sales_items si
+              LEFT JOIN store_products p ON p.product_id = si.product_id
+              WHERE si.sales_id = s.sales_id
+            ),
+            '[]'::json
+          ) AS items,
+          COUNT(*) OVER()::int AS full_count
+        FROM store_sales s
+        LEFT JOIN customers c ON c.customer_id = s.customer_id
+        WHERE s.owner_id = ${owner_id}
+        ORDER BY s.created_at DESC
+        LIMIT ${limit_num}
+        OFFSET ${skip}
+      `;
 
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+      const total = rows[0]?.full_count ?? 0;
+      const data = rows.map((row) => ({
+        sales_id: row.sales_id,
+        owner_id,
+        customer_id: row.customer_id,
+        total_amount: Number(row.total_amount || 0),
+        discount: Number(row.discount || 0),
+        paid_amount: Number(row.paid_amount || 0),
+        note: row.note,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        payment_status: row.payment_status,
+        due_amount: Number(row.due_amount || 0),
+        payment_method: row.payment_method,
+        customer: row.customer,
+        items: (row.items || []).map((itm) => ({
+          sales_item_id: itm.sales_item_id,
+          sales_id: row.sales_id,
+          product_id: itm.product_id,
+          lot_id: itm.lot_id,
+          qty: itm.qty,
+          cp: itm.cp ? Number(itm.cp) : null,
+          sp: Number(itm.sp || 0),
+          line_total: Number(itm.line_total || 0),
+          note: itm.note,
+          created_at: itm.created_at,
+          owner_id: owner_id,
+          returned_qty: Number(itm.returned_qty || 0),
+          product: itm.product || null,
+        })),
+      }));
+
+      return { data, total, page: page_num, limit: limit_num, totalPages: Math.ceil(total / limit_num) };
+    } catch (err) {
+      console.error("Error in optimized storeSalesService.list:", err);
+      throw err;
+    }
   }
   
   async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
@@ -466,71 +523,111 @@ class StoreSalesService {
   }
 
   async getById(owner_id, sales_id) {
-    const sale = await prisma.storeSales.findFirst({
-      where: { sales_id, owner_id },
-      include: {
-        customer: {
-          select: {
-            customer_id: true,
-            full_name: true,
-            phone: true,
-            email: true,
-            address: true,
-          },
-        },
-        // items: {
-        //   orderBy: { created_at: "asc" },
-        //   include: {
-        //     product: {
-        //       select: {
-        //         product_name: true,
-        //         type: true,
-        //         unit: { select: { unit_name: true } },
-        //       },
-        //     },
-        //     lot: {
-        //       select: { lot_id: true, notes: true },
-        //     },
-        //   },
-        // },
-        items: {
-          orderBy: { created_at: "asc" },
-          include: {
-            product: {
-              select: {
-                product_name: true,
-                type: true,
-                unit: {
-                  select: {
-                    unit_name: true,
-                  },
-                },
-              },
-            },
-            lot: {
-              select: {
-                lot_id: true,
-                notes: true,
-                supplier: {
-                  select: {
-                    supplier_name: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT
+          s.sales_id,
+          s.payment_status,
+          s.payment_method,
+          s.total_amount::numeric,
+          s.discount::numeric,
+          s.paid_amount::numeric,
+          s.due_amount::numeric,
+          s.note,
+          s.created_at,
+          s.updated_at,
+          s.customer_id,
+          CASE WHEN s.customer_id IS NOT NULL THEN json_build_object(
+            'customer_id', c.customer_id,
+            'full_name', c.full_name,
+            'phone', c.phone,
+            'email', c.email,
+            'address', c.address
+          ) ELSE NULL END AS customer,
+          COALESCE(
+            (
+              SELECT json_agg(
+                json_build_object(
+                  'sales_item_id', si.sales_item_id,
+                  'product_id', si.product_id,
+                  'lot_id', si.lot_id,
+                  'qty', si.qty,
+                  'cp', si.cp::numeric,
+                  'sp', si.sp::numeric,
+                  'line_total', si.line_total::numeric,
+                  'note', si.note,
+                  'created_at', si.created_at,
+                  'returned_qty', si.returned_qty,
+                  'product', json_build_object(
+                    'product_name', p.product_name,
+                    'type', p.type::text,
+                    'unit', CASE WHEN p.unit_id IS NOT NULL THEN json_build_object('unit_name', u.unit_name) ELSE NULL END
+                  ),
+                  'lot', CASE WHEN si.lot_id IS NOT NULL THEN json_build_object(
+                    'lot_id', sl.lot_id,
+                    'notes', sl.notes,
+                    'supplier', CASE WHEN sl.supplier_id IS NOT NULL THEN json_build_object('supplier_name', sup.supplier_name) ELSE NULL END
+                  ) ELSE NULL END
+                ) ORDER BY si.created_at ASC
+              )
+              FROM store_sales_items si
+              LEFT JOIN store_products p ON p.product_id = si.product_id
+              LEFT JOIN store_units u ON u.unit_id = p.unit_id
+              LEFT JOIN store_stock_lots sl ON sl.lot_id = si.lot_id
+              LEFT JOIN store_suppliers sup ON sup.supplier_id = sl.supplier_id
+              WHERE si.sales_id = s.sales_id
+            ),
+            '[]'::json
+          ) AS items
+        FROM store_sales s
+        LEFT JOIN customers c ON c.customer_id = s.customer_id
+        WHERE s.sales_id = ${sales_id} AND s.owner_id = ${owner_id}
+        LIMIT 1
+      `;
 
-    if (!sale) {
-      const e = new Error("Sale not found");
-      e.status = 404;
-      e.code = "SALE_NOT_FOUND";
-      throw e;
+      const row = rows[0];
+      if (!row) {
+        const e = new Error("Sale not found");
+        e.status = 404;
+        e.code = "SALE_NOT_FOUND";
+        throw e;
+      }
+
+      return {
+        sales_id: row.sales_id,
+        owner_id,
+        customer_id: row.customer_id,
+        total_amount: Number(row.total_amount || 0),
+        discount: Number(row.discount || 0),
+        paid_amount: Number(row.paid_amount || 0),
+        due_amount: Number(row.due_amount || 0),
+        note: row.note,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        payment_status: row.payment_status,
+        payment_method: row.payment_method,
+        customer: row.customer,
+        items: (row.items || []).map((itm) => ({
+          sales_item_id: itm.sales_item_id,
+          sales_id: row.sales_id,
+          product_id: itm.product_id,
+          lot_id: itm.lot_id,
+          qty: itm.qty,
+          cp: itm.cp ? Number(itm.cp) : null,
+          sp: Number(itm.sp || 0),
+          line_total: Number(itm.line_total || 0),
+          note: itm.note,
+          created_at: itm.created_at,
+          owner_id: owner_id,
+          returned_qty: Number(itm.returned_qty || 0),
+          product: itm.product,
+          lot: itm.lot,
+        })),
+      };
+    } catch (err) {
+      console.error("Error in optimized storeSalesService.getById:", err);
+      throw err;
     }
-
-    return sale;
   }
 
  

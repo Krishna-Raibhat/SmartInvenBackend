@@ -3,9 +3,6 @@ import { prisma } from "../prisma/client.js";
 
 class StoreStockAlertService {
   async getStockAlerts(owner_id, { lowThreshold = 10, criticalThreshold = 5 }) {
-    console.log('⚠️ Fetching stock alerts for owner:', owner_id);
-    console.log('📊 Thresholds - Low:', lowThreshold, 'Critical:', criticalThreshold);
-
     const [lowStockProducts, outOfStockProducts, lowStockLots, outOfStockLots] = await Promise.all([
       // Low stock products (qty_remaining > 0 but <= lowThreshold)
       prisma.$queryRaw`
@@ -150,11 +147,6 @@ class StoreStockAlertService {
       `
     ]);
 
-    console.log('⚠️ Low stock products:', lowStockProducts.length);
-    console.log('❌ Out of stock products:', outOfStockProducts.length);
-    console.log('📦 Low stock lots:', lowStockLots.length);
-    console.log('📦 Out of stock lots:', outOfStockLots.length);
-
     // Group lots by product_id
     const lowStockLotsMap = {};
     for (const lot of lowStockLots) {
@@ -246,8 +238,6 @@ class StoreStockAlertService {
       ),
       total_alerts: lowStock.length + outOfStock.length,
     };
-
-    console.log('📊 Stock Alert Summary:', summary);
 
     return {
       success: true,

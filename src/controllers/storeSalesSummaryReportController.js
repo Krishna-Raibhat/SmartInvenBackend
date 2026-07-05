@@ -9,8 +9,6 @@ export const getSalesSummary = async (req, res) => {
     const owner_id = req.owner.owner_id;
     const { start, end } = req.query;
 
-    console.log('Sales Summary Request:', { owner_id, start, end });
-
     const data = await storeSalesSummaryReportService.getSalesSummary(owner_id, { start, end });
 
     return res.json({ success: true, data });

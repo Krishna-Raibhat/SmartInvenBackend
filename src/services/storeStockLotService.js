@@ -19,6 +19,7 @@ class StoreStockLotService {
 
     if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
     if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
+    if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
 
     // Fix #1: null/undefined checks instead of falsy (allows 0)
     if (cp === undefined || cp === null) throw { code: "REQUIRED_FIELDS", message: "cp is required." };
@@ -29,9 +30,7 @@ class StoreStockLotService {
     if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
     if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
 
-    if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
-
-    return prisma.storeStockLot.create({
+    const createdLot = await prisma.storeStockLot.create({
       data: {
         owner_id,
         product_id,
@@ -41,11 +40,13 @@ class StoreStockLotService {
         cp,
         sp,
       },
-      include: {
-        product: { include: { category: true, unit: true } },
-        supplier: true,
-      },
     });
+
+    return {
+      ...createdLot,
+      product,
+      supplier,
+    };
   }
 
   async list(owner_id) {
@@ -59,34 +60,30 @@ class StoreStockLotService {
     });
   }
 
-  // Fix #4: single query — fetch lots with product included, validate product type from result
   async getByProduct(owner_id, product_id) {
-    const lots = await prisma.storeStockLot.findMany({
-      where: { product_id, owner_id },
-      include: {
-        supplier: true,
-        product: { select: { type: true } },
-      },
-      orderBy: { created_at: "desc" },
-    });
-
-    // Validate using the first lot's product, or do a targeted check only if no lots found
-    if (lots.length > 0 && lots[0].product.type === "service") {
-      throw { code: "VALIDATION_ERROR", message: "Service does not have stock lots." };
-    }
-
-    if (lots.length === 0) {
-      // Still need to verify the product exists and isn't a service
-      const product = await prisma.storeProduct.findFirst({
+    const [product, lots, suppliers] = await Promise.all([
+      prisma.storeProduct.findFirst({
         where: { product_id, owner_id },
         select: { type: true },
-      });
-      if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
-      if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Service does not have stock lots." };
-    }
+      }),
+      prisma.storeStockLot.findMany({
+        where: { product_id, owner_id },
+        orderBy: { created_at: "desc" },
+      }),
+      prisma.storeSupplier.findMany({
+        where: { owner_id },
+      }),
+    ]);
 
-    // Strip the nested product from each lot to keep response clean
-    return lots.map(({ product: _p, ...lot }) => lot);
+    if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+    if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Service does not have stock lots." };
+
+    const supplierMap = new Map(suppliers.map((s) => [s.supplier_id, s]));
+
+    return lots.map((lot) => ({
+      ...lot,
+      supplier: supplierMap.get(lot.supplier_id) || null,
+    }));
   }
 
   async getById(owner_id, lot_id) {

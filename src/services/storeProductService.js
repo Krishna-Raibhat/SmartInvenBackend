@@ -25,19 +25,30 @@ class StoreProductService {
       throw { code: "REQUIRED_FIELDS", message: "sp is required for service." };
     }
 
+    const checks = [];
     if (unit_id) {
-      const unit = await prisma.storeUnit.findFirst({
-        where: { unit_id, owner_id },
-      });
-      if (!unit) throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
+      checks.push(
+        prisma.storeUnit.findFirst({
+          where: { unit_id, owner_id },
+        }).then((unit) => {
+          if (!unit) throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
+        })
+      );
     }
 
     if (category_id) {
-      const category = await prisma.storeCategory.findFirst({
-        where: { category_id, owner_id },
-      });
-      if (!category)
-        throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
+      checks.push(
+        prisma.storeCategory.findFirst({
+          where: { category_id, owner_id },
+        }).then((category) => {
+          if (!category)
+            throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
+        })
+      );
+    }
+
+    if (checks.length > 0) {
+      await Promise.all(checks);
     }
 
     try {
@@ -61,95 +72,184 @@ class StoreProductService {
     }
   }
 
-  // async list(owner_id) {
-  //   const products = await prisma.storeProduct.findMany({
-  //     where: { owner_id },
-  //     orderBy: { created_at: "desc" },
-  //     include: {
-  //       category: true,
-  //       unit: true,
-  //       stockLots: {
-  //         select: {
-  //           qty_remaining: true,
-  //         },
-  //       },
-  //     },
-  //   });
-
-  //   return products.map((p) => {
-  //     const stock = p.stockLots.reduce(
-  //       (sum, lot) => sum + Number(lot.qty_remaining),
-  //       0,
-  //     );
-
-  //     let stock_status = "in_stock";
-
-  //     if (stock <= 0) {
-  //       stock_status = "out_of_stock";
-  //     } else if (stock <= 10) {
-  //       stock_status = "low_stock";
-  //     }
-
-  //     return {
-  //       ...p,
-  //       stock,
-  //       stock_status,
-  //     };
-  //   });
-  // }
   async list(owner_id) {
-    const products = await prisma.storeProduct.findMany({
-      where: { owner_id },
-      orderBy: { created_at: "desc" },
-      include: {
-        category: true,
-        unit: true,
-        stockLots: {
-          where: { qty_remaining: { gt: 0 } },
-          select: {
-            qty_remaining: true,
-          },
-        },
-      },
-    });
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT 
+          p.product_id,
+          p.product_name,
+          p.type::text AS type,
+          p.description,
+          p.cp::numeric,
+          p.sp::numeric,
+          p.created_at,
+          p.updated_at,
+          p.category_id,
+          p.unit_id,
+          CASE WHEN p.category_id IS NOT NULL THEN json_build_object(
+            'category_id', c.category_id,
+            'category_name', c.category_name,
+            'created_at', c.created_at,
+            'updated_at', c.updated_at
+          ) ELSE NULL END AS category,
+          CASE WHEN p.unit_id IS NOT NULL THEN json_build_object(
+            'unit_id', u.unit_id,
+            'unit_name', u.unit_name,
+            'created_at', u.created_at,
+            'updated_at', u.updated_at
+          ) ELSE NULL END AS unit,
+          COALESCE(
+            (
+              SELECT json_agg(json_build_object('product_id', sl.product_id, 'qty_remaining', sl.qty_remaining))
+              FROM store_stock_lots sl
+              WHERE sl.product_id = p.product_id AND sl.qty_remaining > 0
+            ),
+            '[]'::json
+          ) AS stock_lots,
+          COALESCE(
+            (
+              SELECT SUM(sl.qty_remaining)::int
+              FROM store_stock_lots sl
+              WHERE sl.product_id = p.product_id AND sl.qty_remaining > 0
+            ),
+            0
+          ) AS stock
+        FROM store_products p
+        LEFT JOIN store_categories c ON c.category_id = p.category_id
+        LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        WHERE p.owner_id = ${owner_id}
+        ORDER BY p.created_at DESC
+      `;
 
-    return products.map((p) => {
-      const stock = p.stockLots.reduce(
-        (sum, lot) => sum + Number(lot.qty_remaining),
-        0,
-      );
+      return rows.map((p) => {
+        const stock = Number(p.stock || 0);
+        let stock_status = "in_stock";
 
-      let stock_status = "in_stock";
+        if (stock <= 0) {
+          stock_status = "out_of_stock";
+        } else if (stock <= 10) {
+          stock_status = "low_stock";
+        }
 
-      if (stock <= 0) {
-        stock_status = "out_of_stock";
-      } else if (stock <= 10) {
-        stock_status = "low_stock";
-      }
-
-      return {
-        ...p,
-        stock,
-        stock_status,
-      };
-    });
+        return {
+          product_id: p.product_id,
+          owner_id,
+          category_id: p.category_id,
+          unit_id: p.unit_id,
+          product_name: p.product_name,
+          description: p.description,
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+          cp: p.cp ? Number(p.cp) : null,
+          sp: p.sp ? Number(p.sp) : null,
+          type: p.type,
+          category: p.category,
+          unit: p.unit,
+          stockLots: p.stock_lots || [],
+          stock,
+          stock_status,
+        };
+      });
+    } catch (err) {
+      console.error("Error in optimized storeProductService.list:", err);
+      throw err;
+    }
   }
 
   async getById(owner_id, product_id) {
-    const product = await prisma.storeProduct.findFirst({
-      where: { owner_id, product_id },
-      include: {
-        category: true,
-        unit: true,
-        stockLots: {
-          include: { supplier: true },
-          orderBy: { created_at: "desc" },
-        },
-      },
-    });
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT
+          p.product_id,
+          p.owner_id,
+          p.category_id,
+          p.unit_id,
+          p.product_name,
+          p.description,
+          p.cp::numeric,
+          p.sp::numeric,
+          p.type::text AS type,
+          p.created_at,
+          p.updated_at,
+          CASE WHEN p.category_id IS NOT NULL THEN json_build_object(
+            'category_id', c.category_id,
+            'category_name', c.category_name,
+            'created_at', c.created_at,
+            'updated_at', c.updated_at
+          ) ELSE NULL END AS category,
+          CASE WHEN p.unit_id IS NOT NULL THEN json_build_object(
+            'unit_id', u.unit_id,
+            'unit_name', u.unit_name,
+            'created_at', u.created_at,
+            'updated_at', u.updated_at
+          ) ELSE NULL END AS unit,
+          COALESCE(
+            (
+              SELECT json_agg(
+                json_build_object(
+                  'lot_id', sl.lot_id,
+                  'qty_in', sl.qty_in,
+                  'qty_remaining', sl.qty_remaining,
+                  'cp', sl.cp::numeric,
+                  'sp', sl.sp::numeric,
+                  'notes', sl.notes,
+                  'created_at', sl.created_at,
+                  'updated_at', sl.updated_at,
+                  'supplier', CASE WHEN sl.supplier_id IS NOT NULL THEN json_build_object(
+                    'supplier_id', sup.supplier_id,
+                    'supplier_name', sup.supplier_name,
+                    'phone', sup.phone,
+                    'email', sup.email,
+                    'address', sup.address
+                  ) ELSE NULL END
+                ) ORDER BY sl.created_at DESC
+              )
+              FROM store_stock_lots sl
+              LEFT JOIN store_suppliers sup ON sup.supplier_id = sl.supplier_id
+              WHERE sl.product_id = p.product_id
+            ),
+            '[]'::json
+          ) AS stock_lots
+        FROM store_products p
+        LEFT JOIN store_categories c ON c.category_id = p.category_id
+        LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        WHERE p.product_id = ${product_id} AND p.owner_id = ${owner_id}
+        LIMIT 1
+      `;
 
-    if (!product) throw { code: "NOT_FOUND", message: "Product not found." };
-    return product;
+      const p = rows[0];
+      if (!p) throw { code: "NOT_FOUND", message: "Product not found." };
+
+      return {
+        product_id: p.product_id,
+        owner_id: p.owner_id,
+        category_id: p.category_id,
+        unit_id: p.unit_id,
+        product_name: p.product_name,
+        description: p.description,
+        cp: p.cp ? Number(p.cp) : null,
+        sp: p.sp ? Number(p.sp) : null,
+        type: p.type,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        category: p.category,
+        unit: p.unit,
+        stockLots: (p.stock_lots || []).map((lot) => ({
+          lot_id: lot.lot_id,
+          qty_in: Number(lot.qty_in || 0),
+          qty_remaining: Number(lot.qty_remaining || 0),
+          cp: lot.cp ? Number(lot.cp) : 0,
+          sp: lot.sp ? Number(lot.sp) : 0,
+          notes: lot.notes,
+          created_at: lot.created_at,
+          updated_at: lot.updated_at,
+          supplier: lot.supplier,
+        })),
+      };
+    } catch (err) {
+      console.error("Error in optimized storeProductService.getById:", err);
+      throw err;
+    }
   }
 
   async update(
@@ -157,11 +257,23 @@ class StoreProductService {
     product_id,
     { category_id, unit_id, product_name, type, description, cp, sp },
   ) {
-    const existing = await prisma.storeProduct.findFirst({
-      where: { owner_id, product_id },
-    });
+    const [existing, unitCheck, categoryCheck] = await Promise.all([
+      prisma.storeProduct.findFirst({
+        where: { owner_id, product_id },
+      }),
+      unit_id
+        ? prisma.storeUnit.findFirst({ where: { unit_id, owner_id } })
+        : Promise.resolve(true),
+      category_id
+        ? prisma.storeCategory.findFirst({ where: { category_id, owner_id } })
+        : Promise.resolve(true),
+    ]);
 
     if (!existing) throw { code: "NOT_FOUND", message: "Product not found." };
+    if (unit_id && !unitCheck)
+      throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
+    if (category_id && !categoryCheck)
+      throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
 
     const resolvedType = type ?? existing.type;
 
@@ -181,21 +293,6 @@ class StoreProductService {
           code: "REQUIRED_FIELDS",
           message: "sp is required for service.",
         };
-    }
-
-    if (unit_id) {
-      const unit = await prisma.storeUnit.findFirst({
-        where: { unit_id, owner_id },
-      });
-      if (!unit) throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
-    }
-
-    if (category_id) {
-      const category = await prisma.storeCategory.findFirst({
-        where: { category_id, owner_id },
-      });
-      if (!category)
-        throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
     }
 
     const data = {};

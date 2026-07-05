@@ -506,154 +506,198 @@ class StoreDashboardService {
   }
 
   async _getRecentActivities(owner_id, limit = 6) {
-    const per = Math.max(10, limit * 3);
+    try {
+      const per = Math.max(10, limit);
+      const rows = await prisma.$queryRaw`
+        (
+          SELECT
+            'PRODUCT_CREATED' AS type,
+            p.created_at,
+            'Product added' AS title,
+            p.product_name || ' (' || p.type::text || ')' || COALESCE(' • ' || c.category_name, '') AS message,
+            p.product_id AS ref_product_id,
+            NULL AS ref_lot_id,
+            NULL AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_products p
+          LEFT JOIN store_categories c ON c.category_id = p.category_id
+          WHERE p.owner_id = ${owner_id}
+          ORDER BY p.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'STOCK_IN' AS type,
+            l.created_at,
+            'Stock in' AS title,
+            COALESCE(p.product_name, 'Product') || ' • +' || l.qty_in || ' ' || COALESCE(u.unit_name, 'units') || COALESCE(' • ' || s.supplier_name, '') AS message,
+            p.product_id AS ref_product_id,
+            l.lot_id AS ref_lot_id,
+            NULL AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_stock_lots l
+          LEFT JOIN store_products p ON p.product_id = l.product_id
+          LEFT JOIN store_units u ON u.unit_id = p.unit_id
+          LEFT JOIN store_suppliers s ON s.supplier_id = l.supplier_id
+          WHERE l.owner_id = ${owner_id}
+          ORDER BY l.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'SALE' AS type,
+            s.created_at,
+            'Sale' AS title,
+            COALESCE(c.full_name, 'Walk-in') || ' • Rs.' || (s.total_amount - COALESCE(s.discount, 0))::numeric || CASE WHEN COALESCE(s.discount, 0) > 0 THEN ' (Disc: ' || s.discount::numeric || ')' ELSE '' END || ' • ' || s.payment_status::text AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            s.sales_id AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_sales s
+          LEFT JOIN customers c ON c.customer_id = s.customer_id
+          WHERE s.owner_id = ${owner_id}
+          ORDER BY s.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'CUSTOMER_RETURN' AS type,
+            r.created_at,
+            'Customer return' AS title,
+            COALESCE(c.full_name, 'Customer') || ' • Refund Rs.' || COALESCE(r.refund_amount, 0)::numeric AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            r.sales_id AS ref_sales_id,
+            r.return_id AS ref_return_id
+          FROM store_customer_returns r
+          LEFT JOIN store_sales ss ON ss.sales_id = r.sales_id
+          LEFT JOIN customers c ON c.customer_id = ss.customer_id
+          WHERE r.owner_id = ${owner_id}
+          ORDER BY r.created_at DESC
+          LIMIT ${per}
+        )
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
 
-    const [products, lots, sales, returns] = await Promise.all([
-      prisma.storeProduct.findMany({
-        where: { owner_id },
-        orderBy: { created_at: "desc" },
-        take: per,
-        select: {
-          product_id: true, product_name: true, type: true, created_at: true,
-          category: { select: { category_name: true } },
-        },
-      }),
-      prisma.storeStockLot.findMany({
-        where: { owner_id },
-        orderBy: { created_at: "desc" },
-        take: per,
-        select: {
-          lot_id: true, qty_in: true, created_at: true,
-          product: { select: { product_id: true, product_name: true, unit: { select: { unit_name: true } } } },
-          supplier: { select: { supplier_name: true } },
-        },
-      }),
-      prisma.storeSales.findMany({
-        where: { owner_id },
-        orderBy: { created_at: "desc" },
-        take: per,
-        select: {
-          sales_id: true, total_amount: true, discount: true,
-          paid_amount: true, payment_status: true, created_at: true,
-          customer: { select: { full_name: true, phone: true } },
-        },
-      }),
-      prisma.storeCustomerReturn.findMany({
-        where: { owner_id },
-        orderBy: { created_at: "desc" },
-        take: per,
-        select: {
-          return_id: true, sales_id: true, refund_amount: true, created_at: true,
-          sales: { select: { customer: { select: { full_name: true } } } },
-        },
-      }),
-    ]);
-
-    const activities = [];
-
-    for (const p of products) {
-      activities.push({
-        type: "PRODUCT_CREATED",
-        created_at: p.created_at,
-        title: "Product added",
-        message: `${p.product_name} (${p.type})${p.category ? " • " + p.category.category_name : ""}`,
-        ref: { product_id: p.product_id },
+      return rows.map(r => {
+        const ref = {};
+        if (r.ref_product_id) ref.product_id = r.ref_product_id;
+        if (r.ref_lot_id) ref.lot_id = r.ref_lot_id;
+        if (r.ref_sales_id) ref.sales_id = r.ref_sales_id;
+        if (r.ref_return_id) ref.return_id = r.ref_return_id;
+        return {
+          type: r.type,
+          created_at: r.created_at,
+          title: r.title,
+          message: r.message,
+          ref
+        };
       });
+    } catch (err) {
+      console.error("Error in optimized _getRecentActivities:", err);
+      return [];
     }
-
-    for (const l of lots) {
-      const unit = l.product?.unit?.unit_name || "units";
-      activities.push({
-        type: "STOCK_IN",
-        created_at: l.created_at,
-        title: "Stock in",
-        message: `${l.product?.product_name || "Product"} • +${l.qty_in} ${unit}${l.supplier ? " • " + l.supplier.supplier_name : ""}`,
-        ref: { lot_id: l.lot_id, product_id: l.product?.product_id },
-      });
-    }
-
-    for (const s of sales) {
-      const effectiveTotal = Number(s.total_amount) - Number(s.discount || 0);
-      const customer = s.customer?.full_name || "Walk-in";
-      const disc = Number(s.discount || 0);
-      activities.push({
-        type: "SALE",
-        created_at: s.created_at,
-        title: "Sale",
-        message: `${customer} • Rs.${effectiveTotal}${disc > 0 ? ` (Disc: ${disc})` : ""} • ${s.payment_status}`,
-        ref: { sales_id: s.sales_id },
-      });
-    }
-
-    for (const r of returns) {
-      const customer = r.sales?.customer?.full_name || "Customer";
-      activities.push({
-        type: "CUSTOMER_RETURN",
-        created_at: r.created_at,
-        title: "Customer return",
-        message: `${customer} • Refund Rs.${Number(r.refund_amount || 0)}`,
-        ref: { return_id: r.return_id, sales_id: r.sales_id },
-      });
-    }
-
-    activities.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return activities.slice(0, limit);
   }
 
   async getLowStockItems(owner_id, threshold = 40, limit = 10) {
-    // Use the stock alerts service with the provided threshold
-    const result = await storeStockAlertService.getStockAlerts(owner_id, {
-      lowThreshold: threshold,
-      criticalThreshold: Math.floor(threshold / 2),
-    });
+    try {
+      const [countsResult, lowStockResult, outOfStockResult] = await Promise.all([
+        // 1. Get summary counts in one round-trip
+        prisma.$queryRaw`
+          WITH product_stock AS (
+            SELECT
+              p.product_id,
+              COALESCE(SUM(sl.qty_remaining), 0)::int AS qty_remaining
+            FROM store_products p
+            LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = ${owner_id}
+            WHERE p.owner_id = ${owner_id} AND p.type = 'item'
+            GROUP BY p.product_id
+          )
+          SELECT
+            COUNT(*)::int AS total_products,
+            COUNT(CASE WHEN qty_remaining > 0 AND qty_remaining <= ${threshold} THEN 1 END)::int AS low_stock_count,
+            COUNT(CASE WHEN qty_remaining = 0 THEN 1 END)::int AS out_of_stock_count
+          FROM product_stock
+        `,
 
-    if (!result.success) {
+        // 2. Get low stock items preview (up to limit)
+        prisma.$queryRaw`
+          SELECT
+            p.product_id,
+            p.product_name,
+            COALESCE(u.unit_name, 'pcs') AS unit,
+            COALESCE(c.category_name, 'Uncategorized') AS category,
+            COALESCE(SUM(sl.qty_remaining), 0)::int AS qty_remaining
+          FROM store_products p
+          LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = ${owner_id}
+          LEFT JOIN store_categories c ON c.category_id = p.category_id
+          LEFT JOIN store_units u ON u.unit_id = p.unit_id
+          WHERE p.owner_id = ${owner_id} AND p.type = 'item'
+          GROUP BY p.product_id, p.product_name, c.category_name, u.unit_name
+          HAVING COALESCE(SUM(sl.qty_remaining), 0) > 0 AND COALESCE(SUM(sl.qty_remaining), 0) <= ${threshold}
+          ORDER BY qty_remaining ASC, p.product_name ASC
+          LIMIT ${limit}
+        `,
+
+        // 3. Get out of stock items preview (up to limit)
+        prisma.$queryRaw`
+          SELECT
+            p.product_id,
+            p.product_name,
+            COALESCE(u.unit_name, 'pcs') AS unit,
+            COALESCE(c.category_name, 'Uncategorized') AS category,
+            0::int AS qty_remaining
+          FROM store_products p
+          LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = ${owner_id}
+          LEFT JOIN store_categories c ON c.category_id = p.category_id
+          LEFT JOIN store_units u ON u.unit_id = p.unit_id
+          WHERE p.owner_id = ${owner_id} AND p.type = 'item'
+          GROUP BY p.product_id, p.product_name, c.category_name, u.unit_name
+          HAVING COALESCE(SUM(sl.qty_remaining), 0) = 0
+          ORDER BY p.product_name ASC
+          LIMIT ${limit}
+        `
+      ]);
+
+      const counts = countsResult[0] || { total_products: 0, low_stock_count: 0, out_of_stock_count: 0 };
+      const totalCount = Number(counts.total_products || 0);
+      const lowStockCount = Number(counts.low_stock_count || 0);
+      const outOfStockCount = Number(counts.out_of_stock_count || 0);
+      const inStockCount = Math.max(0, totalCount - lowStockCount - outOfStockCount);
+
+      const mapItem = (item) => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        unit: item.unit || 'units',
+        category: item.category === 'Uncategorized' ? null : item.category,
+        qty_remaining: Number(item.qty_remaining || 0),
+      });
+
       return {
         summary: {
-          total_products: 0,
-          in_stock: 0,
-          low_stock: 0,
-          out_of_stock: 0,
+          total_products: totalCount,
+          in_stock: inStockCount,
+          low_stock: lowStockCount,
+          out_of_stock: outOfStockCount,
         },
+        low_stock_items: lowStockResult.map(mapItem),
+        out_of_stock_items: outOfStockResult.map(mapItem),
+      };
+    } catch (err) {
+      console.error("Error in optimized getLowStockItems:", err);
+      // Fallback response structure in case of query error
+      return {
+        summary: { total_products: 0, in_stock: 0, low_stock: 0, out_of_stock: 0 },
         low_stock_items: [],
         out_of_stock_items: [],
       };
     }
-
-    const { summary, low_stock, out_of_stock } = result.data;
-
-    // Calculate total products and in-stock count
-    const totalProducts = await prisma.$queryRaw`
-      SELECT COUNT(p.product_id)::int AS total
-      FROM store_products p
-      WHERE p.owner_id = ${owner_id} AND p.type = 'item'
-    `;
-
-    const totalCount = Number(totalProducts[0]?.total || 0);
-    const lowStockCount = summary.low_stock_count + summary.critical_stock_count;
-    const outOfStockCount = summary.out_of_stock_count;
-    const inStockCount = totalCount - lowStockCount - outOfStockCount;
-
-    // Map to dashboard format (simplified, just the first 'limit' items)
-    const mapItem = (item) => ({
-      product_id: item.product_id,
-      product_name: item.product_name,
-      unit: item.unit || 'units',
-      category: item.category || null,
-      qty_remaining: item.qty_remaining || 0,
-    });
-
-    return {
-      summary: {
-        total_products: totalCount,
-        in_stock: Math.max(0, inStockCount),
-        low_stock: lowStockCount,
-        out_of_stock: outOfStockCount,
-      },
-      low_stock_items: low_stock.slice(0, limit).map(mapItem),
-      out_of_stock_items: out_of_stock.slice(0, limit).map(mapItem),
-    };
   }
+
   async getInventoryValue(owner_id) {
     const rows = await prisma.$queryRaw`
       SELECT

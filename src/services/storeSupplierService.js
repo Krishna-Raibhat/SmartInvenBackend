@@ -131,53 +131,77 @@ class StoreSupplierService {
   }
 
   async getLots(owner_id, supplier_id) {
-    const supplier = await prisma.storeSupplier.findFirst({
-      where: {
-        owner_id,
-        supplier_id,
-      },
-    });
+    try {
+      const rows = await prisma.$queryRaw`
+        SELECT 
+          sl.lot_id,
+          sl.cp::numeric,
+          sl.sp::numeric,
+          sl.qty_in,
+          sl.qty_remaining,
+          sl.notes,
+          sl.created_at,
+          sl.updated_at,
+          p.product_id,
+          p.product_name,
+          p.type::text AS product_type,
+          c.category_id,
+          c.category_name,
+          u.unit_id,
+          u.unit_name,
+          COALESCE(
+            (
+              SELECT SUM(sri.qty)::int
+              FROM store_supplier_return_items sri
+              WHERE sri.lot_id = sl.lot_id
+            ),
+            0
+          ) AS qty_returned
+        FROM store_suppliers sup
+        LEFT JOIN store_stock_lots sl ON sl.supplier_id = sup.supplier_id AND sl.qty_remaining > 0
+        LEFT JOIN store_products p ON p.product_id = sl.product_id
+        LEFT JOIN store_categories c ON c.category_id = p.category_id
+        LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        WHERE sup.supplier_id = ${supplier_id} AND sup.owner_id = ${owner_id}
+        ORDER BY sl.created_at DESC
+      `;
 
-    if (!supplier) {
-      throw {
-        code: "NOT_FOUND",
-        message: "Supplier not found.",
-      };
-    }
+      if (rows.length === 0) {
+        throw {
+          code: "NOT_FOUND",
+          message: "Supplier not found.",
+        };
+      }
 
-    const lots = await prisma.storeStockLot.findMany({
-      where: {
+      if (rows.length === 1 && rows[0].lot_id === null) {
+        return [];
+      }
+
+      return rows.map((r) => ({
+        lot_id: r.lot_id,
         owner_id,
+        product_id: r.product_id,
         supplier_id,
-        qty_remaining: {
-          gt: 0,
-        },
-      },
-      orderBy: {
-        created_at: "desc",
-      },
-      include: {
+        cp: Number(r.cp || 0),
+        sp: Number(r.sp || 0),
+        qty_in: Number(r.qty_in || 0),
+        qty_remaining: Number(r.qty_remaining || 0),
+        notes: r.notes,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
         product: {
-          include: {
-            category: true,
-            unit: true,
-          },
+          product_id: r.product_id,
+          product_name: r.product_name,
+          type: r.product_type,
+          category: r.category_id ? { category_id: r.category_id, category_name: r.category_name } : null,
+          unit: r.unit_id ? { unit_id: r.unit_id, unit_name: r.unit_name } : null,
         },
-        supplierReturnItems: {
-          select: {
-            qty: true,
-          },
-        },
-      },
-    });
-
-    return lots.map((lot) => ({
-      ...lot,
-      qty_returned: lot.supplierReturnItems.reduce(
-        (sum, item) => sum + item.qty,
-        0,
-      ),
-    }));
+        qty_returned: Number(r.qty_returned || 0),
+      }));
+    } catch (err) {
+      console.error("Error in optimized storeSupplierService.getLots:", err);
+      throw err;
+    }
   }
 
   /**

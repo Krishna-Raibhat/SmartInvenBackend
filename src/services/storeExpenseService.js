@@ -312,49 +312,42 @@ class StoreExpenseService {
         const prevEnd = new Date(startFinal.getTime() - 1);
         const prevStart = new Date(startFinal.getTime() - duration - 1);
 
-        const [summaryRows, prevRows, categoryRows, dailyExpenses] = await Promise.all([
-            // Current period summary
-            prisma.$queryRaw`
+        const rows = await prisma.$queryRaw`
+          WITH summary AS (
             SELECT
-                COALESCE(SUM(e.amount), 0)::numeric          AS total_expenses,
-                COUNT(e.expense_id)::int                     AS total_transactions,
-                COUNT(DISTINCT e.title_id)::int              AS category_count
+              COALESCE(SUM(e.amount), 0)::numeric          AS total_expenses,
+              COUNT(e.expense_id)::int                     AS total_transactions,
+              COUNT(DISTINCT e.title_id)::int              AS category_count
             FROM store_expenses e
             WHERE e.owner_id = ${owner_id}
-                AND e.created_at >= ${startFinal}
-                AND e.created_at <= ${endFinal}
-            `,
-
-            // Previous period total (for % comparison)
-            prisma.$queryRaw`
+              AND e.created_at >= ${startFinal}
+              AND e.created_at <= ${endFinal}
+          ),
+          prev_summary AS (
             SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
             FROM store_expenses
             WHERE owner_id = ${owner_id}
-                AND created_at >= ${prevStart}
-                AND created_at <= ${prevEnd}
-            `,
-
-            // Breakdown by category
-            prisma.$queryRaw`
+              AND created_at >= ${prevStart}
+              AND created_at <= ${prevEnd}
+          ),
+          categories AS (
             SELECT
-                t.title_id,
-                t.title,
-                COALESCE(SUM(e.amount), 0)::numeric   AS total_amount,
-                COUNT(e.expense_id)::int              AS entry_count
+              t.title_id,
+              t.title,
+              COALESCE(SUM(e.amount), 0)::numeric   AS total_amount,
+              COUNT(e.expense_id)::int              AS entry_count
             FROM store_expense_titles t
             LEFT JOIN store_expenses e
-                ON e.title_id = t.title_id
-                AND e.owner_id = ${owner_id}
-                AND e.created_at >= ${startFinal}
-                AND e.created_at <= ${endFinal}
+              ON e.title_id = t.title_id
+              AND e.owner_id = ${owner_id}
+              AND e.created_at >= ${startFinal}
+              AND e.created_at <= ${endFinal}
             WHERE t.owner_id = ${owner_id}
             GROUP BY t.title_id, t.title
             HAVING COALESCE(SUM(e.amount), 0) > 0
             ORDER BY total_amount DESC
-            `,
-
-            // Daily trend
-            prisma.$queryRaw`
+          ),
+          daily AS (
             SELECT
               DATE(e.created_at) AS date_only,
               t.title,
@@ -366,14 +359,22 @@ class StoreExpenseService {
                 AND e.created_at <= ${endFinal}
             GROUP BY DATE(e.created_at), t.title
             ORDER BY DATE(e.created_at) ASC
-            `,
-        ]);
+          )
+          SELECT
+            (SELECT json_build_object('total_expenses', total_expenses, 'total_transactions', total_transactions, 'category_count', category_count) FROM summary) AS summary,
+            COALESCE((SELECT total_expenses FROM prev_summary), 0)::numeric AS prev_total_expenses,
+            COALESCE((SELECT json_agg(json_build_object('title_id', title_id, 'title', title, 'total_amount', total_amount, 'entry_count', entry_count)) FROM categories), '[]'::json) AS categories,
+            COALESCE((SELECT json_agg(json_build_object('date_only', date_only, 'title', title, 'amount', amount)) FROM daily), '[]'::json) AS daily
+        `;
 
-        const s = summaryRows[0] || {};
+        const row = rows[0] || {};
+        const s = row.summary || {};
         const totalExpenses     = Number(s.total_expenses     || 0);
         const totalTransactions = Number(s.total_transactions || 0);
         const categoryCount     = Number(s.category_count     || 0);
-        const prevTotal         = Number(prevRows[0]?.total_expenses || 0);
+        const prevTotal         = Number(row.prev_total_expenses || 0);
+        const categoryRows      = row.categories || [];
+        const dailyExpenses     = row.daily || [];
 
         // % change vs last period
         const vsLastPeriod = prevTotal === 0

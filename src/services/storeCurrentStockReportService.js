@@ -3,8 +3,6 @@ import { prisma } from "../prisma/client.js";
 
 class StoreCurrentStockReportService {
   async getCurrentStock(owner_id) {
-    console.log('📦 Fetching current stock for owner:', owner_id);
-    
     // Run all queries in parallel for performance
     const [productsData, categoriesData] = await Promise.all([
       // Products with current stock from lots
@@ -56,9 +54,6 @@ class StoreCurrentStockReportService {
       `
     ]);
 
-    console.log('📦 Products with stock:', productsData.length);
-    console.log('📦 Categories with stock:', categoriesData.length);
-
     // Calculate category percentages
     const totalCategoryValue = categoriesData.reduce((sum, cat) => sum + Number(cat.value), 0);
     const categories = categoriesData.map(cat => ({
@@ -100,9 +95,6 @@ class StoreCurrentStockReportService {
       avg_margin: Number(avg_margin.toFixed(1)),
       categories: categories.length,
     };
-
-    console.log('📊 Current Stock Summary:', summary);
-    console.log('📦 Sample product:', products[0]);
 
     return {
       success: true,
