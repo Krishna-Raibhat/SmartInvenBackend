@@ -274,105 +274,205 @@ class StoreCustomerReturnService {
     return this._format(ret);
   }
 
-  async list(owner_id) {
-    try {
-      const rows = await prisma.$queryRaw`
-        SELECT
-          r.return_id,
-          r.sales_id,
-          r.refund_amount::numeric,
-          r.note,
-          r.created_at,
-          CASE WHEN r.sales_id IS NOT NULL THEN json_build_object(
-            'sales_id', s.sales_id,
-            'total_amount', s.total_amount::numeric,
-            'discount', s.discount::numeric,
-            'paid_amount', s.paid_amount::numeric,
-            'due_amount', s.due_amount::numeric,
-            'payment_status', s.payment_status,
-            'created_at', s.created_at,
-            'customer', CASE WHEN s.customer_id IS NOT NULL THEN json_build_object(
-              'customer_id', cust.customer_id,
-              'full_name', cust.full_name,
-              'phone', cust.phone
-            ) ELSE NULL END
-          ) ELSE NULL END AS sale,
-          COALESCE(
-            (
-              SELECT json_agg(
-                json_build_object(
-                  'return_item_id', ri.return_item_id,
-                  'sales_item_id', ri.sales_item_id,
-                  'lot_id', ri.lot_id,
-                  'qty', ri.qty,
-                  'amount', ri.amount::numeric,
-                  'note', ri.note,
-                  'created_at', ri.created_at,
-                  'cp', sl.cp::numeric,
-                  'sp', sl.sp::numeric,
-                  'product', json_build_object(
-                    'product_id', p.product_id,
-                    'product_name', p.product_name
-                  )
-                )
-              )
-              FROM store_customer_return_items ri
-              LEFT JOIN store_stock_lots sl ON sl.lot_id = ri.lot_id
-              LEFT JOIN store_products p ON p.product_id = sl.product_id
-              WHERE ri.return_id = r.return_id
-            ),
-            '[]'::json
-          ) AS items
-        FROM store_customer_returns r
-        LEFT JOIN store_sales s ON s.sales_id = r.sales_id
-        LEFT JOIN customers cust ON cust.customer_id = s.customer_id
-        WHERE r.owner_id = ${owner_id}
-        ORDER BY r.created_at DESC
-        LIMIT 100
-      `;
+  // async list(owner_id) {
+  //   try {
+  //     const rows = await prisma.$queryRaw`
+  //       SELECT
+  //         r.return_id,
+  //         r.sales_id,
+  //         r.refund_amount::numeric,
+  //         r.note,
+  //         r.created_at,
+  //         CASE WHEN r.sales_id IS NOT NULL THEN json_build_object(
+  //           'sales_id', s.sales_id,
+  //           'total_amount', s.total_amount::numeric,
+  //           'discount', s.discount::numeric,
+  //           'paid_amount', s.paid_amount::numeric,
+  //           'due_amount', s.due_amount::numeric,
+  //           'payment_status', s.payment_status,
+  //           'created_at', s.created_at,
+  //           'customer', CASE WHEN s.customer_id IS NOT NULL THEN json_build_object(
+  //             'customer_id', cust.customer_id,
+  //             'full_name', cust.full_name,
+  //             'phone', cust.phone
+  //           ) ELSE NULL END
+  //         ) ELSE NULL END AS sale,
+  //         COALESCE(
+  //           (
+  //             SELECT json_agg(
+  //               json_build_object(
+  //                 'return_item_id', ri.return_item_id,
+  //                 'sales_item_id', ri.sales_item_id,
+  //                 'lot_id', ri.lot_id,
+  //                 'qty', ri.qty,
+  //                 'amount', ri.amount::numeric,
+  //                 'note', ri.note,
+  //                 'created_at', ri.created_at,
+  //                 'cp', sl.cp::numeric,
+  //                 'sp', sl.sp::numeric,
+  //                 'product', json_build_object(
+  //                   'product_id', p.product_id,
+  //                   'product_name', p.product_name
+  //                 )
+  //               )
+  //             )
+  //             FROM store_customer_return_items ri
+  //             LEFT JOIN store_stock_lots sl ON sl.lot_id = ri.lot_id
+  //             LEFT JOIN store_products p ON p.product_id = sl.product_id
+  //             WHERE ri.return_id = r.return_id
+  //           ),
+  //           '[]'::json
+  //         ) AS items
+  //       FROM store_customer_returns r
+  //       LEFT JOIN store_sales s ON s.sales_id = r.sales_id
+  //       LEFT JOIN customers cust ON cust.customer_id = s.customer_id
+  //       WHERE r.owner_id = ${owner_id}
+  //       ORDER BY r.created_at DESC
+  //       LIMIT 100
+  //     `;
 
-      return rows.map((row) => ({
+  //     return rows.map((row) => ({
+  //       return_id: row.return_id,
+  //       sales_id: row.sales_id,
+  //       refund_amount: Number(row.refund_amount || 0),
+  //       note: row.note,
+  //       created_at: row.created_at,
+  //       return: {
+  //         return_id: row.return_id,
+  //         sales_id: row.sales_id,
+  //         refund_amount: Number(row.refund_amount || 0),
+  //         note: row.note,
+  //         created_at: row.created_at,
+  //       },
+  //       sale: row.sale
+  //         ? {
+  //             sales_id: row.sale.sales_id,
+  //             customer: row.sale.customer,
+  //             total_amount: Number(row.sale.total_amount || 0),
+  //             discount: Number(row.sale.discount || 0),
+  //             paid_amount: Number(row.sale.paid_amount || 0),
+  //             due_amount: Number(row.sale.due_amount || 0),
+  //             payment_status: row.sale.payment_status,
+  //             created_at: row.sale.created_at,
+  //           }
+  //         : null,
+  //       items: (row.items || []).map((itm) => ({
+  //         return_item_id: itm.return_item_id,
+  //         sales_item_id: itm.sales_item_id,
+  //         lot_id: itm.lot_id,
+  //         qty: Number(itm.qty || 0),
+  //         amount: Number(itm.amount || 0),
+  //         note: itm.note,
+  //         product: itm.product || null,
+  //         cp: itm.cp ? Number(itm.cp) : null,
+  //         sp: itm.sp ? Number(itm.sp) : null,
+  //         created_at: itm.created_at,
+  //       })),
+  //     }));
+  //   } catch (err) {
+  //     console.error("Error in optimized storeCustomerReturnService.list:", err);
+  //     throw err;
+  //   }
+  // }
+  async list(owner_id) {
+    const rows = await prisma.$queryRaw`
+    SELECT
+      r.return_id,
+      r.sales_id,
+      r.refund_amount,
+      r.note,
+      r.created_at,
+
+      ss.total_amount,
+      ss.discount,
+      ss.paid_amount,
+      ss.due_amount,
+      ss.payment_status,
+      ss.created_at AS sale_created_at,
+
+      c.customer_id,
+      c.full_name,
+      c.phone,
+
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'return_item_id', ri.return_item_id,
+            'sales_item_id', ri.sales_item_id,
+            'lot_id', ri.lot_id,
+            'qty', ri.qty,
+            'amount', ri.amount,
+            'note', ri.note,
+            'product', json_build_object(
+              'product_id', p.product_id,
+              'product_name', p.product_name
+            ),
+            'cp', sl.cp,
+            'sp', sl.sp,
+            'created_at', ri.created_at
+          )
+        ) FILTER (WHERE ri.return_item_id IS NOT NULL),
+        '[]'::json
+      ) AS items
+
+    FROM store_customer_returns r
+
+    LEFT JOIN store_sales ss
+      ON ss.sales_id = r.sales_id
+
+    LEFT JOIN customers c
+      ON c.customer_id = ss.customer_id
+
+    LEFT JOIN store_customer_return_items ri
+      ON ri.return_id = r.return_id
+      AND ri.owner_id = r.owner_id
+
+    LEFT JOIN store_stock_lots sl
+      ON sl.lot_id = ri.lot_id
+
+    LEFT JOIN store_products p
+      ON p.product_id = sl.product_id
+
+    WHERE r.owner_id = ${owner_id}
+
+    GROUP BY
+      r.return_id,
+      ss.sales_id,
+      c.customer_id
+
+    ORDER BY r.created_at DESC
+
+    LIMIT 100;
+  `;
+
+    return rows.map((row) => ({
+      return: {
         return_id: row.return_id,
         sales_id: row.sales_id,
-        refund_amount: Number(row.refund_amount || 0),
+        refund_amount: Number(row.refund_amount),
         note: row.note,
         created_at: row.created_at,
-        return: {
-          return_id: row.return_id,
-          sales_id: row.sales_id,
-          refund_amount: Number(row.refund_amount || 0),
-          note: row.note,
-          created_at: row.created_at,
-        },
-        sale: row.sale
-          ? {
-              sales_id: row.sale.sales_id,
-              customer: row.sale.customer,
-              total_amount: Number(row.sale.total_amount || 0),
-              discount: Number(row.sale.discount || 0),
-              paid_amount: Number(row.sale.paid_amount || 0),
-              due_amount: Number(row.sale.due_amount || 0),
-              payment_status: row.sale.payment_status,
-              created_at: row.sale.created_at,
-            }
-          : null,
-        items: (row.items || []).map((itm) => ({
-          return_item_id: itm.return_item_id,
-          sales_item_id: itm.sales_item_id,
-          lot_id: itm.lot_id,
-          qty: Number(itm.qty || 0),
-          amount: Number(itm.amount || 0),
-          note: itm.note,
-          product: itm.product || null,
-          cp: itm.cp ? Number(itm.cp) : null,
-          sp: itm.sp ? Number(itm.sp) : null,
-          created_at: itm.created_at,
-        })),
-      }));
-    } catch (err) {
-      console.error("Error in optimized storeCustomerReturnService.list:", err);
-      throw err;
-    }
+      },
+      sale: row.sales_id
+        ? {
+            sales_id: row.sales_id,
+            customer: row.customer_id
+              ? {
+                  customer_id: row.customer_id,
+                  full_name: row.full_name,
+                  phone: row.phone,
+                }
+              : null,
+            total_amount: Number(row.total_amount ?? 0),
+            discount: Number(row.discount ?? 0),
+            paid_amount: Number(row.paid_amount ?? 0),
+            due_amount: Number(row.due_amount ?? 0),
+            payment_status: row.payment_status,
+            created_at: row.sale_created_at,
+          }
+        : null,
+      items: row.items ?? [],
+    }));
   }
 
   _format(ret) {

@@ -1,5 +1,5 @@
 // src/services/storeSupplierReturnService.js
-import prisma from "../config/prisma.js";
+import { prisma } from "../prisma/client.js";
 import { Prisma } from "@prisma/client";
 
 class StoreSupplierReturnService {
