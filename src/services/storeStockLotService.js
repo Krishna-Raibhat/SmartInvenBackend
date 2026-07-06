@@ -1,25 +1,14 @@
 // src/services/storeStockLotService.js
 import { prisma } from "../prisma/client.js";
+import { Prisma } from "@prisma/client";
+
+const Decimal = Prisma.Decimal;
 
 class StoreStockLotService {
   async create({ owner_id, product_id, supplier_id, qty_in, cp, sp }) {
     if (!supplier_id) {
       throw { code: "REQUIRED_FIELDS", message: "supplier_id is required." };
     }
-
-    const [product, supplier] = await Promise.all([
-      prisma.storeProduct.findFirst({
-        where: { product_id, owner_id },
-        include: { category: true, unit: true },
-      }),
-      prisma.storeSupplier.findFirst({
-        where: { supplier_id, owner_id },
-      }),
-    ]);
-
-    if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
-    if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
-    if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
 
     // Fix #1: null/undefined checks instead of falsy (allows 0)
     if (cp === undefined || cp === null) throw { code: "REQUIRED_FIELDS", message: "cp is required." };
@@ -29,6 +18,44 @@ class StoreStockLotService {
     // Fix #5: positive price validation
     if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
     if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
+
+    const [productRows, supplierRows] = await Promise.all([
+      prisma.$queryRaw`
+        SELECT 
+          p.product_id,
+          p.owner_id,
+          p.category_id,
+          p.unit_id,
+          p.product_name,
+          p.description,
+          p.created_at,
+          p.updated_at,
+          p.cp::numeric,
+          p.sp::numeric,
+          p.type,
+          p.last_low_stock_notified_at,
+          c.category_name,
+          c.created_at AS cat_created_at,
+          c.updated_at AS cat_updated_at,
+          u.unit_name,
+          u.created_at AS unit_created_at,
+          u.updated_at AS unit_updated_at
+        FROM store_products p
+        LEFT JOIN store_categories c ON p.category_id = c.category_id
+        LEFT JOIN store_units u ON p.unit_id = u.unit_id
+        WHERE p.product_id = ${product_id} AND p.owner_id = ${owner_id}
+      `,
+      prisma.storeSupplier.findFirst({
+        where: { supplier_id, owner_id }
+      })
+    ]);
+
+    const pRow = productRows[0];
+    if (!pRow) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+    if (pRow.type === "service") throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
+
+    const supplier = supplierRows;
+    if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
 
     const createdLot = await prisma.storeStockLot.create({
       data: {
@@ -41,6 +68,35 @@ class StoreStockLotService {
         sp,
       },
     });
+
+    const product = {
+      product_id: pRow.product_id,
+      owner_id: pRow.owner_id,
+      category_id: pRow.category_id,
+      unit_id: pRow.unit_id,
+      product_name: pRow.product_name,
+      description: pRow.description,
+      created_at: pRow.created_at,
+      updated_at: pRow.updated_at,
+      cp: pRow.cp ? new Decimal(pRow.cp) : null,
+      sp: pRow.sp ? new Decimal(pRow.sp) : null,
+      type: pRow.type,
+      last_low_stock_notified_at: pRow.last_low_stock_notified_at,
+      category: pRow.category_id ? {
+        category_id: pRow.category_id,
+        owner_id: pRow.owner_id,
+        category_name: pRow.category_name,
+        created_at: pRow.cat_created_at,
+        updated_at: pRow.cat_updated_at
+      } : null,
+      unit: pRow.unit_id ? {
+        unit_id: pRow.unit_id,
+        owner_id: pRow.owner_id,
+        unit_name: pRow.unit_name,
+        created_at: pRow.unit_created_at,
+        updated_at: pRow.unit_updated_at
+      } : null
+    };
 
     return {
       ...createdLot,

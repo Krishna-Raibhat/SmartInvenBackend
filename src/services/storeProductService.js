@@ -25,34 +25,39 @@ class StoreProductService {
       throw { code: "REQUIRED_FIELDS", message: "sp is required for service." };
     }
 
-    const checks = [];
+    // Parallel fetch of unit and category to validate and construct return object concurrently
+    const promises = [];
     if (unit_id) {
-      checks.push(
+      promises.push(
         prisma.storeUnit.findFirst({
           where: { unit_id, owner_id },
-        }).then((unit) => {
-          if (!unit) throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
         })
       );
+    } else {
+      promises.push(Promise.resolve(null));
     }
 
     if (category_id) {
-      checks.push(
+      promises.push(
         prisma.storeCategory.findFirst({
           where: { category_id, owner_id },
-        }).then((category) => {
-          if (!category)
-            throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
         })
       );
+    } else {
+      promises.push(Promise.resolve(null));
     }
 
-    if (checks.length > 0) {
-      await Promise.all(checks);
+    const [unit, category] = await Promise.all(promises);
+
+    if (unit_id && !unit) {
+      throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
+    }
+    if (category_id && !category) {
+      throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
     }
 
     try {
-      return await prisma.storeProduct.create({
+      const createdProduct = await prisma.storeProduct.create({
         data: {
           owner_id,
           category_id: category_id || null,
@@ -63,8 +68,13 @@ class StoreProductService {
           cp: cp ?? null,
           sp: sp ?? null,
         },
-        include: { category: true, unit: true },
       });
+
+      return {
+        ...createdProduct,
+        category,
+        unit,
+      };
     } catch (err) {
       if (err.code === "P2002")
         throw { code: "DUPLICATE", message: "Product name already exists." };
@@ -98,25 +108,20 @@ class StoreProductService {
             'created_at', u.created_at,
             'updated_at', u.updated_at
           ) ELSE NULL END AS unit,
-          COALESCE(
-            (
-              SELECT json_agg(json_build_object('product_id', sl.product_id, 'qty_remaining', sl.qty_remaining))
-              FROM store_stock_lots sl
-              WHERE sl.product_id = p.product_id AND sl.qty_remaining > 0
-            ),
-            '[]'::json
-          ) AS stock_lots,
-          COALESCE(
-            (
-              SELECT SUM(sl.qty_remaining)::int
-              FROM store_stock_lots sl
-              WHERE sl.product_id = p.product_id AND sl.qty_remaining > 0
-            ),
-            0
-          ) AS stock
+          COALESCE(sl.stock_lots, '[]'::json) AS stock_lots,
+          COALESCE(sl.stock, 0)::int AS stock
         FROM store_products p
         LEFT JOIN store_categories c ON c.category_id = p.category_id
         LEFT JOIN store_units u ON u.unit_id = p.unit_id
+        LEFT JOIN (
+          SELECT 
+            product_id,
+            json_agg(json_build_object('product_id', product_id, 'qty_remaining', qty_remaining)) AS stock_lots,
+            SUM(qty_remaining) AS stock
+          FROM store_stock_lots
+          WHERE owner_id = ${owner_id} AND qty_remaining > 0
+          GROUP BY product_id
+        ) sl ON p.product_id = sl.product_id
         WHERE p.owner_id = ${owner_id}
         ORDER BY p.created_at DESC
       `;
