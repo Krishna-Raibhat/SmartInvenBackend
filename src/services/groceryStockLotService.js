@@ -1,4 +1,4 @@
-import prisma from '../config/prisma.js';
+import prisma from '../prisma/client.js';
 import { Prisma } from '@prisma/client';
 import { generateAndUploadBarcode } from '../utils/barcode.js';
 import { v4 as uuidv4 } from 'uuid';

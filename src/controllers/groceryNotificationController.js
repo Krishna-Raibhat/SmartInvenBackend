@@ -1,4 +1,4 @@
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 
 const fail = (res, s, c, m) =>
   res.status(s).json({ success: false, error_code: c, message: m });

@@ -147,7 +147,7 @@ class StoreSalesService {
     // --- PRE-CALCULATIONS & WRITES DATA BUILD ---
     const sales_id = uuidv4();
     let totalAmount = new Decimal(0);
-    const lotUpdates = [];
+    const lotUpdatesMap = new Map();
     const itemsToCreate = [];
 
     for (const item of items) {
@@ -196,13 +196,7 @@ class StoreSalesService {
           }
 
           lot.qty_remaining -= qtyNum;
-
-          lotUpdates.push(
-            prisma.storeStockLot.update({
-              where: { lot_id },
-              data: { qty_remaining: { decrement: qtyNum } },
-            })
-          );
+          lotUpdatesMap.set(lot_id, (lotUpdatesMap.get(lot_id) || 0) + qtyNum);
 
           const sellingPrice = new Decimal(itemSp ?? lot.sp);
           if (sellingPrice.lt(0)) {
@@ -247,13 +241,7 @@ class StoreSalesService {
 
             const deduct = Math.min(remaining, lot.qty_remaining);
             lot.qty_remaining -= deduct;
-
-            lotUpdates.push(
-              prisma.storeStockLot.update({
-                where: { lot_id: lot.lot_id },
-                data: { qty_remaining: { decrement: deduct } },
-              })
-            );
+            lotUpdatesMap.set(lot.lot_id, (lotUpdatesMap.get(lot.lot_id) || 0) + deduct);
 
             const sellingPrice = new Decimal(itemSp ?? lot.sp);
             if (sellingPrice.lt(0)) {
@@ -355,29 +343,41 @@ class StoreSalesService {
 
     const dueAmount = Decimal.max(new Decimal(0), effectiveTotal.sub(paid));
 
-    // --- TRANSACTION BATCH ---
-    const salesHeaderPromise = prisma.storeSales.create({
-      data: {
-        sales_id,
-        owner_id,
-        customer_id: finalCustomerId,
-        total_amount: totalAmount,
-        discount: disc,
-        paid_amount: paid,
-        due_amount: dueAmount,
-        payment_status: finalStatus,
-        payment_method: finalPaymentMethod,
-        note: note ?? null,
-      },
+    // --- TRANSACTION BATCH (Interactive Transaction for Single Bulk Updates) ---
+    const createdHeader = await prisma.$transaction(async (tx) => {
+      const salesHeader = await tx.storeSales.create({
+        data: {
+          sales_id,
+          owner_id,
+          customer_id: finalCustomerId,
+          total_amount: totalAmount,
+          discount: disc,
+          paid_amount: paid,
+          due_amount: dueAmount,
+          payment_status: finalStatus,
+          payment_method: finalPaymentMethod,
+          note: note ?? null,
+        },
+      });
+
+      if (lotUpdatesMap.size > 0) {
+        const updatesList = Array.from(lotUpdatesMap.entries()).map(([lot_id, decrement]) => ({ lot_id, decrement }));
+        const valuesSql = updatesList.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::integer)`).join(", ");
+        const valuesArgs = updatesList.flatMap(u => [u.lot_id, u.decrement]);
+        
+        await tx.$executeRawUnsafe(
+          `UPDATE store_stock_lots AS sl
+           SET qty_remaining = sl.qty_remaining - tmp.decrement_qty
+           FROM (VALUES ${valuesSql}) AS tmp(lot_id, decrement_qty)
+           WHERE sl.lot_id = tmp.lot_id`,
+          ...valuesArgs
+        );
+      }
+
+      await tx.storeSalesItem.createMany({ data: itemsToCreate });
+
+      return salesHeader;
     });
-
-    const transactionResults = await prisma.$transaction([
-      salesHeaderPromise,
-      ...lotUpdates,
-      prisma.storeSalesItem.createMany({ data: itemsToCreate }),
-    ]);
-
-    const createdHeader = transactionResults[0];
 
     return { ...createdHeader, items: itemsToCreate };
   }

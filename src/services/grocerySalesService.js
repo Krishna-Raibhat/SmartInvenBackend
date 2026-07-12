@@ -1,5 +1,5 @@
 // src/services/grocerySalesService.js
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
 import { Prisma } from "@prisma/client";
 

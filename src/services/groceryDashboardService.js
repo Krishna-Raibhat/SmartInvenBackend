@@ -1,5 +1,5 @@
 // src/services/groceryDashboardService.js
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 
 class GroceryDashboardService {
   async getDashboard(owner_id) {

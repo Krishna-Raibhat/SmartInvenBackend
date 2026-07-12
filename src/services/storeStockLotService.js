@@ -19,90 +19,66 @@ class StoreStockLotService {
     if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
     if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
 
-    const [productRows, supplierRows] = await Promise.all([
-      prisma.$queryRaw`
-        SELECT 
-          p.product_id,
-          p.owner_id,
-          p.category_id,
-          p.unit_id,
-          p.product_name,
-          p.description,
-          p.created_at,
-          p.updated_at,
-          p.cp::numeric,
-          p.sp::numeric,
-          p.type,
-          p.last_low_stock_notified_at,
-          c.category_name,
-          c.created_at AS cat_created_at,
-          c.updated_at AS cat_updated_at,
-          u.unit_name,
-          u.created_at AS unit_created_at,
-          u.updated_at AS unit_updated_at
-        FROM store_products p
-        LEFT JOIN store_categories c ON p.category_id = c.category_id
-        LEFT JOIN store_units u ON p.unit_id = u.unit_id
-        WHERE p.product_id = ${product_id} AND p.owner_id = ${owner_id}
-      `,
-      prisma.storeSupplier.findFirst({
-        where: { supplier_id, owner_id }
-      })
-    ]);
+    try {
+      const createdLot = await prisma.storeStockLot.create({
+        data: {
+          owner_id,
+          product_id,
+          supplier_id,
+          qty_in,
+          qty_remaining: qty_in,
+          cp,
+          sp,
+        },
+        include: {
+          product: {
+            include: { category: true, unit: true }
+          },
+          supplier: true
+        }
+      });
 
-    const pRow = productRows[0];
-    if (!pRow) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
-    if (pRow.type === "service") throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
+      // Post-creation security and type checks
+      if (createdLot.product.owner_id !== owner_id) {
+        await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
+        throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+      }
+      if (createdLot.product.type === "service") {
+        await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
+        throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
+      }
+      if (createdLot.supplier.owner_id !== owner_id) {
+        await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
+        throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
+      }
 
-    const supplier = supplierRows;
-    if (!supplier) throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
-
-    const createdLot = await prisma.storeStockLot.create({
-      data: {
-        owner_id,
-        product_id,
-        supplier_id,
-        qty_in,
-        qty_remaining: qty_in,
-        cp,
-        sp,
-      },
-    });
-
-    const product = {
-      product_id: pRow.product_id,
-      owner_id: pRow.owner_id,
-      category_id: pRow.category_id,
-      unit_id: pRow.unit_id,
-      product_name: pRow.product_name,
-      description: pRow.description,
-      created_at: pRow.created_at,
-      updated_at: pRow.updated_at,
-      cp: pRow.cp ? new Decimal(pRow.cp) : null,
-      sp: pRow.sp ? new Decimal(pRow.sp) : null,
-      type: pRow.type,
-      last_low_stock_notified_at: pRow.last_low_stock_notified_at,
-      category: pRow.category_id ? {
-        category_id: pRow.category_id,
-        owner_id: pRow.owner_id,
-        category_name: pRow.category_name,
-        created_at: pRow.cat_created_at,
-        updated_at: pRow.cat_updated_at
-      } : null,
-      unit: pRow.unit_id ? {
-        unit_id: pRow.unit_id,
-        owner_id: pRow.owner_id,
-        unit_name: pRow.unit_name,
-        created_at: pRow.unit_created_at,
-        updated_at: pRow.unit_updated_at
-      } : null
-    };
-
-    return {
-      ...createdLot,
-      product,
-      supplier,
-    };
+      return {
+        ...createdLot,
+        product: {
+          ...createdLot.product,
+          cp: createdLot.product.cp ? new Decimal(createdLot.product.cp) : null,
+          sp: createdLot.product.sp ? new Decimal(createdLot.product.sp) : null,
+        }
+      };
+    } catch (err) {
+      if (err.code === "P2003") {
+        const [productCheck, supplierCheck] = await Promise.all([
+          prisma.storeProduct.findFirst({
+            where: { product_id, owner_id }
+          }),
+          prisma.storeSupplier.findFirst({
+            where: { supplier_id, owner_id }
+          })
+        ]);
+        if (!productCheck) {
+          throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+        }
+        if (!supplierCheck) {
+          throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
+        }
+      }
+      throw err;
+    }
   }
 
   async list(owner_id) {
@@ -117,7 +93,7 @@ class StoreStockLotService {
   }
 
   async getByProduct(owner_id, product_id) {
-    const [product, lots, suppliers] = await Promise.all([
+    const [product, lots] = await Promise.all([
       prisma.storeProduct.findFirst({
         where: { product_id, owner_id },
         select: { type: true },
@@ -125,21 +101,14 @@ class StoreStockLotService {
       prisma.storeStockLot.findMany({
         where: { product_id, owner_id },
         orderBy: { created_at: "desc" },
-      }),
-      prisma.storeSupplier.findMany({
-        where: { owner_id },
+        include: { supplier: true },
       }),
     ]);
 
     if (!product) throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
     if (product.type === "service") throw { code: "VALIDATION_ERROR", message: "Service does not have stock lots." };
 
-    const supplierMap = new Map(suppliers.map((s) => [s.supplier_id, s]));
-
-    return lots.map((lot) => ({
-      ...lot,
-      supplier: supplierMap.get(lot.supplier_id) || null,
-    }));
+    return lots;
   }
 
   async getById(owner_id, lot_id) {

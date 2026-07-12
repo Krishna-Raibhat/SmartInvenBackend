@@ -27,16 +27,12 @@ export default async (req, res, next) => {
       return res.status(401).json({ success: false, error_code: "INVALID_TOKEN", message: "Invalid token payload." });
     }
 
-    const owner = await prisma.owner.findUnique({
-      where: { owner_id: decoded.owner_id },
-      select: { owner_id: true, full_name: true, email: true, phone: true, package_id: true },
-    });
-
-    if (!owner) {
-      return res.status(401).json({ success: false, error_code: "OWNER_NOT_FOUND", message: "Owner not found. Please login again." });
-    }
-
-    req.owner = owner;
+    req.owner = {
+      owner_id: decoded.owner_id,
+      email: decoded.email,
+      package_id: decoded.package_id,
+      package_key: decoded.package_key,
+    };
     next();
   } catch (err) {
     console.error("Auth middleware error:", err.name, err.message);

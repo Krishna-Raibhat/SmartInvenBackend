@@ -25,39 +25,8 @@ class StoreProductService {
       throw { code: "REQUIRED_FIELDS", message: "sp is required for service." };
     }
 
-    // Parallel fetch of unit and category to validate and construct return object concurrently
-    const promises = [];
-    if (unit_id) {
-      promises.push(
-        prisma.storeUnit.findFirst({
-          where: { unit_id, owner_id },
-        })
-      );
-    } else {
-      promises.push(Promise.resolve(null));
-    }
-
-    if (category_id) {
-      promises.push(
-        prisma.storeCategory.findFirst({
-          where: { category_id, owner_id },
-        })
-      );
-    } else {
-      promises.push(Promise.resolve(null));
-    }
-
-    const [unit, category] = await Promise.all(promises);
-
-    if (unit_id && !unit) {
-      throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
-    }
-    if (category_id && !category) {
-      throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
-    }
-
     try {
-      const createdProduct = await prisma.storeProduct.create({
+      return await prisma.storeProduct.create({
         data: {
           owner_id,
           category_id: category_id || null,
@@ -68,16 +37,33 @@ class StoreProductService {
           cp: cp ?? null,
           sp: sp ?? null,
         },
+        include: {
+          category: true,
+          unit: true,
+        },
       });
-
-      return {
-        ...createdProduct,
-        category,
-        unit,
-      };
     } catch (err) {
-      if (err.code === "P2002")
+      if (err.code === "P2002") {
         throw { code: "DUPLICATE", message: "Product name already exists." };
+      }
+      if (err.code === "P2003") {
+        if (unit_id) {
+          const unit = await prisma.storeUnit.findFirst({
+            where: { unit_id, owner_id },
+          });
+          if (!unit) {
+            throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
+          }
+        }
+        if (category_id) {
+          const category = await prisma.storeCategory.findFirst({
+            where: { category_id, owner_id },
+          });
+          if (!category) {
+            throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
+          }
+        }
+      }
       throw err;
     }
   }
@@ -262,23 +248,11 @@ class StoreProductService {
     product_id,
     { category_id, unit_id, product_name, type, description, cp, sp },
   ) {
-    const [existing, unitCheck, categoryCheck] = await Promise.all([
-      prisma.storeProduct.findFirst({
-        where: { owner_id, product_id },
-      }),
-      unit_id
-        ? prisma.storeUnit.findFirst({ where: { unit_id, owner_id } })
-        : Promise.resolve(true),
-      category_id
-        ? prisma.storeCategory.findFirst({ where: { category_id, owner_id } })
-        : Promise.resolve(true),
-    ]);
+    const existing = await prisma.storeProduct.findFirst({
+      where: { owner_id, product_id },
+    });
 
     if (!existing) throw { code: "NOT_FOUND", message: "Product not found." };
-    if (unit_id && !unitCheck)
-      throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
-    if (category_id && !categoryCheck)
-      throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
 
     const resolvedType = type ?? existing.type;
 
@@ -318,8 +292,27 @@ class StoreProductService {
         include: { category: true, unit: true },
       });
     } catch (err) {
-      if (err.code === "P2002")
+      if (err.code === "P2002") {
         throw { code: "DUPLICATE", message: "Product name already exists." };
+      }
+      if (err.code === "P2003") {
+        if (unit_id) {
+          const unit = await prisma.storeUnit.findFirst({
+            where: { unit_id, owner_id },
+          });
+          if (!unit) {
+            throw { code: "UNIT_NOT_FOUND", message: "Unit not found." };
+          }
+        }
+        if (category_id) {
+          const category = await prisma.storeCategory.findFirst({
+            where: { category_id, owner_id },
+          });
+          if (!category) {
+            throw { code: "CATEGORY_NOT_FOUND", message: "Category not found." };
+          }
+        }
+      }
       throw err;
     }
   }

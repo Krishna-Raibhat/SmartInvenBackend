@@ -1,5 +1,5 @@
 // src/services/groceryBatchSyncService.js
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 import groceryCategoryService from "./groceryCategoryService.js";
 import groceryBrandService from "./groceryBrandService.js";
 import groceryUnitService from "./groceryUnitService.js";

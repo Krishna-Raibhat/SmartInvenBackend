@@ -1,5 +1,5 @@
 import admin from "../firebase/firebase-admin.js";
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 import groceryNotificationPreferenceService from "./groceryNotificationPreferenceService.js";
 
 export const sendGroceryLowStockNotification = async ({

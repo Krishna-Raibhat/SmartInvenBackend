@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 import { sendGroceryExpiryNotification } from "../services/groceryNotificationService.js";
 
 const EXPIRY_WARNING_DAYS = 7; // Notify 7 days before expiry

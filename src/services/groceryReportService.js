@@ -1,4 +1,4 @@
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 
 function parseDateOrNull(x) {
   if (!x) return null;

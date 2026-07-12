@@ -1,4 +1,4 @@
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 import { sendGroceryLowStockNotification } from "./groceryNotificationService.js";
 
 class GroceryLowStockService {

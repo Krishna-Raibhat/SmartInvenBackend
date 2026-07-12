@@ -1,4 +1,4 @@
-import prisma from '../config/prisma.js';
+import prisma from '../prisma/client.js';
 
 class GroceryProductService {
   /**
@@ -14,44 +14,6 @@ class GroceryProductService {
     description,
   }) {
     try {
-      // Verify unit belongs to owner
-      const unit = await prisma.groceryUnit.findFirst({
-        where: { unit_id, owner_id },
-      });
-
-      if (!unit) {
-        const e = new Error('Unit not found for this owner');
-        e.status = 404;
-        e.code = 'UNIT_NOT_FOUND';
-        throw e;
-      }
-
-      // Verify category exists (if provided)
-      if (category_id) {
-        const category = await prisma.groceryCategory.findUnique({
-          where: { category_id },
-        });
-        if (!category) {
-          const e = new Error('Category not found');
-          e.status = 404;
-          e.code = 'CATEGORY_NOT_FOUND';
-          throw e;
-        }
-      }
-
-      // Verify brand exists (if provided)
-      if (brand_id) {
-        const brand = await prisma.groceryBrand.findUnique({
-          where: { brand_id },
-        });
-        if (!brand) {
-          const e = new Error('Brand not found');
-          e.status = 404;
-          e.code = 'BRAND_NOT_FOUND';
-          throw e;
-        }
-      }
-
       return await prisma.groceryProduct.create({
         data: {
           owner_id,
@@ -69,6 +31,40 @@ class GroceryProductService {
         },
       });
     } catch (err) {
+      if (err.code === 'P2003') {
+        const unit = await prisma.groceryUnit.findFirst({
+          where: { unit_id, owner_id },
+        });
+        if (!unit) {
+          const e = new Error('Unit not found for this owner');
+          e.status = 404;
+          e.code = 'UNIT_NOT_FOUND';
+          throw e;
+        }
+        if (category_id) {
+          const category = await prisma.groceryCategory.findUnique({
+            where: { category_id },
+          });
+          if (!category) {
+            const e = new Error('Category not found');
+            e.status = 404;
+            e.code = 'CATEGORY_NOT_FOUND';
+            throw e;
+          }
+        }
+        if (brand_id) {
+          const brand = await prisma.groceryBrand.findUnique({
+            where: { brand_id },
+          });
+          if (!brand) {
+            const e = new Error('Brand not found');
+            e.status = 404;
+            e.code = 'BRAND_NOT_FOUND';
+            throw e;
+          }
+        }
+      }
+
       // Handle unique constraint violations
       if (err.code === 'P2002') {
         const targets = err.meta?.target || [];
@@ -181,19 +177,7 @@ class GroceryProductService {
     const data = {};
     if (category_id !== undefined) data.category_id = category_id || null;
     if (brand_id !== undefined) data.brand_id = brand_id || null;
-    if (unit_id !== undefined) {
-      // Verify unit belongs to owner
-      const unit = await prisma.groceryUnit.findFirst({
-        where: { unit_id, owner_id },
-      });
-      if (!unit) {
-        const e = new Error('Unit not found for this owner');
-        e.status = 404;
-        e.code = 'UNIT_NOT_FOUND';
-        throw e;
-      }
-      data.unit_id = unit_id;
-    }
+    if (unit_id !== undefined) data.unit_id = unit_id;
     if (product_name !== undefined) data.product_name = product_name;
     if (barcode !== undefined) data.barcode = barcode || null;
     if (description !== undefined) data.description = description || null;
@@ -209,6 +193,42 @@ class GroceryProductService {
         },
       });
     } catch (err) {
+      if (err.code === 'P2003') {
+        if (unit_id) {
+          const unit = await prisma.groceryUnit.findFirst({
+            where: { unit_id, owner_id },
+          });
+          if (!unit) {
+            const e = new Error('Unit not found for this owner');
+            e.status = 404;
+            e.code = 'UNIT_NOT_FOUND';
+            throw e;
+          }
+        }
+        if (category_id) {
+          const category = await prisma.groceryCategory.findUnique({
+            where: { category_id },
+          });
+          if (!category) {
+            const e = new Error('Category not found');
+            e.status = 404;
+            e.code = 'CATEGORY_NOT_FOUND';
+            throw e;
+          }
+        }
+        if (brand_id) {
+          const brand = await prisma.groceryBrand.findUnique({
+            where: { brand_id },
+          });
+          if (!brand) {
+            const e = new Error('Brand not found');
+            e.status = 404;
+            e.code = 'BRAND_NOT_FOUND';
+            throw e;
+          }
+        }
+      }
+
       if (err.code === 'P2002') {
         const targets = err.meta?.target || [];
         if (targets.includes('owner_id') && targets.includes('product_name')) {

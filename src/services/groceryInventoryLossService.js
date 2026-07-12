@@ -1,5 +1,5 @@
 // src/services/groceryInventoryLossService.js
-import prisma from "../config/prisma.js";
+import prisma from "../prisma/client.js";
 import { Prisma } from "@prisma/client";
 
 const Decimal = Prisma.Decimal;

@@ -1,5 +1,5 @@
 import service from '../services/groceryStockLotService.js';
-import prisma from '../config/prisma.js';
+import prisma from '../prisma/client.js';
 import { getObject } from '../utils/s3.js';
 
 const fail = (res, status, error_code, message) =>
