@@ -408,7 +408,9 @@ class StoreSalesService {
           CASE WHEN s.customer_id IS NOT NULL THEN json_build_object(
             'customer_id', c.customer_id,
             'full_name', c.full_name,
-            'phone', c.phone
+            'phone', c.phone,
+            'email', c.email,
+            'address', c.address
           ) ELSE NULL END AS customer,
           COALESCE(
             (
@@ -426,12 +428,21 @@ class StoreSalesService {
                   'returned_qty', si.returned_qty,
                   'product', json_build_object(
                     'product_name', p.product_name,
-                    'type', p.type::text
-                  )
+                    'type', p.type::text,
+                    'unit', CASE WHEN p.unit_id IS NOT NULL THEN json_build_object('unit_name', u.unit_name) ELSE NULL END
+                  ),
+                  'lot', CASE WHEN si.lot_id IS NOT NULL THEN json_build_object(
+                    'lot_id', sl.lot_id,
+                    'notes', sl.notes,
+                    'supplier', CASE WHEN sl.supplier_id IS NOT NULL THEN json_build_object('supplier_name', sup.supplier_name) ELSE NULL END
+                  ) ELSE NULL END
                 )
               )
               FROM store_sales_items si
               LEFT JOIN store_products p ON p.product_id = si.product_id
+              LEFT JOIN store_units u ON u.unit_id = p.unit_id
+              LEFT JOIN store_stock_lots sl ON sl.lot_id = si.lot_id
+              LEFT JOIN store_suppliers sup ON sup.supplier_id = sl.supplier_id
               WHERE si.sales_id = s.sales_id
             ),
             '[]'::json
@@ -473,7 +484,8 @@ class StoreSalesService {
           created_at: itm.created_at,
           owner_id: owner_id,
           returned_qty: Number(itm.returned_qty || 0),
-          product: itm.product || null,
+          product: itm.product,
+          lot: itm.lot,
         })),
       }));
 
