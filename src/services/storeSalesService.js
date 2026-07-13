@@ -388,7 +388,11 @@ class StoreSalesService {
       const limit_num = Number(limit);
       const skip = (page_num - 1) * limit_num;
 
-      const rows = await prisma.$queryRaw`
+      const countPromise = prisma.storeSales.count({
+        where: { owner_id },
+      });
+
+      const rowsPromise = prisma.$queryRaw`
         SELECT
           s.sales_id,
           s.payment_status,
@@ -431,8 +435,7 @@ class StoreSalesService {
               WHERE si.sales_id = s.sales_id
             ),
             '[]'::json
-          ) AS items,
-          COUNT(*) OVER()::int AS full_count
+          ) AS items
         FROM store_sales s
         LEFT JOIN customers c ON c.customer_id = s.customer_id
         WHERE s.owner_id = ${owner_id}
@@ -441,7 +444,8 @@ class StoreSalesService {
         OFFSET ${skip}
       `;
 
-      const total = rows[0]?.full_count ?? 0;
+      const [total, rows] = await Promise.all([countPromise, rowsPromise]);
+
       const data = rows.map((row) => ({
         sales_id: row.sales_id,
         owner_id,
@@ -481,62 +485,94 @@ class StoreSalesService {
   }
   
   async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
-    const page_num = Number(page);
-    const limit_num = Number(limit);
-    const skip = (page_num - 1) * limit_num;
+    try {
+      const page_num = Number(page);
+      const limit_num = Number(limit);
+      const skip = (page_num - 1) * limit_num;
 
-    const rows = await prisma.$queryRaw`
-      WITH refunds AS (
-        SELECT sales_id, COALESCE(SUM(refund_amount), 0)::numeric AS total_refunded
-        FROM store_customer_returns
-        GROUP BY sales_id
-      ),
-      computed AS (
-        SELECT
-          ss.sales_id, ss.payment_status, ss.payment_method,
-          ss.total_amount, ss.discount, ss.paid_amount AS paid_raw,
-          ss.created_at, ss.customer_id, c.full_name, c.phone,
-          COALESCE(r.total_refunded, 0)::numeric AS total_refunded,
-          GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total
-        FROM store_sales ss
-        LEFT JOIN refunds r ON r.sales_id = ss.sales_id
-        LEFT JOIN customers c ON c.customer_id = ss.customer_id
-        WHERE ss.owner_id = ${owner_id}
-      ),
-      final AS (
-        SELECT
-          sales_id, payment_status, payment_method, total_amount, discount,
-          created_at, customer_id, full_name, phone, total_refunded,
-          GREATEST(0, effective_total - paid_raw - total_refunded)::numeric AS due_amount,
-          GREATEST(0, paid_raw - GREATEST(0, total_refunded - GREATEST(0, effective_total - paid_raw)))::numeric AS net_paid
-        FROM computed
-      )
-      SELECT *, COUNT(*) OVER()::int AS full_count
-      FROM final
-      WHERE due_amount > 0
-      ORDER BY created_at DESC
-      LIMIT ${limit_num}
-      OFFSET ${skip};
-    `;
+      const countPromise = prisma.$queryRaw`
+        WITH refunds AS (
+          SELECT sales_id, COALESCE(SUM(refund_amount), 0)::numeric AS total_refunded
+          FROM store_customer_returns
+          GROUP BY sales_id
+        ),
+        computed AS (
+          SELECT
+            ss.sales_id,
+            ss.total_amount, ss.discount, ss.paid_amount AS paid_raw,
+            COALESCE(r.total_refunded, 0)::numeric AS total_refunded,
+            GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total
+          FROM store_sales ss
+          LEFT JOIN refunds r ON r.sales_id = ss.sales_id
+          WHERE ss.owner_id = ${owner_id}
+        ),
+        final AS (
+          SELECT
+            GREATEST(0, effective_total - paid_raw - total_refunded)::numeric AS due_amount
+          FROM computed
+        )
+        SELECT COUNT(*)::int AS count
+        FROM final
+        WHERE due_amount > 0;
+      `;
 
-    const total = rows[0]?.full_count ?? 0;
+      const rowsPromise = prisma.$queryRaw`
+        WITH refunds AS (
+          SELECT sales_id, COALESCE(SUM(refund_amount), 0)::numeric AS total_refunded
+          FROM store_customer_returns
+          GROUP BY sales_id
+        ),
+        computed AS (
+          SELECT
+            ss.sales_id, ss.payment_status, ss.payment_method,
+            ss.total_amount, ss.discount, ss.paid_amount AS paid_raw,
+            ss.created_at, ss.customer_id, c.full_name, c.phone,
+            COALESCE(r.total_refunded, 0)::numeric AS total_refunded,
+            GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total
+          FROM store_sales ss
+          LEFT JOIN refunds r ON r.sales_id = ss.sales_id
+          LEFT JOIN customers c ON c.customer_id = ss.customer_id
+          WHERE ss.owner_id = ${owner_id}
+        ),
+        final AS (
+          SELECT
+            sales_id, payment_status, payment_method, total_amount, discount,
+            created_at, customer_id, full_name, phone, total_refunded,
+            GREATEST(0, effective_total - paid_raw - total_refunded)::numeric AS due_amount,
+            GREATEST(0, paid_raw - GREATEST(0, total_refunded - GREATEST(0, effective_total - paid_raw)))::numeric AS net_paid
+          FROM computed
+        )
+        SELECT *
+        FROM final
+        WHERE due_amount > 0
+        ORDER BY created_at DESC
+        LIMIT ${limit_num}
+        OFFSET ${skip};
+      `;
 
-    const data = rows.map((row) => ({
-      sales_id:       row.sales_id,
-      payment_status: row.payment_status,
-      payment_method: row.payment_method,
-      total_amount:   Number(row.total_amount),
-      discount:       Number(row.discount),
-      created_at:     row.created_at,
-      customer: row.customer_id
-        ? { customer_id: row.customer_id, full_name: row.full_name, phone: row.phone }
-        : null,
-      paid_amount:    Number(row.net_paid),
-      due_amount:     Number(row.due_amount),
-      total_refunded: Number(row.total_refunded),
-    }));
+      const [countResult, rows] = await Promise.all([countPromise, rowsPromise]);
+      const total = Number(countResult[0]?.count ?? 0);
 
-    return { data, total, page: page_num, limit: limit_num, totalPages: Math.ceil(total / limit_num) };
+      const data = rows.map((row) => ({
+        sales_id:       row.sales_id,
+        payment_status: row.payment_status,
+        payment_method: row.payment_method,
+        total_amount:   Number(row.total_amount),
+        discount:       Number(row.discount),
+        created_at:     row.created_at,
+        customer: row.customer_id
+          ? { customer_id: row.customer_id, full_name: row.full_name, phone: row.phone }
+          : null,
+        paid_amount:    Number(row.net_paid),
+        due_amount:     Number(row.due_amount),
+        total_refunded: Number(row.total_refunded),
+      }));
+
+      return { data, total, page: page_num, limit: limit_num, totalPages: Math.ceil(total / limit_num) };
+    } catch (err) {
+      console.error("Error in optimized storeSalesService.listCredit:", err);
+      throw err;
+    }
   }
 
   async getById(owner_id, sales_id) {
