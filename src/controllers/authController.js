@@ -1,11 +1,9 @@
-
 import { hash, compare } from "bcrypt";
 import jwt from "jsonwebtoken";
-
-
 import { prisma } from "../prisma/client.js";
-// adjust path if needed
-import { sendOtpEmail, sendRegistrationOtpEmail } from "../utils/mailer.js";
+import { sendOtpEmail, sendRegistrationOtpEmail, sendNewDeviceOtpEmail } from "../utils/mailer.js";
+import { encryptSecret, decryptSecret } from "../utils/crypto.js";
+import { generateSecret, verifySync, generateURI } from "otplib";
 
 
 const { sign, verify } = jwt;
@@ -189,7 +187,7 @@ export async function register(req, res) {
 ========================= */
 export async function login(req, res) {
   try {
-    let { email, password, fcm_token } = req.body;
+    let { email, password, fcm_token, device_id, device_name } = req.body;
     email = normalizeEmail(email);
 
     if (!email || !password) {
@@ -198,6 +196,15 @@ export async function login(req, res) {
         400,
         "VALIDATION_REQUIRED_FIELDS",
         "Email and password are required.",
+      );
+    }
+
+    if (!device_id) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "device_id is required.",
       );
     }
 
@@ -213,6 +220,8 @@ export async function login(req, res) {
         status: true,
         created_at: true,
         subscription_expires_at: true,
+        two_factor_enabled: true,
+        two_factor_secret: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -236,10 +245,7 @@ export async function login(req, res) {
       );
     }
 
-    // ✅ Check account status
-    // --------------------------------------------------
-    // CHECK PENDING PAYMENT FIRST
-    // --------------------------------------------------
+    // Check account status
     if (owner.status === "inactive") {
       const pendingPayment = await prisma.paymentProof.findFirst({
         where: {
@@ -351,6 +357,71 @@ export async function login(req, res) {
       await prisma.owner.update({
         where: { owner_id: owner.owner_id },
         data: { fcm_token },
+      });
+    }
+
+    // Check Device ID Verification
+    const trustedDevice = await prisma.userDevice.findUnique({
+      where: {
+        owner_id_device_id: {
+          owner_id: owner.owner_id,
+          device_id,
+        },
+      },
+    });
+
+    if (!trustedDevice || !trustedDevice.is_verified) {
+      // Create unverified device record if not present
+      if (!trustedDevice) {
+        await prisma.userDevice.create({
+          data: {
+            owner_id: owner.owner_id,
+            device_id,
+            device_name: device_name || "Unknown Device",
+            is_verified: false,
+          },
+        });
+      }
+
+      // Generate Device verification session and OTP
+      const otp = generateOtp();
+      const otpHash = await hash(otp, 10);
+
+      const deviceSessionToken = sign(
+        {
+          owner_id: owner.owner_id,
+          device_id,
+          otp_hash: otpHash,
+          purpose: "device_verification",
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: "10m" }
+      );
+
+      await sendNewDeviceOtpEmail({ to: owner.email, otp, device_name });
+
+      return sendSuccess(res, 200, {
+        device_verification_required: true,
+        device_session_token: deviceSessionToken,
+        message: "New device detected. Verification OTP sent to email.",
+      });
+    }
+
+    // Check 2FA Verification
+    if (owner.two_factor_enabled) {
+      const preAuthToken = sign(
+        {
+          owner_id: owner.owner_id,
+          purpose: "2fa_verification",
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: "3m" }
+      );
+
+      return sendSuccess(res, 200, {
+        require_2fa: true,
+        pre_auth_token: preAuthToken,
+        message: "2FA verification required.",
       });
     }
 
@@ -1151,5 +1222,360 @@ export async function verifyRegistrationOtp(req, res) {
   } catch (error) {
     console.error("verifyRegistrationOtp error:", error);
     return sendError(res, 500, "SERVER_ERROR", "Failed to verify OTP.");
+  }
+}
+
+/* =========================
+   VERIFY NEW DEVICE OTP
+   ========================= */
+export async function verifyDevice(req, res) {
+  try {
+    const { device_session_token, otp, device_name } = req.body;
+
+    if (!device_session_token || !otp) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "device_session_token and otp are required.",
+      );
+    }
+
+    let payload;
+    try {
+      payload = verify(device_session_token, process.env.JWT_SECRET);
+    } catch (err) {
+      return sendError(res, 401, "INVALID_SESSION", "Verification session expired or invalid.");
+    }
+
+    if (payload.purpose !== "device_verification") {
+      return sendError(res, 400, "INVALID_SESSION", "Invalid session purpose.");
+    }
+
+    const isMatch = await compare(String(otp), payload.otp_hash);
+    if (!isMatch) {
+      return sendError(res, 401, "INVALID_OTP", "Invalid verification code.");
+    }
+
+    // Mark device as verified
+    await prisma.userDevice.upsert({
+      where: {
+        owner_id_device_id: {
+          owner_id: payload.owner_id,
+          device_id: payload.device_id,
+        },
+      },
+      update: { is_verified: true, device_name: device_name || undefined },
+      create: {
+        owner_id: payload.owner_id,
+        device_id: payload.device_id,
+        device_name: device_name || "Unknown Device",
+        is_verified: true,
+      },
+    });
+
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: payload.owner_id },
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        package_id: true,
+        status: true,
+        two_factor_enabled: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
+    });
+
+    // Check if 2FA is needed next
+    if (owner.two_factor_enabled) {
+      const preAuthToken = sign(
+        {
+          owner_id: owner.owner_id,
+          purpose: "2fa_verification",
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: "3m" }
+      );
+
+      return sendSuccess(res, 200, {
+        require_2fa: true,
+        pre_auth_token: preAuthToken,
+        message: "Device verified. 2FA verification required.",
+      });
+    }
+
+    // Login complete
+    const token = generateToken({
+      owner_id: owner.owner_id,
+      email: owner.email,
+      package_id: owner.package_id,
+      package_key: owner.package?.package_key ?? null,
+    });
+
+    return sendSuccess(res, 200, {
+      message: "Device verified. Login successful.",
+      token,
+      owner: {
+        owner_id: owner.owner_id,
+        full_name: owner.full_name,
+        email: owner.email,
+        phone: owner.phone,
+        package_id: owner.package_id,
+        status: owner.status,
+        package_key: owner.package?.package_key ?? null,
+        package_name: owner.package?.package_name ?? null,
+      },
+    });
+  } catch (err) {
+    console.error("verifyDevice error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Verification failed.");
+  }
+}
+
+/* =========================
+   VERIFY 2FA OTP
+   ========================= */
+export async function verify2FA(req, res) {
+  try {
+    const { pre_auth_token, code } = req.body;
+
+    if (!pre_auth_token || !code) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "pre_auth_token and code are required.",
+      );
+    }
+
+    let payload;
+    try {
+      payload = verify(pre_auth_token, process.env.JWT_SECRET);
+    } catch (err) {
+      return sendError(res, 401, "INVALID_SESSION", "Session expired or invalid.");
+    }
+
+    if (payload.purpose !== "2fa_verification") {
+      return sendError(res, 400, "INVALID_SESSION", "Invalid session purpose.");
+    }
+
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: payload.owner_id },
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        package_id: true,
+        status: true,
+        two_factor_secret: true,
+        failed_2fa_attempts: true,
+        locked_until: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
+    });
+
+    if (!owner) {
+      return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
+    }
+
+    // Lockout check
+    if (owner.locked_until && owner.locked_until > new Date()) {
+      const minutesLeft = Math.ceil((owner.locked_until - new Date()) / 60000);
+      return sendError(
+        res,
+        403,
+        "ACCOUNT_LOCKED",
+        `Account temporarily locked due to failed attempts. Try again in ${minutesLeft} minutes.`
+      );
+    }
+
+    let isValid = false;
+    try {
+      const decryptedSecret = decryptSecret(owner.two_factor_secret);
+      isValid = verifySync({ token: code, secret: decryptedSecret }).valid;
+    } catch (err) {
+      console.error("2FA validation library error:", err);
+    }
+
+    if (!isValid) {
+      const newFailedAttempts = owner.failed_2fa_attempts + 1;
+      const updateData = { failed_2fa_attempts: newFailedAttempts };
+
+      if (newFailedAttempts >= 5) {
+        updateData.locked_until = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+      }
+
+      await prisma.owner.update({
+        where: { owner_id: owner.owner_id },
+        data: updateData,
+      });
+
+      return sendError(
+        res,
+        401,
+        "INVALID_OTP",
+        `Invalid 2FA code. ${Math.max(0, 5 - newFailedAttempts)} attempts remaining.`
+      );
+    }
+
+    // Success - reset attempts
+    await prisma.owner.update({
+      where: { owner_id: owner.owner_id },
+      data: { failed_2fa_attempts: 0, locked_until: null },
+    });
+
+    const token = generateToken({
+      owner_id: owner.owner_id,
+      email: owner.email,
+      package_id: owner.package_id,
+      package_key: owner.package?.package_key ?? null,
+    });
+
+    return sendSuccess(res, 200, {
+      message: "2FA verified. Login successful.",
+      token,
+      owner: {
+        owner_id: owner.owner_id,
+        full_name: owner.full_name,
+        email: owner.email,
+        phone: owner.phone,
+        package_id: owner.package_id,
+        status: owner.status,
+        package_key: owner.package?.package_key ?? null,
+        package_name: owner.package?.package_name ?? null,
+      },
+    });
+  } catch (err) {
+    console.error("verify2FA error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Verification failed.");
+  }
+}
+
+/* =========================
+   2FA MANAGEMENT ENDPOINTS
+   ========================= */
+
+export async function setup2FA(req, res) {
+  try {
+    const ownerId = req.owner?.owner_id;
+    if (!ownerId) {
+      return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+    }
+
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: ownerId },
+      select: { email: true },
+    });
+
+    const secret = generateSecret();
+    const otpauthUrl = generateURI({
+      issuer: "SmartInven",
+      label: owner.email,
+      secret,
+    });
+
+    return sendSuccess(res, 200, {
+      secret,
+      otpauth_url: otpauthUrl,
+    });
+  } catch (err) {
+    console.error("setup2FA error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to generate 2FA setup details.");
+  }
+}
+
+export async function enable2FA(req, res) {
+  try {
+    const ownerId = req.owner?.owner_id;
+    const { secret, code } = req.body;
+
+    if (!ownerId) {
+      return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+    }
+
+    if (!secret || !code) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "secret and verification code are required.",
+      );
+    }
+
+    const isValid = verifySync({ token: code, secret }).valid;
+    if (!isValid) {
+      return sendError(res, 401, "INVALID_OTP", "Invalid verification code.");
+    }
+
+    const encryptedSecret = encryptSecret(secret);
+
+    await prisma.owner.update({
+      where: { owner_id: ownerId },
+      data: {
+        two_factor_secret: encryptedSecret,
+        two_factor_enabled: true,
+      },
+    });
+
+    return sendSuccess(res, 200, {
+      message: "Two-factor authentication enabled successfully.",
+    });
+  } catch (err) {
+    console.error("enable2FA error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to enable 2FA.");
+  }
+}
+
+export async function disable2FA(req, res) {
+  try {
+    const ownerId = req.owner?.owner_id;
+    const { code } = req.body;
+
+    if (!ownerId) {
+      return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+    }
+
+    if (!code) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Verification code is required.",
+      );
+    }
+
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: ownerId },
+      select: { two_factor_secret: true, two_factor_enabled: true },
+    });
+
+    if (!owner.two_factor_enabled || !owner.two_factor_secret) {
+      return sendError(res, 400, "2FA_ALREADY_DISABLED", "2FA is not enabled for this account.");
+    }
+
+    const decryptedSecret = decryptSecret(owner.two_factor_secret);
+    const isValid = verifySync({ token: code, secret: decryptedSecret }).valid;
+
+    if (!isValid) {
+      return sendError(res, 401, "INVALID_OTP", "Invalid verification code.");
+    }
+
+    await prisma.owner.update({
+      where: { owner_id: ownerId },
+      data: {
+        two_factor_secret: null,
+        two_factor_enabled: false,
+      },
+    });
+
+    return sendSuccess(res, 200, {
+      message: "Two-factor authentication disabled successfully.",
+    });
+  } catch (err) {
+    console.error("disable2FA error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to disable 2FA.");
   }
 }

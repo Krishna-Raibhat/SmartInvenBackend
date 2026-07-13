@@ -31,6 +31,10 @@ model Owner {
   status                     OwnerStatus                   @default(trial)
   subscription_expires_at    DateTime?
   subscription_reminder_sent Boolean                       @default(false)
+  two_factor_enabled         Boolean                       @default(false)
+  two_factor_secret          String?
+  failed_2fa_attempts        Int                           @default(0)
+  locked_until               DateTime?
   clothingCustomerReturns    ClothingCustomerReturn[]
   clothingNotifications      ClothingNotification[]
   clothingProducts           ClothingProduct[]
@@ -71,6 +75,7 @@ model Owner {
   storeSupplierReturns       StoreSupplierReturn[]
   storeSuppliers             StoreSupplier[]
   storeUnits                 StoreUnit[]
+  userDevices                UserDevice[]
 
   @@map("owners")
 }
@@ -1135,3 +1140,20 @@ enum StorePaymentMethod {
 
   @@map("store_payment_method")
 }
+
+model UserDevice {
+  device_record_id String   @id @default(uuid())
+  owner_id         String
+  device_id        String
+  device_name      String?
+  ip_address       String?
+  is_verified      Boolean  @default(false)
+  created_at       DateTime @default(now())
+  last_login_at    DateTime @default(now()) @updatedAt
+  owner            Owner    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  @@unique([owner_id, device_id])
+  @@index([owner_id])
+  @@map("user_devices")
+}
+
