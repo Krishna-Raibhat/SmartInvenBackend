@@ -75,21 +75,40 @@ class StoreSupplierService {
       _sum: { qty_in: true, qty_remaining: true },
     });
 
+    // Fetch supplier returns to adjust stats
+    const [returnsAgg, returnItems] = await Promise.all([
+      prisma.storeSupplierReturn.aggregate({
+        where: { owner_id, supplier_id },
+        _sum: { total_refund: true },
+      }),
+      prisma.storeSupplierReturnItem.aggregate({
+        where: { owner_id, return: { supplier_id } },
+        _sum: { qty: true },
+      }),
+    ]);
+
     // Total purchased amount = sum of (cp × qty_in) across all lots
     const lots = await prisma.storeStockLot.findMany({
       where: { owner_id, supplier_id },
       select: { cp: true, qty_in: true },
     });
 
-    const totalPurchasedAmount = lots.reduce((acc, lot) => {
+    const grossPurchasedAmount = lots.reduce((acc, lot) => {
       return acc.add(new Prisma.Decimal(lot.cp).mul(lot.qty_in));
     }, new Prisma.Decimal(0));
+
+    const totalRefund = new Prisma.Decimal(returnsAgg._sum.total_refund ?? 0);
+    const totalPurchasedAmount = grossPurchasedAmount.minus(totalRefund);
+
+    const grossQtyPurchased = lotStats._sum.qty_in ?? 0;
+    const returnedQty = returnItems._sum.qty ?? 0;
+    const totalQtyPurchased = grossQtyPurchased - returnedQty;
 
     return {
       ...supplier,
       stats: {
         total_stock_lots: lotStats._count.lot_id,
-        total_qty_purchased: lotStats._sum.qty_in ?? 0,
+        total_qty_purchased: totalQtyPurchased,
         total_qty_remaining: lotStats._sum.qty_remaining ?? 0,
         total_purchased_amount: totalPurchasedAmount,
       },
@@ -158,7 +177,7 @@ class StoreSupplierService {
             0
           ) AS qty_returned
         FROM store_suppliers sup
-        LEFT JOIN store_stock_lots sl ON sl.supplier_id = sup.supplier_id AND sl.qty_remaining > 0
+        LEFT JOIN store_stock_lots sl ON sl.supplier_id = sup.supplier_id
         LEFT JOIN store_products p ON p.product_id = sl.product_id
         LEFT JOIN store_categories c ON c.category_id = p.category_id
         LEFT JOIN store_units u ON u.unit_id = p.unit_id
@@ -251,7 +270,7 @@ class StoreSupplierService {
    *   - when due reaches 0 → status = "paid", history cleared (paid_amount reset to 0)
    *   - when amount < due → status = "partial"
    */
-  async recordPayment(owner_id, supplier_id, amount) {
+  async recordPayment(owner_id, supplier_id, amount, note) {
     const supplier = await prisma.storeSupplier.findFirst({
       where: { owner_id, supplier_id },
     });
@@ -268,8 +287,28 @@ class StoreSupplierService {
       };
     }
 
-    const currentDue = new Prisma.Decimal(supplier.due_amount);
+    // 1. Calculate net total purchased amount dynamically
+    const [returnsAgg, lots] = await Promise.all([
+      prisma.storeSupplierReturn.aggregate({
+        where: { owner_id, supplier_id },
+        _sum: { total_refund: true },
+      }),
+      prisma.storeStockLot.findMany({
+        where: { owner_id, supplier_id },
+        select: { cp: true, qty_in: true },
+      }),
+    ]);
+
+    const grossPurchasedAmount = lots.reduce((acc, lot) => {
+      return acc.add(new Prisma.Decimal(lot.cp).mul(lot.qty_in));
+    }, new Prisma.Decimal(0));
+
+    const totalRefund = new Prisma.Decimal(returnsAgg._sum.total_refund ?? 0);
+    const totalPurchasedAmount = grossPurchasedAmount.minus(totalRefund);
+
+    // 2. Determine current due and paid amounts
     const currentPaid = new Prisma.Decimal(supplier.paid_amount);
+    const currentDue = Prisma.Decimal.max(totalPurchasedAmount.minus(currentPaid), new Prisma.Decimal(0));
 
     if (payAmount.gt(currentDue)) {
       throw {
@@ -286,24 +325,73 @@ class StoreSupplierService {
     let finalPaid;
 
     if (newDue.eq(0)) {
-      // Fully paid or overpaid — clear history
       payment_status = "paid";
       finalDue = new Prisma.Decimal(0);
-      finalPaid = new Prisma.Decimal(0);
+      finalPaid = newPaid;
     } else {
-      // Partial payment
       payment_status = "partial";
       finalDue = newDue;
       finalPaid = newPaid;
     }
 
-    return prisma.storeSupplier.update({
-      where: { supplier_id },
-      data: {
-        due_amount: finalDue,
-        paid_amount: finalPaid,
-        payment_status,
+    return prisma.$transaction(async (tx) => {
+      let title = await tx.storeExpenseTitle.findFirst({
+        where: { owner_id, title: "Supplier Payment" },
+      });
+
+      if (!title) {
+        title = await tx.storeExpenseTitle.create({
+          data: {
+            owner_id,
+            title: "Supplier Payment",
+          },
+        });
+      }
+
+      const paymentNote = `${(note || `Payment to supplier ${supplier.supplier_name}`).trim()} [SUPPLIER_PAYMENT:${supplier_id}]`;
+      await tx.storeExpense.create({
+        data: {
+          owner_id,
+          title_id: title.title_id,
+          amount: payAmount,
+          note: paymentNote,
+        },
+      });
+
+      return tx.storeSupplier.update({
+        where: { supplier_id },
+        data: {
+          due_amount: finalDue,
+          paid_amount: finalPaid,
+          payment_status,
+        },
+      });
+    });
+  }
+
+  async getPayments(owner_id, supplier_id) {
+    const expenses = await prisma.storeExpense.findMany({
+      where: {
+        owner_id,
+        note: {
+          contains: `[SUPPLIER_PAYMENT:${supplier_id}]`,
+        },
       },
+      orderBy: { created_at: "desc" },
+    });
+
+    return expenses.map((exp) => {
+      const suffix = ` [SUPPLIER_PAYMENT:${supplier_id}]`;
+      let cleanNote = exp.note || "";
+      if (cleanNote.endsWith(suffix)) {
+        cleanNote = cleanNote.substring(0, cleanNote.length - suffix.length);
+      }
+      return {
+        expense_id: exp.expense_id,
+        amount: Number(exp.amount),
+        note: cleanNote,
+        created_at: exp.created_at,
+      };
     });
   }
 

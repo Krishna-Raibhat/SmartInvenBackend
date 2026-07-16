@@ -293,7 +293,7 @@ const storeSupplierController = {
     try {
       const owner_id = req.owner.owner_id;
       const { id } = req.params;
-      const { amount } = req.body;
+      const { amount, note } = req.body;
 
       if (amount === undefined || amount === null) {
         return res.status(400).json({
@@ -316,6 +316,7 @@ const storeSupplierController = {
         owner_id,
         id,
         parsed,
+        note,
       );
 
       return res.status(200).json({ success: true, data: supplier });
@@ -349,6 +350,22 @@ const storeSupplierController = {
         success: false,
         error_code: "SERVER_ERROR",
         message: "Failed to record payment.",
+      });
+    }
+  },
+
+  async getPayments(req, res) {
+    try {
+      const owner_id = req.owner.owner_id;
+      const { id } = req.params;
+      const payments = await storeSupplierService.getPayments(owner_id, id);
+      return res.status(200).json({ success: true, data: payments });
+    } catch (error) {
+      console.error("Error fetching supplier payments:", error);
+      return res.status(500).json({
+        success: false,
+        error_code: "SERVER_ERROR",
+        message: "Failed to fetch payments.",
       });
     }
   },
