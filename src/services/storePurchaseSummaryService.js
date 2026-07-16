@@ -273,7 +273,7 @@ class StorePurchaseSummaryService {
         select: {
           return_id: true,
           supplier_id: true,
-          amount: true,
+          total_refund: true,
           created_at: true,
         },
       }),
@@ -285,7 +285,7 @@ class StorePurchaseSummaryService {
         ? prisma.$queryRaw`
             SELECT 
               COALESCE(SUM(sl.cp * sl.qty_in), 0)::numeric AS total_purchases,
-              COALESCE(SUM(sr.amount), 0)::numeric AS total_returns
+              COALESCE(SUM(sr.total_refund), 0)::numeric AS total_returns
             FROM store_stock_lots sl
             LEFT JOIN store_supplier_returns sr ON sr.owner_id = sl.owner_id
               AND sr.created_at >= ${prevFilter.gte}
@@ -349,7 +349,7 @@ class StorePurchaseSummaryService {
     for (const ret of returns) {
       const sid = ret.supplier_id;
       if (supplierMap.has(sid)) {
-        supplierMap.get(sid).total_returned += Number(ret.amount || 0);
+        supplierMap.get(sid).total_returned += Number(ret.total_refund || 0);
       }
     }
 
@@ -428,7 +428,7 @@ class StorePurchaseSummaryService {
       if (!trendMap.has(day)) {
         trendMap.set(day, { purchases: 0, returns: 0 });
       }
-      trendMap.get(day).returns += Number(ret.amount || 0);
+      trendMap.get(day).returns += Number(ret.total_refund || 0);
     }
 
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
