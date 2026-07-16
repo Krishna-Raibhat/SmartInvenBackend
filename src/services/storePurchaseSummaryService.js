@@ -275,6 +275,16 @@ class StorePurchaseSummaryService {
           supplier_id: true,
           total_refund: true,
           created_at: true,
+          supplier: {
+            select: {
+              supplier_id: true,
+              supplier_name: true,
+              phone: true,
+              due_amount: true,
+              paid_amount: true,
+              payment_status: true,
+            },
+          },
         },
       }),
       prisma.storeSupplier.findMany({
@@ -284,15 +294,20 @@ class StorePurchaseSummaryService {
       prevFilter
         ? prisma.$queryRaw`
             SELECT 
-              COALESCE(SUM(sl.cp * sl.qty_in), 0)::numeric AS total_purchases,
-              COALESCE(SUM(sr.total_refund), 0)::numeric AS total_returns
-            FROM store_stock_lots sl
-            LEFT JOIN store_supplier_returns sr ON sr.owner_id = sl.owner_id
-              AND sr.created_at >= ${prevFilter.gte}
-              AND sr.created_at <= ${prevFilter.lte}
-            WHERE sl.owner_id = ${owner_id}
-              AND sl.created_at >= ${prevFilter.gte}
-              AND sl.created_at <= ${prevFilter.lte}
+              (
+                SELECT COALESCE(SUM(cp * qty_in), 0)::numeric 
+                FROM store_stock_lots 
+                WHERE owner_id = ${owner_id}
+                  AND created_at >= ${prevFilter.gte}
+                  AND created_at <= ${prevFilter.lte}
+              ) AS total_purchases,
+              (
+                SELECT COALESCE(SUM(total_refund), 0)::numeric 
+                FROM store_supplier_returns 
+                WHERE owner_id = ${owner_id}
+                  AND created_at >= ${prevFilter.gte}
+                  AND created_at <= ${prevFilter.lte}
+              ) AS total_returns
           `
         : Promise.resolve([{ total_purchases: 0, total_returns: 0 }]),
     ]);
@@ -347,10 +362,30 @@ class StorePurchaseSummaryService {
 
     // ── 2b. Subtract returns per supplier ──────────────────────────
     for (const ret of returns) {
-      const sid = ret.supplier_id;
-      if (supplierMap.has(sid)) {
-        supplierMap.get(sid).total_returned += Number(ret.total_refund || 0);
+      const sup = ret.supplier;
+      if (!sup) continue;
+      const sid = sup.supplier_id;
+
+      if (!supplierMap.has(sid)) {
+        supplierMap.set(sid, {
+          supplier_id:         sid,
+          supplier_name:       sup.supplier_name,
+          phone:               sup.phone,
+          payment_status:      sup.payment_status ?? "paid",
+          due_amount:          Number(sup.due_amount ?? 0),
+          paid_amount:         Number(sup.paid_amount ?? 0),
+          total_spend:         0,
+          total_returned:      0, // Track returns
+          total_lots:          0,
+          total_qty_purchased: 0,
+          total_qty_remaining: 0,
+          last_purchased_at:   null,
+          top_product:         null,
+          _productSpend:       new Map(),
+        });
       }
+
+      supplierMap.get(sid).total_returned += Number(ret.total_refund || 0);
     }
 
     // ── 3. Shape supplier list ────────────────────────────────────
@@ -391,7 +426,7 @@ class StorePurchaseSummaryService {
 
     // ── 4. Summary KPIs ───────────────────────────────────────────
     const totalSpend         = suppliers.reduce((s, x) => s + x.total_spend, 0);
-    const totalReturned      = suppliers.reduce((s, x) => s + x.total_returned, 0);
+    const totalReturned      = returns.reduce((sum, r) => sum + Number(r.total_refund || 0), 0);
     const netSpend           = totalSpend - totalReturned;
     const totalLots          = suppliers.reduce((s, x) => s + x.total_lots, 0);
     const totalQtyPurchased  = suppliers.reduce((s, x) => s + x.total_qty_purchased, 0);
