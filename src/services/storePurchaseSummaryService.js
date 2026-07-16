@@ -285,6 +285,11 @@ class StorePurchaseSummaryService {
               payment_status: true,
             },
           },
+          items: {
+            select: {
+              qty: true,
+            },
+          },
         },
       }),
       prisma.storeSupplier.findMany({
@@ -337,6 +342,7 @@ class StorePurchaseSummaryService {
           total_returned:      0, // Track returns
           total_lots:          0,
           total_qty_purchased: 0,
+          total_qty_returned:  0,
           total_qty_remaining: 0,
           last_purchased_at:   null,
           top_product:         null,
@@ -378,6 +384,7 @@ class StorePurchaseSummaryService {
           total_returned:      0, // Track returns
           total_lots:          0,
           total_qty_purchased: 0,
+          total_qty_returned:  0,
           total_qty_remaining: 0,
           last_purchased_at:   null,
           top_product:         null,
@@ -385,7 +392,9 @@ class StorePurchaseSummaryService {
         });
       }
 
+      const returnedQty = (ret.items || []).reduce((sum, item) => sum + (item.qty || 0), 0);
       supplierMap.get(sid).total_returned += Number(ret.total_refund || 0);
+      supplierMap.get(sid).total_qty_returned += returnedQty;
     }
 
     // ── 3. Shape supplier list ────────────────────────────────────
@@ -404,6 +413,7 @@ class StorePurchaseSummaryService {
         };
 
         const netSpend = s.total_spend - s.total_returned;
+        const netQtyPurchased = s.total_qty_purchased - s.total_qty_returned;
 
         return {
           supplier_id:         s.supplier_id,
@@ -414,7 +424,7 @@ class StorePurchaseSummaryService {
           total_returned:      Number(s.total_returned.toFixed(2)),
           net_spend:           Number(netSpend.toFixed(2)),
           total_lots:          s.total_lots,
-          total_qty_purchased: s.total_qty_purchased,
+          total_qty_purchased: netQtyPurchased,
           total_qty_remaining: Math.round(s.total_qty_remaining),
           due_amount:          Number(s.due_amount.toFixed(2)),
           paid_amount:         Number(s.paid_amount.toFixed(2)),
