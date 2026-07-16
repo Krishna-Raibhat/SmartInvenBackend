@@ -18,10 +18,22 @@ class StoreUnitService {
   }
 
   async list(owner_id) {
-    return prisma.storeUnit.findMany({
+    const units = await prisma.storeUnit.findMany({
       where: { owner_id },
       orderBy: { unit_name: "asc" },
+      include: {
+        _count: {
+          select: { products: true },
+        },
+      },
     });
+
+    // reshape so the API returns product_count directly
+    return units.map((u) => ({
+      ...u,
+      product_count: u._count.products,
+      _count: undefined,
+    }));
   }
 
   async getById(owner_id, unit_id) {

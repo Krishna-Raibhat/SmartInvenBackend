@@ -2,7 +2,14 @@ import { prisma } from "../prisma/client.js";
 
 class StoreCustomerDueReportService {
   async getReport(owner_id, { from, to }) {
-    console.log('📊 Generating customer due report for owner:', owner_id, 'from:', from, 'to:', to);
+    console.log(
+      "📊 Generating customer due report for owner:",
+      owner_id,
+      "from:",
+      from,
+      "to:",
+      to,
+    );
 
     // Get all credit sales in the date range
     const rows = await prisma.$queryRaw`
@@ -41,20 +48,23 @@ class StoreCustomerDueReportService {
     `;
 
     const dueSales = rows.map((row) => ({
-      customerName: row.full_name || 'Walk-in Customer',
-      phone: row.phone || '—',
+      customerName: row.full_name || "Walk-in Customer",
+      phone: row.phone || "—",
       date: row.created_at,
       totalAmount: Number(row.total_amount) || 0,
       paidAmount: Number(row.net_paid) || 0,
       dueAmount: Number(row.due_amount) || 0,
-      paymentMethod: row.payment_method || 'cash',
+      paymentMethod: row.payment_method || "cash",
     }));
 
     const totalDue = dueSales.reduce((s, x) => s + x.dueAmount, 0);
     const unpaidSalesCount = dueSales.length;
-    const avgDuePerSale = unpaidSalesCount > 0 ? totalDue / unpaidSalesCount : 0;
+    const avgDuePerSale =
+      unpaidSalesCount > 0 ? totalDue / unpaidSalesCount : 0;
 
-    const uniqueCustomers = new Set(dueSales.map(x => x.customerName));
+    const uniqueCustomers = new Set(
+      rows.map((row) => row.customer_id ?? `walkin_${row.sales_id}`),
+    );
     const customersWithDue = uniqueCustomers.size;
 
     // Aging ranges (based on current date diff)
@@ -81,7 +91,7 @@ class StoreCustomerDueReportService {
     let onlineDue = 0;
 
     dueSales.forEach((s) => {
-      if (s.paymentMethod.toLowerCase() === 'cash') {
+      if (s.paymentMethod.toLowerCase() === "cash") {
         cashDue += s.dueAmount;
       } else {
         onlineDue += s.dueAmount;
