@@ -237,8 +237,8 @@ class StorePurchaseSummaryService {
       };
     }
 
-    // ── 1. Fetch lots, live supplier dues, and prev-period spend concurrently ──
-    const [lots, dueRows, prevRows] = await Promise.all([
+    // ── 1. Fetch lots, returns, live supplier dues, and prev-period spend concurrently ──
+    const [lots, returns, dueRows, prevRows] = await Promise.all([
       prisma.storeStockLot.findMany({
         where: lotWhere,
         select: {
@@ -264,24 +264,44 @@ class StorePurchaseSummaryService {
         },
         orderBy: { created_at: "asc" },
       }),
+      // Fetch supplier returns in the same date range
+      prisma.storeSupplierReturn.findMany({
+        where: {
+          owner_id,
+          ...(hasDates && { created_at: dateFilter }),
+        },
+        select: {
+          return_id: true,
+          supplier_id: true,
+          amount: true,
+          created_at: true,
+        },
+      }),
       prisma.storeSupplier.findMany({
         where: { owner_id },
         select: { due_amount: true, payment_status: true },
       }),
       prevFilter
         ? prisma.$queryRaw`
-            SELECT COALESCE(SUM(cp * qty_in), 0)::numeric AS total_spend
-            FROM store_stock_lots
-            WHERE owner_id = ${owner_id}
-              AND created_at >= ${prevFilter.gte}
-              AND created_at <= ${prevFilter.lte}
+            SELECT 
+              COALESCE(SUM(sl.cp * sl.qty_in), 0)::numeric AS total_purchases,
+              COALESCE(SUM(sr.amount), 0)::numeric AS total_returns
+            FROM store_stock_lots sl
+            LEFT JOIN store_supplier_returns sr ON sr.owner_id = sl.owner_id
+              AND sr.created_at >= ${prevFilter.gte}
+              AND sr.created_at <= ${prevFilter.lte}
+            WHERE sl.owner_id = ${owner_id}
+              AND sl.created_at >= ${prevFilter.gte}
+              AND sl.created_at <= ${prevFilter.lte}
           `
-        : Promise.resolve([{ total_spend: 0 }]),
+        : Promise.resolve([{ total_purchases: 0, total_returns: 0 }]),
     ]);
 
-    const prevSpend = Number(prevRows[0]?.total_spend || 0);
+    const prevPurchases = Number(prevRows[0]?.total_purchases || 0);
+    const prevReturns = Number(prevRows[0]?.total_returns || 0);
+    const prevSpend = prevPurchases - prevReturns;
 
-    // ── 2. Aggregate per supplier ──────────────────────────────────
+    // ── 2. Aggregate per supplier (purchases) ─────────────────────
     const supplierMap = new Map();
 
     for (const lot of lots) {
@@ -299,6 +319,7 @@ class StorePurchaseSummaryService {
           due_amount:          Number(sup.due_amount ?? 0),
           paid_amount:         Number(sup.paid_amount ?? 0),
           total_spend:         0,
+          total_returned:      0, // Track returns
           total_lots:          0,
           total_qty_purchased: 0,
           total_qty_remaining: 0,
@@ -324,6 +345,14 @@ class StorePurchaseSummaryService {
       se._productSpend.set(pName, (se._productSpend.get(pName) ?? 0) + spend);
     }
 
+    // ── 2b. Subtract returns per supplier ──────────────────────────
+    for (const ret of returns) {
+      const sid = ret.supplier_id;
+      if (supplierMap.has(sid)) {
+        supplierMap.get(sid).total_returned += Number(ret.amount || 0);
+      }
+    }
+
     // ── 3. Shape supplier list ────────────────────────────────────
     const suppliers = [...supplierMap.values()]
       .map((s) => {
@@ -339,12 +368,16 @@ class StorePurchaseSummaryService {
           return d.toISOString().slice(0, 10); // 'YYYY-MM-DD'
         };
 
+        const netSpend = s.total_spend - s.total_returned;
+
         return {
           supplier_id:         s.supplier_id,
           supplier_name:       s.supplier_name,
           phone:               s.phone,
           payment_status:      s.payment_status,
           total_spend:         Number(s.total_spend.toFixed(2)),
+          total_returned:      Number(s.total_returned.toFixed(2)),
+          net_spend:           Number(netSpend.toFixed(2)),
           total_lots:          s.total_lots,
           total_qty_purchased: s.total_qty_purchased,
           total_qty_remaining: Math.round(s.total_qty_remaining),
@@ -354,10 +387,12 @@ class StorePurchaseSummaryService {
           top_product:         topProduct ?? "—",
         };
       })
-      .sort((a, b) => b.total_spend - a.total_spend);
+      .sort((a, b) => b.net_spend - a.net_spend); // Sort by net spend
 
     // ── 4. Summary KPIs ───────────────────────────────────────────
     const totalSpend         = suppliers.reduce((s, x) => s + x.total_spend, 0);
+    const totalReturned      = suppliers.reduce((s, x) => s + x.total_returned, 0);
+    const netSpend           = totalSpend - totalReturned;
     const totalLots          = suppliers.reduce((s, x) => s + x.total_lots, 0);
     const totalQtyPurchased  = suppliers.reduce((s, x) => s + x.total_qty_purchased, 0);
     const totalQtyRemaining  = suppliers.reduce((s, x) => s + x.total_qty_remaining, 0);
@@ -373,16 +408,27 @@ class StorePurchaseSummaryService {
     }
 
     const vsLastPeriod = prevSpend > 0
-      ? Number((((totalSpend - prevSpend) / prevSpend) * 100).toFixed(1))
+      ? Number((((netSpend - prevSpend) / prevSpend) * 100).toFixed(1))
       : 0;
 
-    // ── 5. Daily spend trend ──────────────────────────────────────
-    const trendMap = new Map(); // 'YYYY-MM-DD' → spend
+    // ── 5. Daily spend trend (purchases - returns) ────────────────
+    const trendMap = new Map(); // 'YYYY-MM-DD' → {purchases, returns}
 
     for (const lot of lots) {
       const day   = lot.created_at.toISOString().slice(0, 10);
       const spend = Number(lot.cp) * lot.qty_in;
-      trendMap.set(day, (trendMap.get(day) ?? 0) + spend);
+      if (!trendMap.has(day)) {
+        trendMap.set(day, { purchases: 0, returns: 0 });
+      }
+      trendMap.get(day).purchases += spend;
+    }
+
+    for (const ret of returns) {
+      const day = ret.created_at.toISOString().slice(0, 10);
+      if (!trendMap.has(day)) {
+        trendMap.set(day, { purchases: 0, returns: 0 });
+      }
+      trendMap.get(day).returns += Number(ret.amount || 0);
     }
 
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -393,14 +439,18 @@ class StorePurchaseSummaryService {
 
     const trend = [...trendMap.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([iso, spend]) => ({
-        d:     fmtDay(iso),
-        spend: Number(spend.toFixed(2)),
+      .map(([iso, data]) => ({
+        d:        fmtDay(iso),
+        purchases: Number(data.purchases.toFixed(2)),
+        returns:   Number(data.returns.toFixed(2)),
+        net:       Number((data.purchases - data.returns).toFixed(2)),
       }));
 
     return {
       summary: {
         total_spend:          Number(totalSpend.toFixed(2)),
+        total_returned:       Number(totalReturned.toFixed(2)),
+        net_spend:            Number(netSpend.toFixed(2)),
         total_lots:           totalLots,
         total_qty_purchased:  totalQtyPurchased,
         total_qty_remaining:  totalQtyRemaining,

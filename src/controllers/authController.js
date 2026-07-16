@@ -95,7 +95,7 @@ const packageNameMap = {
 
 export async function register(req, res) {
   try {
-    let { full_name, phone, email, password, confirm_password, package_key, status } = req.body;
+    let { full_name, phone, email, password, confirm_password, package_key, status, business_category } = req.body;
 
     email = normalizeEmail(email);
     package_key = String(package_key || "").trim().toLowerCase();
@@ -144,6 +144,14 @@ export async function register(req, res) {
     const otpHash = await hash(otp, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
+    let finalBusinessCategory = business_category ? String(business_category).trim() : null;
+    if (!finalBusinessCategory) {
+      if (package_key === "grocery") finalBusinessCategory = "Grocery Store";
+      else if (package_key === "clothing") finalBusinessCategory = "Clothing Store";
+      else if (package_key === "hardware") finalBusinessCategory = "Hardware Store";
+      else if (package_key === "store") finalBusinessCategory = "Store";
+    }
+
     // Store OTP with registration data
     await prisma.registrationOtp.create({
       data: {
@@ -159,6 +167,7 @@ export async function register(req, res) {
         phone,
         password_hash: hashedPassword,
         package_key,
+        business_category: finalBusinessCategory,
       },
     });
 
@@ -222,6 +231,7 @@ export async function login(req, res) {
         subscription_expires_at: true,
         two_factor_enabled: true,
         two_factor_secret: true,
+        business_category: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -441,6 +451,7 @@ export async function login(req, res) {
         email: owner.email,
         phone: owner.phone,
         package_id: owner.package_id,
+        business_category: owner.business_category,
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
@@ -474,6 +485,7 @@ export async function me(req, res) {
         status: true,
         created_at: true,
         package_id: true,
+        business_category: true,
         subscription_expires_at:true
       },
     });
@@ -1177,6 +1189,7 @@ export async function verifyRegistrationOtp(req, res) {
         email: record.email,
         password: record.password_hash,
         package_id: pkg.package_id,
+        business_category: record.business_category,
         status: "trial", // default status
       },
       select: {
@@ -1185,6 +1198,7 @@ export async function verifyRegistrationOtp(req, res) {
         email: true,
         phone: true,
         package_id: true,
+        business_category: true,
         status: true,
         package: { select: { package_key: true, package_name: true } },
       },
@@ -1284,6 +1298,7 @@ export async function verifyDevice(req, res) {
         package_id: true,
         status: true,
         two_factor_enabled: true,
+        business_category: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -1323,6 +1338,7 @@ export async function verifyDevice(req, res) {
         email: owner.email,
         phone: owner.phone,
         package_id: owner.package_id,
+        business_category: owner.business_category,
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
@@ -1373,6 +1389,7 @@ export async function verify2FA(req, res) {
         two_factor_secret: true,
         failed_2fa_attempts: true,
         locked_until: true,
+        business_category: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -1443,6 +1460,7 @@ export async function verify2FA(req, res) {
         email: owner.email,
         phone: owner.phone,
         package_id: owner.package_id,
+        business_category: owner.business_category,
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,

@@ -93,7 +93,7 @@ export const getSupplierLots = async (req, res) => {
     const { supplier_id, only_in_stock } = req.query;
 
     if (!supplier_id) {
-      return fail(res, 400, "SUPPLIER_ID_REQUIRED", "supplier_id is required");
+      return fail(res, 400, "SUPPLIER_ID_REQUIRED", "Choose a is supplier first.");
     }
 
     const data = await service.getSupplierLots(
