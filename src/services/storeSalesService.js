@@ -131,6 +131,17 @@ class StoreSalesService {
         });
         finalCustomerId = created.customer_id;
       }
+    } else if (customer?.full_name) {
+      const created = await prisma.customer.create({
+        data: {
+          owner_id,
+          full_name: String(customer.full_name).trim(),
+          email: customer.email ? String(customer.email).trim() : null,
+          address: customer.address ? String(customer.address).trim() : null,
+        },
+        select: { customer_id: true },
+      });
+      finalCustomerId = created.customer_id;
     }
 
     const productMap = new Map(prefetchedProducts.map(p => [p.product_id, p]));

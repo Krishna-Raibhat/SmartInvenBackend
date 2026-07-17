@@ -253,6 +253,12 @@ class StoreCustomerReturnService {
             customer: {
               select: { customer_id: true, full_name: true, phone: true },
             },
+            items: {
+              select: {
+                qty: true,
+                returned_qty: true,
+              },
+            },
           },
         },
         items: {
@@ -394,6 +400,12 @@ class StoreCustomerReturnService {
       c.full_name,
       c.phone,
 
+      (
+        SELECT COALESCE(SUM(si.qty - si.returned_qty), 0)
+        FROM store_sales_items si
+        WHERE si.sales_id = r.sales_id
+      )::integer AS sale_available_qty,
+
       COALESCE(
         json_agg(
           json_build_object(
@@ -469,6 +481,7 @@ class StoreCustomerReturnService {
             due_amount: Number(row.due_amount ?? 0),
             payment_status: row.payment_status,
             created_at: row.sale_created_at,
+            available_qty: Number(row.sale_available_qty ?? 0),
           }
         : null,
       items: row.items ?? [],
@@ -494,6 +507,10 @@ class StoreCustomerReturnService {
             due_amount: Number(ret.sales.due_amount ?? 0),
             payment_status: ret.sales.payment_status,
             created_at: ret.sales.created_at,
+            available_qty: ret.sales.items.reduce(
+              (sum, it) => sum + (it.qty - (it.returned_qty ?? 0)),
+              0,
+            ),
           }
         : null,
       items: ret.items.map((itm) => ({
