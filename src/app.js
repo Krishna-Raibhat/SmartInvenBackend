@@ -85,6 +85,7 @@ import storeSalesItemReportRoutes from "./routes/storeSalesItemReportRoutes.js";
 import storeReportRoute from "./routes/storeReportRoutes.js";
 import storeBatchSyncRoutes from "./routes/storeBatchSyncRoutes.js";
 import storeSalesSummaryReportRoutes from "./routes/storeSalesSummaryReportRoutes.js";
+import storeCustomerReminderRoutes from "./routes/storeCustomerReminderRoutes.js";
 
 const app = express();
 
@@ -130,6 +131,7 @@ import "./cron/lowStockCronAll.js";
 import "./cron/subscriptionReminderCron.js";
 import "./cron/subscriptionExpiryCron.js";
 import "./cron/groceryExpiryCron.js";
+import "./cron/storeCustomerReminderCron.js";
 
 
 
@@ -194,6 +196,7 @@ app.use("/api/store/item-reports", storeSalesItemReportRoutes);
 app.use("/api/store/reports", storeReportRoute);
 app.use("/api/store/sync", storeBatchSyncRoutes);
 app.use("/api/store/sales-summary-reports", storeSalesSummaryReportRoutes);
+app.use("/api/store/customer-reminders", storeCustomerReminderRoutes);
 /* ==========================
    SERVER START
 ========================== */

@@ -72,3 +72,49 @@ export const sendStoreLowStockNotification = async ({
 
   return saved;
 };
+
+export const sendStoreCustomerReminderNotification = async ({
+  owner_id,
+  fcmToken,
+  itemName,
+  notes,
+}) => {
+  const title = "Customer Reminder 🔔";
+  const messageText = `You noted: ${itemName}${notes ? ` (${notes})` : ""}`;
+
+  // Save to DB under store_notifications
+  const saved = await prisma.storeNotification.create({
+    data: {
+      owner_id,
+      type: "CUSTOMER_REMINDER",
+      title,
+      message: messageText,
+    },
+  });
+
+  if (!fcmToken) return saved;
+
+  const message = {
+    token: fcmToken,
+    notification: {
+      title,
+      body: messageText,
+    },
+    data: {
+      type: "CUSTOMER_REMINDER",
+      module: "store",
+      item_name: itemName,
+      notes: notes || "",
+      notification_id: saved.notification_id,
+    },
+  };
+
+  try {
+    await admin.messaging().send(message);
+    console.log(`✅ FCM reminder sent to owner ${owner_id} for ${itemName}`);
+  } catch (err) {
+    console.error("❌ Store FCM reminder error:", err.message);
+  }
+
+  return saved;
+};

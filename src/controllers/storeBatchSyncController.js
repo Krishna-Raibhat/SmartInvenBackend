@@ -9,6 +9,7 @@ import storeSalesService from "../services/storeSalesService.js";
 import storeCustomerReturnService from "../services/storeCustomerReturnService.js";
 import storeSupplierReturnService from "../services/storeSupplierReturnService.js";
 import { expenseTitleService, expenseService } from "../services/storeExpenseService.js";
+import { prisma } from "../prisma/client.js";
 
 const fail = (res, status, error_code, message) =>
   res.status(status).json({ success: false, error_code, message });
@@ -233,6 +234,65 @@ export const getSaleById = async (req, res) => {
     return res.json({ success: true, data: sale });
   } catch (err) {
     console.error("Error fetching sale by id:", err);
+    if (err.code === "SALE_NOT_FOUND") return fail(res, 404, err.code, err.message);
+    return fail(res, 500, "SERVER_ERROR", err.message);
+  }
+};
+
+// POST /api/store/sync/sales/:sales_id/send-invoice
+export const sendSaleInvoice = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { sales_id } = req.params;
+    const { email, pdfBase64 } = req.body;
+
+    if (!sales_id) {
+      return fail(res, 400, "VALIDATION_NO_DATA", "sales_id is required");
+    }
+
+    if (!email) {
+      return fail(res, 400, "VALIDATION_NO_DATA", "email is required");
+    }
+
+    if (!pdfBase64) {
+      return fail(res, 400, "VALIDATION_NO_DATA", "PDF data is required");
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return fail(res, 400, "VALIDATION_INVALID_EMAIL", "Invalid email format");
+    }
+
+    // Get sale details for email subject
+    const sale = await storeSalesService.getById(owner_id, sales_id);
+
+    // Get owner details
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id },
+      select: {
+        full_name: true,
+        email: true,
+        business_category: true,
+      },
+    });
+
+    // Send invoice email with PDF attachment
+    const { sendSaleInvoicePdfEmail } = await import("../utils/mailer.js");
+    await sendSaleInvoicePdfEmail({
+      to: email,
+      pdfBase64: pdfBase64,
+      invoiceId: sale.sales_id.substring(0, 8).toUpperCase(),
+      customerName: sale.customer?.full_name || "Valued Customer",
+      ownerName: owner.full_name,
+    });
+
+    return res.json({
+      success: true,
+      message: `Invoice sent successfully to ${email}`,
+    });
+  } catch (err) {
+    console.error("Error sending sale invoice:", err);
     if (err.code === "SALE_NOT_FOUND") return fail(res, 404, err.code, err.message);
     return fail(res, 500, "SERVER_ERROR", err.message);
   }

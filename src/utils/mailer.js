@@ -562,3 +562,98 @@ export const sendRegistrationOtpEmail = async ({ to, otp }) => {
     text,
   });
 };
+
+
+// SEND SALE INVOICE WITH PDF ATTACHMENT
+export const sendSaleInvoicePdfEmail = async ({ to, pdfBase64, invoiceId, customerName, ownerName }) => {
+  const subject = `Invoice from Smart Inven`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#f5f5f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5;padding:30px 0;">
+    <tr>
+      <td align="center">
+        <table width="500" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;">
+          
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background-color:#0F52BA;padding:25px 20px;">
+              <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:bold;">SMART INVEN</h1>
+              <p style="margin:5px 0 0 0;color:#ffffff;font-size:13px;">Invoice Attached</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:35px 40px;">
+              <p style="margin:0 0 20px 0;color:#333;font-size:15px;line-height:1.6;">
+                Dear <strong>${customerName}</strong>,
+              </p>
+              <p style="margin:0 0 25px 0;color:#555;font-size:14px;line-height:1.6;">
+                Thank you for your purchase. Your invoice is attached as a PDF.
+              </p>
+
+              <p style="margin:0 0 25px 0;color:#666;font-size:13px;line-height:1.5;">
+                If you have any questions, please contact us.
+              </p>
+              
+              <p style="margin:0;color:#333;font-size:14px;">
+                Best regards,<br>
+                <strong>${ownerName}</strong>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 40px;background:#f8f9fa;border-top:1px solid #e9ecef;">
+              <p style="margin:0;color:#999;font-size:12px;text-align:center;">
+                © ${new Date().getFullYear()} Smart Inven. All rights reserved.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `Dear ${customerName},
+
+Thank you for your purchase. Your invoice is attached as a PDF.
+
+If you have any questions, please contact us.
+
+Best regards,
+${ownerName}
+
+---
+Smart Inven
+  `.trim();
+
+  // Convert base64 to buffer
+  const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    text,
+    attachments: [
+      {
+        filename: `Invoice_${invoiceId}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf',
+      },
+    ],
+  });
+};
