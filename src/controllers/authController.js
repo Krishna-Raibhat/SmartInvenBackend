@@ -1,5 +1,6 @@
 import { hash, compare } from "bcrypt";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../prisma/client.js";
 import { sendOtpEmail, sendRegistrationOtpEmail, sendNewDeviceOtpEmail } from "../utils/mailer.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
@@ -455,6 +456,7 @@ export async function login(req, res) {
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
+        two_factor_enabled: owner.two_factor_enabled,
       },
     });
   } catch (err) {
@@ -486,7 +488,8 @@ export async function me(req, res) {
         created_at: true,
         package_id: true,
         business_category: true,
-        subscription_expires_at:true
+        subscription_expires_at:true,
+        two_factor_enabled: true,
       },
     });
 
@@ -588,6 +591,7 @@ export async function updateMe(req, res) {
         email: true,
         phone: true,
         package_id: true,
+        two_factor_enabled: true,
       },
     });
 
@@ -1464,6 +1468,7 @@ export async function verify2FA(req, res) {
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
+        two_factor_enabled: true,
       },
     });
   } catch (err) {
@@ -1595,5 +1600,97 @@ export async function disable2FA(req, res) {
   } catch (err) {
     console.error("disable2FA error:", err);
     return sendError(res, 500, "SERVER_ERROR", "Failed to disable 2FA.");
+  }
+}
+
+const client = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
+
+export async function googleLogin(req, res) {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Google ID token is required."
+      );
+    }
+
+    // Verify Google ID Token
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      return sendError(
+        res,
+        400,
+        "INVALID_TOKEN",
+        "Failed to verify Google token or retrieve email."
+      );
+    }
+
+    const email = normalizeEmail(payload.email);
+
+    // Find existing owner by email
+    const owner = await prisma.owner.findUnique({
+      where: { email },
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        package_id: true,
+        status: true,
+        created_at: true,
+        subscription_expires_at: true,
+        business_category: true,
+        two_factor_enabled: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
+    });
+
+    if (!owner) {
+      return sendError(
+        res,
+        404,
+        "EMAIL_NOT_REGISTERED",
+        "This Google account is not registered. Please register first."
+      );
+    }
+
+    // Google Sign-In is verified and trusted. Generate token directly.
+    const token = generateToken({
+      owner_id: owner.owner_id,
+      email: owner.email,
+      package_id: owner.package_id,
+      package_key: owner.package?.package_key ?? null,
+    });
+
+    return sendSuccess(res, 200, {
+      message: "Login successful.",
+      token,
+      owner: {
+        owner_id: owner.owner_id,
+        full_name: owner.full_name,
+        email: owner.email,
+        phone: owner.phone,
+        package_id: owner.package_id,
+        business_category: owner.business_category,
+        status: owner.status,
+        package_key: owner.package?.package_key ?? null,
+        package_name: owner.package?.package_name ?? null,
+        two_factor_enabled: owner.two_factor_enabled,
+      },
+    });
+  } catch (err) {
+    console.error("Google Sign-In Error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Google login failed.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
   }
 }

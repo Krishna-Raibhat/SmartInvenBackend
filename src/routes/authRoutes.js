@@ -17,6 +17,7 @@ import {
   setup2FA,
   enable2FA,
   disable2FA,
+  googleLogin,
 } from "../controllers/authController.js";
 import authMiddleware from "../middlewares/authMiddleware.js";
 import { otpVerifyLimiter } from "../middlewares/rateLimiter.js";
@@ -29,6 +30,7 @@ router.post("/register/", sendRegistrationOtp);
 router.post("/register/verify-otp", verifyRegistrationOtp);
 
 router.post("/login", login);
+router.post("/login/google", googleLogin);
 router.post("/login/verify-device", verifyDevice);
 router.post("/login/verify-2fa", otpVerifyLimiter, verify2FA);
 
