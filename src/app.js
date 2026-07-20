@@ -2,6 +2,10 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import { Worker } from "worker_threads";
+import path from "path";
+import { fileURLToPath } from "url";
+
 import express, { json, urlencoded } from "express";
 import cors from "cors";
 // If you don't want morgan, remove the next 2 lines
@@ -127,11 +131,24 @@ app.use("/api/hardware/sync", hardwareBatchSyncRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/issue-report", issueReportRoutes);
 
-import "./cron/lowStockCronAll.js";
-import "./cron/subscriptionReminderCron.js";
-import "./cron/subscriptionExpiryCron.js";
-import "./cron/groceryExpiryCron.js";
-import "./cron/storeCustomerReminderCron.js";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Spawn the cron jobs in a separate worker thread to run simultaneously
+const cronWorkerPath = path.resolve(__dirname, "cronWorker.js");
+const worker = new Worker(cronWorkerPath);
+
+worker.on("error", (err) => {
+  console.error("❌ Cron Worker error:", err);
+});
+
+worker.on("exit", (code) => {
+  if (code !== 0) {
+    console.error(`❌ Cron Worker stopped with exit code ${code}`);
+  } else {
+    console.log("✅ Cron Worker exited clean");
+  }
+});
 
 
 
