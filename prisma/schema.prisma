@@ -77,6 +77,7 @@ model Owner {
   storeSuppliers             StoreSupplier[]
   storeUnits                 StoreUnit[]
   userDevices                UserDevice[]
+  deviceVerifications        DeviceVerification[]
   storeCustomerReminders     StoreCustomerReminder[]
 
   @@map("owners")
@@ -1145,20 +1146,37 @@ enum StorePaymentMethod {
 }
 
 model UserDevice {
-  device_record_id String   @id @default(uuid())
-  owner_id         String
-  device_id        String
-  device_name      String?
-  ip_address       String?
-  is_verified      Boolean  @default(false)
-  created_at       DateTime @default(now())
-  last_login_at    DateTime @default(now()) @updatedAt
-  owner            Owner    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  device_id       String   @id @default(uuid())
+  owner_id        String
+  device_name     String?
+  device_metadata Json?
+  ip_address      String?
+  user_agent      String?
+  is_trusted      Boolean  @default(true)
+  created_at      DateTime @default(now())
+  last_used_at    DateTime @default(now()) @updatedAt
+  owner           Owner    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
-  @@unique([owner_id, device_id])
   @@index([owner_id])
   @@map("user_devices")
 }
+
+model DeviceVerification {
+  verification_token String    @id
+  owner_id           String
+  device_metadata    Json?
+  otp_hash           String
+  attempts           Int       @default(0)
+  resend_count       Int       @default(0)
+  expires_at         DateTime
+  created_at         DateTime  @default(now())
+  last_resent_at     DateTime?
+
+  owner              Owner     @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+
+  @@map("device_verifications")
+}
+
 
 model StoreCustomerReminder {
   reminder_id   String   @id @default(uuid())

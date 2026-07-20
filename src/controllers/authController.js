@@ -2,9 +2,11 @@ import { hash, compare } from "bcrypt";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../prisma/client.js";
-import { sendOtpEmail, sendRegistrationOtpEmail, sendNewDeviceOtpEmail } from "../utils/mailer.js";
+import { sendOtpEmail, sendRegistrationOtpEmail, sendNewDeviceOtpEmail, sendSuspiciousLoginEmail } from "../utils/mailer.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { generateSecret, verifySync, generateURI } from "otplib";
+import crypto from "crypto";
+import { hashOTP, verifyOTPHash } from "../utils/otp.js";
 
 
 const { sign, verify } = jwt;
@@ -197,7 +199,7 @@ export async function register(req, res) {
 ========================= */
 export async function login(req, res) {
   try {
-    let { email, password, fcm_token, device_id, device_name } = req.body;
+    let { email, password, fcm_token, device_id, device_name, device_metadata } = req.body;
     email = normalizeEmail(email);
 
     if (!email || !password) {
@@ -209,14 +211,6 @@ export async function login(req, res) {
       );
     }
 
-    if (!device_id) {
-      return sendError(
-        res,
-        400,
-        "VALIDATION_REQUIRED_FIELDS",
-        "device_id is required.",
-      );
-    }
 
     const owner = await prisma.owner.findUnique({
       where: { email },
@@ -372,49 +366,83 @@ export async function login(req, res) {
     }
 
     // Check Device ID Verification
-    const trustedDevice = await prisma.userDevice.findUnique({
-      where: {
-        owner_id_device_id: {
-          owner_id: owner.owner_id,
-          device_id,
-        },
-      },
-    });
+    let isDeviceTrusted = false;
+    let metadataMismatchDetected = false;
 
-    if (!trustedDevice || !trustedDevice.is_verified) {
-      // Create unverified device record if not present
-      if (!trustedDevice) {
-        await prisma.userDevice.create({
-          data: {
-            owner_id: owner.owner_id,
-            device_id,
-            device_name: device_name || "Unknown Device",
-            is_verified: false,
-          },
-        });
+    if (device_id) {
+      const dbDevice = await prisma.userDevice.findUnique({
+        where: { device_id },
+      });
+      if (dbDevice && dbDevice.owner_id === owner.owner_id && dbDevice.is_trusted) {
+        // Retrieve stored metadata (Prisma returns it as object natively)
+        const stored = dbDevice.device_metadata || {};
+        const current = device_metadata || {};
+        
+        // Check for mismatch (compare model and brand)
+        if (stored.model !== current.model || stored.brand !== current.brand) {
+          metadataMismatchDetected = true;
+          // Revoke trust
+          await prisma.userDevice.update({
+            where: { device_id },
+            data: { is_trusted: false },
+          });
+          // Send warning email alert
+          const deviceLabel = current.model || current.brand || "Unknown Device";
+          const currentIp = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+          await sendSuspiciousLoginEmail({
+            to: owner.email,
+            device_name: deviceLabel,
+            ip_address: currentIp
+          });
+          console.warn(`[SECURITY] Metadata anomaly mismatch detected for device_id: ${device_id}. Trust revoked.`);
+        } else {
+          isDeviceTrusted = true;
+          // Update device details
+          await prisma.userDevice.update({
+            where: { device_id },
+            data: {
+              ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+              user_agent: req.headers["user-agent"] || null,
+              last_used_at: new Date(),
+            },
+          });
+        }
       }
+    }
 
+    if (!isDeviceTrusted) {
       // Generate Device verification session and OTP
       const otp = generateOtp();
-      const otpHash = await hash(otp, 10);
+      const otpHash = hashOTP(otp);
+      const verificationToken = crypto.randomBytes(32).toString("hex");
 
-      const deviceSessionToken = sign(
-        {
+      await prisma.deviceVerification.create({
+        data: {
+          verification_token: verificationToken,
           owner_id: owner.owner_id,
-          device_id,
+          device_metadata: device_metadata || {},
           otp_hash: otpHash,
-          purpose: "device_verification",
+          attempts: 0,
+          resend_count: 0,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
         },
-        process.env.JWT_SECRET,
-        { expiresIn: "10m" }
-      );
+      });
 
-      await sendNewDeviceOtpEmail({ to: owner.email, otp, device_name });
+      const finalDeviceName = device_name || device_metadata?.model || device_metadata?.brand || "Unknown Device";
+      await sendNewDeviceOtpEmail({ to: owner.email, otp, device_name: finalDeviceName });
 
-      return sendSuccess(res, 200, {
-        device_verification_required: true,
-        device_session_token: deviceSessionToken,
-        message: "New device detected. Verification OTP sent to email.",
+      // Semantic Fix: Return success: false with verification pending indicators
+      const reasonMessage = metadataMismatchDetected 
+        ? "Suspicious device activity. Trust has been revoked. Verification OTP sent to email."
+        : "New device detected. Verification OTP sent to email.";
+
+      return res.status(200).json({
+        success: false,
+        requires_device_verification: true,
+        device_verification_required: true, // backward compatibility
+        verification_token: verificationToken,
+        device_session_token: verificationToken, // backward compatibility
+        message: reasonMessage,
       });
     }
 
@@ -1246,54 +1274,72 @@ export async function verifyRegistrationOtp(req, res) {
 /* =========================
    VERIFY NEW DEVICE OTP
    ========================= */
-export async function verifyDevice(req, res) {
+export async function verifyDeviceOTP(req, res) {
   try {
-    const { device_session_token, otp, device_name } = req.body;
-
-    if (!device_session_token || !otp) {
+    let { verification_token, otp, device_session_token } = req.body;
+    
+    // Support compatibility if only device_session_token is provided
+    const token = verification_token || device_session_token;
+    
+    if (!token || !otp) {
       return sendError(
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "device_session_token and otp are required.",
+        "Verification token and OTP are required."
       );
     }
-
-    let payload;
-    try {
-      payload = verify(device_session_token, process.env.JWT_SECRET);
-    } catch (err) {
-      return sendError(res, 401, "INVALID_SESSION", "Verification session expired or invalid.");
-    }
-
-    if (payload.purpose !== "device_verification") {
-      return sendError(res, 400, "INVALID_SESSION", "Invalid session purpose.");
-    }
-
-    const isMatch = await compare(String(otp), payload.otp_hash);
-    if (!isMatch) {
-      return sendError(res, 401, "INVALID_OTP", "Invalid verification code.");
-    }
-
-    // Mark device as verified
-    await prisma.userDevice.upsert({
-      where: {
-        owner_id_device_id: {
-          owner_id: payload.owner_id,
-          device_id: payload.device_id,
-        },
-      },
-      update: { is_verified: true, device_name: device_name || undefined },
-      create: {
-        owner_id: payload.owner_id,
-        device_id: payload.device_id,
-        device_name: device_name || "Unknown Device",
-        is_verified: true,
-      },
+    
+    const verification = await prisma.deviceVerification.findUnique({
+      where: { verification_token: token }
     });
-
+    
+    if (!verification) {
+      return sendError(res, 401, "INVALID_SESSION", "Verification failed. Invalid or expired session.");
+    }
+    
+    if (new Date() > verification.expires_at) {
+      return sendError(res, 401, "OTP_EXPIRED", "Verification failed. OTP has expired.");
+    }
+    
+    if (verification.attempts >= 5) {
+      return sendError(res, 401, "TOO_MANY_ATTEMPTS", "Verification failed. Too many wrong attempts.");
+    }
+    
+    const isMatch = verifyOTPHash(otp, verification.otp_hash);
+    if (!isMatch) {
+      await prisma.deviceVerification.update({
+        where: { verification_token: token },
+        data: { attempts: { increment: 1 } }
+      });
+      return sendError(res, 401, "INVALID_OTP", "Verification failed. Invalid code.");
+    }
+    
+    // Successful validation!
+    // Generate new permanent device_id (UUID)
+    const newDeviceId = crypto.randomUUID();
+    
+    // Store in UserDevice
+    const deviceName = verification.device_metadata?.model || verification.device_metadata?.brand || "Unknown Device";
+    await prisma.userDevice.create({
+      data: {
+        device_id: newDeviceId,
+        owner_id: verification.owner_id,
+        device_name: deviceName,
+        device_metadata: verification.device_metadata || {},
+        ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+        user_agent: req.headers["user-agent"] || null,
+        is_trusted: true,
+      }
+    });
+    
+    // Delete verification record
+    await prisma.deviceVerification.delete({
+      where: { verification_token: token }
+    });
+    
     const owner = await prisma.owner.findUnique({
-      where: { owner_id: payload.owner_id },
+      where: { owner_id: verification.owner_id },
       select: {
         owner_id: true,
         full_name: true,
@@ -1306,7 +1352,7 @@ export async function verifyDevice(req, res) {
         package: { select: { package_key: true, package_name: true } },
       },
     });
-
+    
     // Check if 2FA is needed next
     if (owner.two_factor_enabled) {
       const preAuthToken = sign(
@@ -1317,25 +1363,27 @@ export async function verifyDevice(req, res) {
         process.env.JWT_SECRET,
         { expiresIn: "3m" }
       );
-
+      
       return sendSuccess(res, 200, {
         require_2fa: true,
         pre_auth_token: preAuthToken,
+        device_id: newDeviceId,
         message: "Device verified. 2FA verification required.",
       });
     }
-
-    // Login complete
-    const token = generateToken({
+    
+    // Generate JWT login token
+    const loginToken = generateToken({
       owner_id: owner.owner_id,
       email: owner.email,
       package_id: owner.package_id,
       package_key: owner.package?.package_key ?? null,
     });
-
+    
     return sendSuccess(res, 200, {
       message: "Device verified. Login successful.",
-      token,
+      token: loginToken,
+      device_id: newDeviceId,
       owner: {
         owner_id: owner.owner_id,
         full_name: owner.full_name,
@@ -1346,13 +1394,93 @@ export async function verifyDevice(req, res) {
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
-      },
+      }
     });
   } catch (err) {
-    console.error("verifyDevice error:", err);
-    return sendError(res, 500, "SERVER_ERROR", "Verification failed.");
+    console.error("verifyDeviceOTP error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Device verification failed.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
   }
 }
+
+// Wrapper for backward compatibility
+export async function verifyDevice(req, res) {
+  return verifyDeviceOTP(req, res);
+}
+
+/* =========================
+   RESEND DEVICE OTP
+   ========================= */
+export async function resendDeviceOTP(req, res) {
+  try {
+    const { verification_token, device_session_token } = req.body;
+    const token = verification_token || device_session_token;
+    
+    if (!token) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Verification token is required.");
+    }
+    
+    const verification = await prisma.deviceVerification.findUnique({
+      where: { verification_token: token },
+      include: { owner: true }
+    });
+    
+    if (!verification) {
+      return sendError(res, 404, "SESSION_NOT_FOUND", "Verification session not found.");
+    }
+    
+    if (verification.resend_count >= 3) {
+      return sendError(res, 400, "RESEND_LIMIT_EXCEEDED", "Verification failed. Max resend limit reached.");
+    }
+    
+    // Enforce 30 seconds cooldown
+    if (verification.last_resent_at) {
+      const timeDiff = Date.now() - new Date(verification.last_resent_at).getTime();
+      if (timeDiff < 30 * 1000) {
+        const waitTime = Math.ceil((30 * 1000 - timeDiff) / 1000);
+        return sendError(
+          res, 
+          429, 
+          "COOLDOWN_ACTIVE", 
+          `Please wait ${waitTime} seconds before requesting a new code.`
+        );
+      }
+    }
+    
+    // Generate new OTP
+    const otp = generateOtp();
+    const otpHash = hashOTP(otp);
+    
+    // Update record
+    const updatedVerification = await prisma.deviceVerification.update({
+      where: { verification_token: token },
+      data: {
+        otp_hash: otpHash,
+        attempts: 0,
+        resend_count: { increment: 1 },
+        expires_at: new Date(Date.now() + 10 * 60 * 1000), // Refresh expiry for 10 min
+        last_resent_at: new Date()
+      }
+    });
+    
+    const deviceName = verification.device_metadata?.model || verification.device_metadata?.brand || "Unknown Device";
+    await sendNewDeviceOtpEmail({ 
+      to: verification.owner.email, 
+      otp, 
+      device_name: deviceName 
+    });
+    
+    return sendSuccess(res, 200, {
+      message: "New code sent",
+      resends_remaining: 3 - updatedVerification.resend_count
+    });
+  } catch (err) {
+    console.error("resendDeviceOTP error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Resending OTP failed.");
+  }
+}
+
 
 /* =========================
    VERIFY 2FA OTP
@@ -1692,5 +1820,69 @@ export async function googleLogin(req, res) {
     return sendError(res, 500, "SERVER_ERROR", "Google login failed.", {
       detail: err?.message ?? "An unexpected error occurred.",
     });
+  }
+}
+
+/* =========================
+   DEVICE MANAGEMENT
+   ========================= */
+export async function getDevices(req, res) {
+  try {
+    const ownerId = req.owner?.owner_id;
+    if (!ownerId) {
+      return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+    }
+
+    const devices = await prisma.userDevice.findMany({
+      where: { owner_id: ownerId },
+      select: {
+        device_id: true,
+        device_name: true,
+        ip_address: true,
+        user_agent: true,
+        is_trusted: true,
+        created_at: true,
+        last_used_at: true,
+      },
+      orderBy: { last_used_at: "desc" },
+    });
+
+    return sendSuccess(res, 200, { devices });
+  } catch (err) {
+    console.error("getDevices error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to fetch devices.");
+  }
+}
+
+export async function deleteDevice(req, res) {
+  try {
+    const ownerId = req.owner?.owner_id;
+    const { device_id } = req.params;
+
+    if (!ownerId) {
+      return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+    }
+
+    if (!device_id) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "device_id is required.");
+    }
+
+    // Find device first to ensure owner owns it
+    const device = await prisma.userDevice.findUnique({
+      where: { device_id }
+    });
+
+    if (!device || device.owner_id !== ownerId) {
+      return sendError(res, 404, "DEVICE_NOT_FOUND", "Device not found or not owned by you.");
+    }
+
+    await prisma.userDevice.delete({
+      where: { device_id }
+    });
+
+    return sendSuccess(res, 200, { message: "Device access revoked successfully." });
+  } catch (err) {
+    console.error("deleteDevice error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to revoke device access.");
   }
 }

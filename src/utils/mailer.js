@@ -8,6 +8,8 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  // Force IPv4 to avoid ENETUNREACH errors
+  family: 4,
 });
 
 // OTP EMAIL
@@ -655,5 +657,65 @@ Smart Inven
         contentType: 'application/pdf',
       },
     ],
+  });
+};
+
+// SUSPICIOUS LOGIN EMAIL
+export const sendSuspiciousLoginEmail = async ({ to, device_name, ip_address }) => {
+  const subject = "⚠️ Suspicious Login Attempt Detected — SmartInven";
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Security Alert</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+          <tr>
+            <td align="center" style="background:linear-gradient(135deg,#d93025,#a50e0e);padding:36px 40px 28px;">
+              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
+              <div style="font-size:13px;color:#fce8e6;margin-top:4px;letter-spacing:0.5px;">Security Alert</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:40px 48px 32px;">
+              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;">Suspicious Login Detected</p>
+              <p style="margin:0 0 16px;font-size:14px;color:#6b7280;line-height:1.6;">
+                A login attempt was made using your trusted device credentials, but the reported hardware parameters did not match.
+              </p>
+              <p style="margin:0 0 8px;font-size:14px;color:#1a1a2e;line-height:1.6;">
+                <strong>Device details:</strong> ${device_name || "Unknown Device"}<br/>
+                <strong>IP Address:</strong> ${ip_address || "Unknown"}
+              </p>
+              <p style="margin:24px 0 0;font-size:14px;color:#d93025;line-height:1.6;font-weight:500;">
+                As a precaution, we have revoked trust for this device identifier. The login flow has been forced back to email OTP verification.
+              </p>
+              <p style="margin:16px 0 0;font-size:13px;color:#9ca3af;line-height:1.6;">
+                If you did not initiate this attempt, we highly recommend changing your password immediately.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `Suspicious login attempt detected on device: ${device_name}. IP: ${ip_address || "Unknown"}. Trust has been revoked. The login attempt has been forced back to email OTP verification.`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    text,
   });
 };
