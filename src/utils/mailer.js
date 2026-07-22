@@ -719,3 +719,92 @@ export const sendSuspiciousLoginEmail = async ({ to, device_name, ip_address }) 
     text,
   });
 };
+
+// DEVICE VERIFICATION LINKS EMAIL
+export const sendDeviceVerificationLinksEmail = async ({ to, device_name, approve_link, deny_link }) => {
+  const subject = "Device Login Request Approval — SmartInven";
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Device Login Request</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:36px 40px 28px;">
+              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
+              <div style="font-size:13px;color:#a8c7fa;margin-top:4px;letter-spacing:0.5px;">Inventory Management System</div>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px 48px 32px;">
+              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;">Device Approval Request</p>
+              <p style="margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.6;">
+                A sign-in attempt was detected on a new or untrusted device: <strong>${device_name || "Unknown Device"}</strong>. 
+                Please approve this request to complete the login on that device, or deny if this wasn't you.
+              </p>
+
+              <!-- Action Buttons -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="${approve_link}" style="display:inline-block;background-color:#28a745;color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;padding:14px 32px;border-radius:6px;box-shadow:0 4px 6px rgba(40,167,69,0.25);">
+                      Approve Device
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-top: 18px;">
+                    <a href="${deny_link}" style="color:#dc3545;font-size:14px;font-weight:600;text-decoration:underline;">
+                      Deny Access
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:28px 0 0;font-size:13px;color:#9ca3af;line-height:1.6;">
+                This request was generated automatically for your account security. If you did not initiate this login request, please deny it immediately.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 48px 32px;background-color:#fafafa;border-top:1px solid #eee;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                © ${new Date().getFullYear()} SmartInven. All rights reserved.<br/>
+                This is an automated security notification.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `A login attempt was detected on a new or untrusted device: ${device_name}.\n\nApprove Device: ${approve_link}\n\nDeny Access: ${deny_link}\n\nIf you did not request this, ignore or deny it.`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    text,
+  });
+};
+
