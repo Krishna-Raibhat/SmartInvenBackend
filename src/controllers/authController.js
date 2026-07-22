@@ -2,6 +2,7 @@ import { hash, compare } from "bcrypt";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../prisma/client.js";
+import { sendOtpEmail, sendRegistrationOtpEmail, sendNewDeviceOtpEmail, sendSuspiciousLoginEmail, sendDeviceVerificationLinksEmail } from "../utils/mailer.js";
 import {
   sendOtpEmail,
   sendRegistrationOtpEmail,
@@ -550,45 +551,69 @@ export async function login(req, res) {
     }
 
     if (!isDeviceTrusted) {
-      // Generate Device verification session and OTP
-      const otp = generateOtp();
-      const otpHash = hashOTP(otp);
+      // Check if it's the first device after registration
+      const trustedDeviceCount = await prisma.userDevice.count({
+        where: { owner_id: owner.owner_id, is_trusted: true },
+      });
+
+      if (trustedDeviceCount === 0) {
+        const newDeviceId = device_id || crypto.randomUUID();
+        const finalDeviceName = device_name || device_metadata?.model || device_metadata?.brand || "Unknown Device";
+        await prisma.userDevice.create({
+          data: {
+            device_id: newDeviceId,
+            owner_id: owner.owner_id,
+            device_name: finalDeviceName,
+            device_metadata: device_metadata || {},
+            ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+            user_agent: req.headers["user-agent"] || null,
+            is_trusted: true,
+          }
+        });
+        isDeviceTrusted = true;
+        device_id = newDeviceId;
+      }
+    }
+
+    if (!isDeviceTrusted) {
+      // Generate Device verification session and a reserved device ID
+      const reservedDeviceId = crypto.randomUUID();
       const verificationToken = crypto.randomBytes(32).toString("hex");
 
       await prisma.deviceVerification.create({
         data: {
           verification_token: verificationToken,
           owner_id: owner.owner_id,
+          device_id: reservedDeviceId,
+          status: "pending",
           device_metadata: device_metadata || {},
-          otp_hash: otpHash,
-          attempts: 0,
-          resend_count: 0,
           expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
         },
       });
 
-      const finalDeviceName =
-        device_name ||
-        device_metadata?.model ||
-        device_metadata?.brand ||
-        "Unknown Device";
-      await sendNewDeviceOtpEmail({
+      const finalDeviceName = device_name || device_metadata?.model || device_metadata?.brand || "Unknown Device";
+      
+      // Email links
+      const approveLink = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/device-verification/approve?token=${verificationToken}`;
+      const denyLink = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/device-verification/deny?token=${verificationToken}`;
+      
+      await sendDeviceVerificationLinksEmail({
         to: owner.email,
-        otp,
         device_name: finalDeviceName,
+        approve_link: approveLink,
+        deny_link: denyLink,
       });
 
-      // Semantic Fix: Return success: false with verification pending indicators
-      const reasonMessage = metadataMismatchDetected
-        ? "Suspicious device activity. Trust has been revoked. Verification OTP sent to email."
-        : "New device detected. Verification OTP sent to email.";
+      const reasonMessage = metadataMismatchDetected 
+        ? "Suspicious device activity. Trust has been revoked. Verification link sent to email."
+        : "New device detected. Verification link sent to email.";
 
       return res.status(200).json({
         success: false,
         requires_device_verification: true,
-        device_verification_required: true, // backward compatibility
+        device_verification_required: true,
         verification_token: verificationToken,
-        device_session_token: verificationToken, // backward compatibility
+        device_session_token: verificationToken,
         message: reasonMessage,
       });
     }
@@ -621,6 +646,7 @@ export async function login(req, res) {
     return sendSuccess(res, 200, {
       message: "Login successful.",
       token,
+      device_id,
       owner: {
         owner_id: owner.owner_id,
         full_name: owner.full_name,
@@ -645,14 +671,49 @@ export async function login(req, res) {
 /* =========================
    ME
 ========================= */
+// export async function me(req, res) {
+//   try {
+//     const ownerId = req.owner?.owner_id;
+//     if (!ownerId)
+//       return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+
+//     const owner = await prisma.owner.findUnique({
+//       where: { owner_id: ownerId },
+//       select: {
+//         owner_id: true,
+//         full_name: true,
+//         email: true,
+//         phone: true,
+//         status: true,
+//         created_at: true,
+//         package_id: true,
+//         business_category: true,
+//         subscription_expires_at:true,
+//         two_factor_enabled: true,
+//       },
+//     });
+
+//     if (!owner)
+//       return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
+
+//     return sendSuccess(res, 200, { owner });
+//   } catch (err) {
+//     console.error(err);
+//     return sendError(res, 500, "SERVER_ERROR", "Failed to fetch profile.");
+//   }
+// }
 export async function me(req, res) {
   try {
     const ownerId = req.owner?.owner_id;
-    if (!ownerId)
+
+    if (!ownerId) {
       return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+    }
 
     const owner = await prisma.owner.findUnique({
-      where: { owner_id: ownerId },
+      where: {
+        owner_id: ownerId,
+      },
       select: {
         owner_id: true,
         full_name: true,
@@ -664,16 +725,63 @@ export async function me(req, res) {
         business_category: true,
         subscription_expires_at: true,
         two_factor_enabled: true,
+
+        package: {
+          select: {
+            package_key: true,
+            package_name: true,
+          },
+        },
+
+        paymentProofs: {
+          where: {
+            status: "pending",
+          },
+          orderBy: {
+            created_at: "desc",
+          },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            created_at: true,
+          },
+        },
       },
     });
 
-    if (!owner)
+    if (!owner) {
       return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
+    }
 
-    return sendSuccess(res, 200, { owner });
+    const pendingPayment = owner.paymentProofs[0] ?? null;
+
+    return sendSuccess(res, 200, {
+      owner: {
+        owner_id: owner.owner_id,
+        full_name: owner.full_name,
+        email: owner.email,
+        phone: owner.phone,
+        status: owner.status,
+        created_at: owner.created_at,
+        package_id: owner.package_id,
+        package_key: owner.package?.package_key ?? null,
+        package_name: owner.package?.package_name ?? null,
+        business_category: owner.business_category,
+        subscription_expires_at: owner.subscription_expires_at,
+        two_factor_enabled: owner.two_factor_enabled,
+
+        has_pending_payment: pendingPayment != null,
+        payment_status: pendingPayment?.status ?? null,
+        payment_submitted_at: pendingPayment?.created_at ?? null,
+      },
+    });
   } catch (err) {
-    console.error(err);
-    return sendError(res, 500, "SERVER_ERROR", "Failed to fetch profile.");
+    console.error("ME_PROFILE_ERROR:", err);
+
+    return sendError(res, 500, "SERVER_ERROR", "Failed to fetch profile.", {
+      detail: err?.message ?? "Unexpected error.",
+    });
   }
 }
 
@@ -1717,6 +1825,215 @@ export async function resendDeviceOTP(req, res) {
     return sendError(res, 500, "SERVER_ERROR", "Resending OTP failed.");
   }
 }
+
+export async function approveDevice(req, res) {
+  try {
+    const { token } = req.query;
+    if (!token) {
+      return res.status(400).send("<h1>Verification token is required.</h1>");
+    }
+
+    const verification = await prisma.deviceVerification.findUnique({
+      where: { verification_token: token }
+    });
+
+    if (!verification) {
+      return res.status(404).send("<h1>Invalid or expired verification session.</h1>");
+    }
+
+    if (new Date() > verification.expires_at) {
+      return res.status(400).send("<h1>Verification session has expired.</h1>");
+    }
+
+    // Flip status to approved
+    await prisma.deviceVerification.update({
+      where: { verification_token: token },
+      data: { status: "approved" }
+    });
+
+    // Create trusted UserDevice
+    const deviceName = verification.device_metadata?.model || verification.device_metadata?.brand || "Unknown Device";
+    await prisma.userDevice.upsert({
+      where: { device_id: verification.device_id },
+      update: {
+        owner_id: verification.owner_id,
+        device_name: deviceName,
+        device_metadata: verification.device_metadata || {},
+        ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+        user_agent: req.headers["user-agent"] || null,
+        is_trusted: true,
+        last_used_at: new Date(),
+      },
+      create: {
+        device_id: verification.device_id,
+        owner_id: verification.owner_id,
+        device_name: deviceName,
+        device_metadata: verification.device_metadata || {},
+        ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+        user_agent: req.headers["user-agent"] || null,
+        is_trusted: true,
+      }
+    });
+
+    return res.status(200).send(`
+      <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+        <h1 style="color: #28a745;">Device Approved successfully</h1>
+        <p style="color: #555;">You may now return to the SmartInven app. You have been logged in automatically.</p>
+      </div>
+    `);
+  } catch (err) {
+    console.error("approveDevice error:", err);
+    return res.status(500).send("<h1>Server error.</h1>");
+  }
+}
+
+export async function denyDevice(req, res) {
+  try {
+    const { token } = req.query;
+    if (!token) {
+      return res.status(400).send("<h1>Verification token is required.</h1>");
+    }
+
+    const verification = await prisma.deviceVerification.findUnique({
+      where: { verification_token: token }
+    });
+
+    if (!verification) {
+      return res.status(404).send("<h1>Invalid or expired verification session.</h1>");
+    }
+
+    // Flip status to denied
+    await prisma.deviceVerification.update({
+      where: { verification_token: token },
+      data: { status: "denied" }
+    });
+
+    return res.status(200).send(`
+      <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+        <h1 style="color: #dc3545;">Device Login Denied</h1>
+        <p style="color: #555;">The login attempt from the untrusted device has been rejected and blocked.</p>
+      </div>
+    `);
+  } catch (err) {
+    console.error("denyDevice error:", err);
+    return res.status(500).send("<h1>Server error.</h1>");
+  }
+}
+
+export async function getDeviceVerificationStatus(req, res) {
+  try {
+    const { token } = req.query;
+    if (!token) {
+      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Verification token is required.");
+    }
+
+    const verification = await prisma.deviceVerification.findUnique({
+      where: { verification_token: token }
+    });
+
+    if (!verification) {
+      return sendError(res, 404, "SESSION_NOT_FOUND", "Verification session not found or expired.");
+    }
+
+    if (new Date() > verification.expires_at) {
+      // Auto cleanup expired session
+      await prisma.deviceVerification.delete({
+        where: { verification_token: token }
+      }).catch(() => {});
+      return sendError(res, 410, "SESSION_EXPIRED", "Verification session has expired.");
+    }
+
+    if (verification.status === "approved") {
+      // Cleanup verification session
+      await prisma.deviceVerification.delete({
+        where: { verification_token: token }
+      });
+
+      const owner = await prisma.owner.findUnique({
+        where: { owner_id: verification.owner_id },
+        select: {
+          owner_id: true,
+          full_name: true,
+          email: true,
+          phone: true,
+          package_id: true,
+          status: true,
+          two_factor_enabled: true,
+          business_category: true,
+          package: { select: { package_key: true, package_name: true } },
+        },
+      });
+
+      // Check if 2FA is needed next
+      if (owner.two_factor_enabled) {
+        const preAuthToken = sign(
+          {
+            owner_id: owner.owner_id,
+            purpose: "2fa_verification",
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: "3m" }
+        );
+        
+        return sendSuccess(res, 200, {
+          status: "approved",
+          require_2fa: true,
+          pre_auth_token: preAuthToken,
+          device_id: verification.device_id,
+          message: "Device approved. 2FA verification required.",
+        });
+      }
+
+      // Generate login JWT token
+      const loginToken = generateToken({
+        owner_id: owner.owner_id,
+        email: owner.email,
+        package_id: owner.package_id,
+        package_key: owner.package?.package_key ?? null,
+      });
+
+      return sendSuccess(res, 200, {
+        status: "approved",
+        message: "Device approved. Login successful.",
+        token: loginToken,
+        device_id: verification.device_id,
+        owner: {
+          owner_id: owner.owner_id,
+          full_name: owner.full_name,
+          email: owner.email,
+          phone: owner.phone,
+          package_id: owner.package_id,
+          business_category: owner.business_category,
+          status: owner.status,
+          package_key: owner.package?.package_key ?? null,
+          package_name: owner.package?.package_name ?? null,
+        }
+      });
+    }
+
+    if (verification.status === "denied") {
+      // Cleanup verification session
+      await prisma.deviceVerification.delete({
+        where: { verification_token: token }
+      });
+
+      return sendSuccess(res, 200, {
+        status: "denied",
+        message: "Device login request was denied."
+      });
+    }
+
+    // Still pending
+    return sendSuccess(res, 200, {
+      status: "pending",
+      message: "Device verification is still pending approval."
+    });
+  } catch (err) {
+    console.error("getDeviceVerificationStatus error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to check status.");
+  }
+}
+
 
 /* =========================
    VERIFY 2FA OTP

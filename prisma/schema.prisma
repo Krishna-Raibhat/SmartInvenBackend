@@ -1165,7 +1165,9 @@ model DeviceVerification {
   verification_token String    @id
   owner_id           String
   device_metadata    Json?
-  otp_hash           String
+  otp_hash           String?
+  status             String    @default("pending")
+  device_id          String    @default("")
   attempts           Int       @default(0)
   resend_count       Int       @default(0)
   expires_at         DateTime

@@ -22,6 +22,9 @@ import {
   googleLogin,
   getDevices,
   deleteDevice,
+  approveDevice,
+  denyDevice,
+  getDeviceVerificationStatus,
   checkRegistrationAvailability,
 } from "../controllers/authController.js";
 import authMiddleware from "../middlewares/authMiddleware.js";
@@ -48,6 +51,11 @@ router.post("/login/verify-device", deviceVerifyLimiter, verifyDevice);
 router.post("/verify-device-otp", deviceVerifyLimiter, verifyDeviceOTP);
 router.post("/resend-device-otp", resendDeviceOTP);
 router.post("/login/verify-2fa", otpVerifyLimiter, verify2FA);
+
+// Device verification via email links
+router.get("/device-verification/approve", approveDevice);
+router.get("/device-verification/deny", denyDevice);
+router.get("/device-verification/status", getDeviceVerificationStatus);
 
 router.get("/me", authMiddleware, me);
 router.put("/me", authMiddleware, updateMe);
