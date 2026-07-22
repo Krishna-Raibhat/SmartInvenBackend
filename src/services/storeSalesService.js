@@ -331,7 +331,9 @@ class StoreSalesService {
     const effectiveTotal = totalAmount.sub(disc);
 
     let finalStatus;
-    if (paid.gte(effectiveTotal) && effectiveTotal.gt(0)) {
+    if (effectiveTotal.lte(0)) {
+      finalStatus = "paid";
+    } else if (paid.gte(effectiveTotal)) {
       finalStatus = "paid";
     } else if (paid.gt(0)) {
       finalStatus = "partial";
@@ -770,7 +772,9 @@ class StoreSalesService {
       const finalDue = Decimal.max(new Decimal(0), netTotal.sub(finalPaid));
 
       const status =
-        finalPaid.gte(netTotal) && netTotal.gt(0)
+        netTotal.lte(0)
+          ? "paid"
+          : finalPaid.gte(netTotal)
           ? "paid"
           : finalPaid.gt(0)
           ? "partial"

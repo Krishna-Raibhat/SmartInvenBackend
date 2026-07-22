@@ -12,13 +12,11 @@ import {
   getAllOwners,
   verifyRegistrationOtp,
   sendRegistrationOtp,
-  verifyDevice,
-  verifyDeviceOTP,
-  resendDeviceOTP,
   verify2FA,
   setup2FA,
   enable2FA,
   disable2FA,
+  sendDisable2FAOtp,
   googleLogin,
   getDevices,
   deleteDevice,
@@ -31,7 +29,6 @@ import authMiddleware from "../middlewares/authMiddleware.js";
 import {
   otpVerifyLimiter,
   deviceLoginLimiter,
-  deviceVerifyLimiter,
 } from "../middlewares/rateLimiter.js";
 
 const router = Router();
@@ -47,9 +44,6 @@ router.post(
 
 router.post("/login", deviceLoginLimiter, login);
 router.post("/login/google", googleLogin);
-router.post("/login/verify-device", deviceVerifyLimiter, verifyDevice);
-router.post("/verify-device-otp", deviceVerifyLimiter, verifyDeviceOTP);
-router.post("/resend-device-otp", resendDeviceOTP);
 router.post("/login/verify-2fa", otpVerifyLimiter, verify2FA);
 
 // Device verification via email links
@@ -73,6 +67,7 @@ router.get("/admin/owners", getAllOwners);
 router.post("/2fa/setup", authMiddleware, setup2FA);
 router.post("/2fa/enable", authMiddleware, enable2FA);
 router.post("/2fa/disable", authMiddleware, disable2FA);
+router.post("/2fa/disable/send-otp", authMiddleware, sendDisable2FAOtp);
 
 // Device Management
 router.get("/devices", authMiddleware, getDevices);
