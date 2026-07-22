@@ -3,11 +3,16 @@ import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import { prisma } from "../prisma/client.js";
 import { sendOtpEmail, sendRegistrationOtpEmail, sendNewDeviceOtpEmail, sendSuspiciousLoginEmail, sendDeviceVerificationLinksEmail } from "../utils/mailer.js";
+import {
+  sendOtpEmail,
+  sendRegistrationOtpEmail,
+  sendNewDeviceOtpEmail,
+  sendSuspiciousLoginEmail,
+} from "../utils/mailer.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { generateSecret, verifySync, generateURI } from "otplib";
 import crypto from "crypto";
 import { hashOTP, verifyOTPHash } from "../utils/otp.js";
-
 
 const { sign, verify } = jwt;
 
@@ -43,10 +48,10 @@ const generateToken = (payload) => {
       owner_id: payload.owner_id,
       email: payload.email,
       package_id: payload.package_id,
-      package_key: payload.package_key, 
+      package_key: payload.package_key,
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
   );
 };
 
@@ -98,47 +103,105 @@ const packageNameMap = {
 
 export async function register(req, res) {
   try {
-    let { full_name, phone, email, password, confirm_password, package_key, status, business_category } = req.body;
+    let {
+      full_name,
+      phone,
+      email,
+      password,
+      confirm_password,
+      package_key,
+      status,
+      business_category,
+    } = req.body;
 
     email = normalizeEmail(email);
-    package_key = String(package_key || "").trim().toLowerCase();
+    package_key = String(package_key || "")
+      .trim()
+      .toLowerCase();
 
-    if (!full_name || !phone || !email || !password || !confirm_password || !package_key) {
-      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "All fields are required.");
+    if (
+      !full_name ||
+      !phone ||
+      !email ||
+      !password ||
+      !confirm_password ||
+      !package_key
+    ) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "All fields are required.",
+      );
     }
 
     // ✅ allow only these packages
     const allowed = new Set(["hardware", "clothing", "grocery", "store"]);
     if (!allowed.has(package_key)) {
-      return sendError(res, 400, "VALIDATION_PACKAGE_INVALID", "Invalid package_key.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_PACKAGE_INVALID",
+        "Invalid package_key.",
+      );
     }
 
     // ✅ validate status if provided
     const validStatuses = ["trial", "active", "inactive"];
     if (status && !validStatuses.includes(status)) {
-      return sendError(res, 400, "VALIDATION_STATUS_INVALID", "Invalid status. Must be one of: trial, active, inactive.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_STATUS_INVALID",
+        "Invalid status. Must be one of: trial, active, inactive.",
+      );
     }
 
     const emailError = validateEmail(email);
-    if (emailError) return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
+    if (emailError)
+      return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
 
     const phoneError = validatePhone(phone);
-    if (phoneError) return sendError(res, 400, "VALIDATION_PHONE_INVALID", phoneError);
+    if (phoneError)
+      return sendError(res, 400, "VALIDATION_PHONE_INVALID", phoneError);
 
     if (password !== confirm_password) {
-      return sendError(res, 400, "VALIDATION_PASSWORD_MISMATCH", "Password and confirm password do not match.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_PASSWORD_MISMATCH",
+        "Password and confirm password do not match.",
+      );
     }
 
     const passwordErrors = validatePassword(password);
     if (passwordErrors.length) {
-      return sendError(res, 400, "VALIDATION_PASSWORD_WEAK", "Password is not strong enough.", { errors: passwordErrors });
+      return sendError(
+        res,
+        400,
+        "VALIDATION_PASSWORD_WEAK",
+        "Password is not strong enough.",
+        { errors: passwordErrors },
+      );
     }
 
     const emailExists = await prisma.owner.findUnique({ where: { email } });
-    if (emailExists) return sendError(res, 409, "EMAIL_ALREADY_EXISTS", "Email is already registered.");
+    if (emailExists)
+      return sendError(
+        res,
+        409,
+        "EMAIL_ALREADY_EXISTS",
+        "Email is already registered.",
+      );
 
     const phoneExists = await prisma.owner.findUnique({ where: { phone } });
-    if (phoneExists) return sendError(res, 409, "PHONE_ALREADY_EXISTS", "Phone number is already registered.");
+    if (phoneExists)
+      return sendError(
+        res,
+        409,
+        "PHONE_ALREADY_EXISTS",
+        "Phone number is already registered.",
+      );
 
     const hashedPassword = await hash(password, 10);
 
@@ -147,11 +210,15 @@ export async function register(req, res) {
     const otpHash = await hash(otp, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    let finalBusinessCategory = business_category ? String(business_category).trim() : null;
+    let finalBusinessCategory = business_category
+      ? String(business_category).trim()
+      : null;
     if (!finalBusinessCategory) {
       if (package_key === "grocery") finalBusinessCategory = "Grocery Store";
-      else if (package_key === "clothing") finalBusinessCategory = "Clothing Store";
-      else if (package_key === "hardware") finalBusinessCategory = "Hardware Store";
+      else if (package_key === "clothing")
+        finalBusinessCategory = "Clothing Store";
+      else if (package_key === "hardware")
+        finalBusinessCategory = "Hardware Store";
       else if (package_key === "store") finalBusinessCategory = "Store";
     }
 
@@ -185,7 +252,12 @@ export async function register(req, res) {
   } catch (err) {
     console.error("Register error:", err);
     if (err.code === "P2002") {
-      return sendError(res, 409, "DUPLICATE_VALUE", "Email or phone already exists.");
+      return sendError(
+        res,
+        409,
+        "DUPLICATE_VALUE",
+        "Email or phone already exists.",
+      );
     }
     return sendError(res, 500, "SERVER_ERROR", "Registration failed.", {
       detail: err?.message ?? "An unexpected error occurred.",
@@ -193,13 +265,67 @@ export async function register(req, res) {
   }
 }
 
+export async function checkRegistrationAvailability(req, res) {
+  try {
+    let { email, phone } = req.body;
+
+    email = normalizeEmail(email);
+    phone = String(phone ?? "").trim();
+
+    if (!email || !phone) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Email and phone number are required.",
+      );
+    }
+
+    const [existingEmail, existingPhone] = await Promise.all([
+      prisma.owner.findUnique({
+        where: { email },
+        select: { owner_id: true },
+      }),
+
+      prisma.owner.findUnique({
+        where: { phone },
+        select: { owner_id: true },
+      }),
+    ]);
+
+    const emailExists = Boolean(existingEmail);
+    const phoneExists = Boolean(existingPhone);
+
+    return sendSuccess(res, 200, {
+      available: !emailExists && !phoneExists,
+      email_exists: emailExists,
+      phone_exists: phoneExists,
+    });
+  } catch (err) {
+    console.error("CHECK_REGISTRATION_AVAILABILITY_ERROR:", err);
+
+    return sendError(
+      res,
+      500,
+      "SERVER_ERROR",
+      "Failed to verify registration details.",
+    );
+  }
+}
 
 /* =========================
    LOGIN
 ========================= */
 export async function login(req, res) {
   try {
-    let { email, password, fcm_token, device_id, device_name, device_metadata } = req.body;
+    let {
+      email,
+      password,
+      fcm_token,
+      device_id,
+      device_name,
+      device_metadata,
+    } = req.body;
     email = normalizeEmail(email);
 
     if (!email || !password) {
@@ -210,7 +336,6 @@ export async function login(req, res) {
         "Email and password are required.",
       );
     }
-
 
     const owner = await prisma.owner.findUnique({
       where: { email },
@@ -305,7 +430,9 @@ export async function login(req, res) {
       }
     }
     if (owner.status === "trial") {
-      const trialExpiry = new Date(new Date(owner.created_at).getTime() + 7 * 24 * 60 * 60 * 1000);
+      const trialExpiry = new Date(
+        new Date(owner.created_at).getTime() + 7 * 24 * 60 * 60 * 1000,
+      );
 
       if (new Date() > trialExpiry) {
         const pendingPayment = await prisma.paymentProof.findFirst({
@@ -357,7 +484,7 @@ export async function login(req, res) {
         );
       }
     }
-   
+
     if (fcm_token) {
       await prisma.owner.update({
         where: { owner_id: owner.owner_id },
@@ -373,11 +500,15 @@ export async function login(req, res) {
       const dbDevice = await prisma.userDevice.findUnique({
         where: { device_id },
       });
-      if (dbDevice && dbDevice.owner_id === owner.owner_id && dbDevice.is_trusted) {
+      if (
+        dbDevice &&
+        dbDevice.owner_id === owner.owner_id &&
+        dbDevice.is_trusted
+      ) {
         // Retrieve stored metadata (Prisma returns it as object natively)
         const stored = dbDevice.device_metadata || {};
         const current = device_metadata || {};
-        
+
         // Check for mismatch (compare model and brand)
         if (stored.model !== current.model || stored.brand !== current.brand) {
           metadataMismatchDetected = true;
@@ -387,21 +518,30 @@ export async function login(req, res) {
             data: { is_trusted: false },
           });
           // Send warning email alert
-          const deviceLabel = current.model || current.brand || "Unknown Device";
-          const currentIp = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+          const deviceLabel =
+            current.model || current.brand || "Unknown Device";
+          const currentIp =
+            req.ip ||
+            req.headers["x-forwarded-for"] ||
+            req.socket.remoteAddress;
           await sendSuspiciousLoginEmail({
             to: owner.email,
             device_name: deviceLabel,
-            ip_address: currentIp
+            ip_address: currentIp,
           });
-          console.warn(`[SECURITY] Metadata anomaly mismatch detected for device_id: ${device_id}. Trust revoked.`);
+          console.warn(
+            `[SECURITY] Metadata anomaly mismatch detected for device_id: ${device_id}. Trust revoked.`,
+          );
         } else {
           isDeviceTrusted = true;
           // Update device details
           await prisma.userDevice.update({
             where: { device_id },
             data: {
-              ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+              ip_address:
+                req.ip ||
+                req.headers["x-forwarded-for"] ||
+                req.socket.remoteAddress,
               user_agent: req.headers["user-agent"] || null,
               last_used_at: new Date(),
             },
@@ -486,7 +626,7 @@ export async function login(req, res) {
           purpose: "2fa_verification",
         },
         process.env.JWT_SECRET,
-        { expiresIn: "3m" }
+        { expiresIn: "3m" },
       );
 
       return sendSuccess(res, 200, {
@@ -527,7 +667,6 @@ export async function login(req, res) {
     });
   }
 }
-
 
 /* =========================
    ME
@@ -663,7 +802,7 @@ export async function updateMe(req, res) {
         res,
         400,
         "VALIDATION_NO_FIELDS",
-        "At least one field is required."
+        "At least one field is required.",
       );
     }
 
@@ -695,7 +834,7 @@ export async function updateMe(req, res) {
           res,
           409,
           "EMAIL_ALREADY_IN_USE",
-          "Email already in use."
+          "Email already in use.",
         );
       }
     }
@@ -716,7 +855,7 @@ export async function updateMe(req, res) {
           res,
           409,
           "PHONE_ALREADY_IN_USE",
-          "Phone already in use."
+          "Phone already in use.",
         );
       }
     }
@@ -753,7 +892,7 @@ export async function updateMe(req, res) {
         res,
         409,
         "DUPLICATE_VALUE",
-        "Email or phone already exists."
+        "Email or phone already exists.",
       );
     }
 
@@ -777,7 +916,7 @@ export async function changePassword(req, res) {
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "All fields are required."
+        "All fields are required.",
       );
     }
 
@@ -786,7 +925,7 @@ export async function changePassword(req, res) {
         res,
         400,
         "VALIDATION_PASSWORD_MISMATCH",
-        "Passwords do not match."
+        "Passwords do not match.",
       );
     }
 
@@ -799,7 +938,7 @@ export async function changePassword(req, res) {
         "Password is not strong enough.",
         {
           errors: passwordErrors,
-        }
+        },
       );
     }
 
@@ -817,7 +956,7 @@ export async function changePassword(req, res) {
         res,
         401,
         "OLD_PASSWORD_INCORRECT",
-        "Old password is incorrect."
+        "Old password is incorrect.",
       );
     }
 
@@ -827,7 +966,7 @@ export async function changePassword(req, res) {
         res,
         400,
         "PASSWORD_SAME_AS_OLD",
-        "New password must be different."
+        "New password must be different.",
       );
     }
 
@@ -858,7 +997,7 @@ export async function forgotPasswordSendOtp(req, res) {
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "Email is required."
+        "Email is required.",
       );
 
     const owner = await prisma.owner.findUnique({
@@ -1001,7 +1140,7 @@ export async function forgotPasswordVerifyOtp(req, res) {
     const resetToken = sign(
       { owner_id: owner.owner_id, purpose: "reset_password" },
       process.env.JWT_SECRET,
-      { expiresIn: "10m" }
+      { expiresIn: "10m" },
     );
 
     return res
@@ -1079,17 +1218,27 @@ export async function superAdminLogin(req, res) {
     email = normalizeEmail(email);
 
     if (!email || !password) {
-      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Email and password are required.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Email and password are required.",
+      );
     }
 
     if (email !== SUPER_ADMIN_EMAIL || password !== SUPER_ADMIN_PASSWORD) {
-      return sendError(res, 401, "INVALID_CREDENTIALS", "Invalid email or password.");
+      return sendError(
+        res,
+        401,
+        "INVALID_CREDENTIALS",
+        "Invalid email or password.",
+      );
     }
 
     const token = sign(
       { role: SUPER_ADMIN_ROLE, email: SUPER_ADMIN_EMAIL },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
     );
 
     return sendSuccess(res, 200, {
@@ -1142,7 +1291,12 @@ export async function sendRegistrationOtp(req, res) {
     email = normalizeEmail(email);
 
     if (!email) {
-      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Email is required.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Email is required.",
+      );
     }
 
     const emailError = validateEmail(email);
@@ -1152,7 +1306,12 @@ export async function sendRegistrationOtp(req, res) {
 
     const existingOwner = await prisma.owner.findUnique({ where: { email } });
     if (existingOwner) {
-      return sendError(res, 409, "EMAIL_ALREADY_EXISTS", "Email is already registered.");
+      return sendError(
+        res,
+        409,
+        "EMAIL_ALREADY_EXISTS",
+        "Email is already registered.",
+      );
     }
 
     const activeRecord = await prisma.registrationOtp.findFirst({
@@ -1236,7 +1395,12 @@ export async function verifyRegistrationOtp(req, res) {
     email = normalizeEmail(email);
 
     if (!email || !otp) {
-      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Email and OTP are required.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Email and OTP are required.",
+      );
     }
 
     const record = await prisma.registrationOtp.findFirst({
@@ -1245,7 +1409,12 @@ export async function verifyRegistrationOtp(req, res) {
     });
 
     if (!record) {
-      return sendError(res, 404, "OTP_NOT_FOUND", "No OTP found for this email.");
+      return sendError(
+        res,
+        404,
+        "OTP_NOT_FOUND",
+        "No OTP found for this email.",
+      );
     }
 
     const now = new Date();
@@ -1262,7 +1431,12 @@ export async function verifyRegistrationOtp(req, res) {
 
     // Check if expired
     if (record.expires_at <= now) {
-      return sendError(res, 400, "OTP_EXPIRED", "OTP has expired. Please request a new one.");
+      return sendError(
+        res,
+        400,
+        "OTP_EXPIRED",
+        "OTP has expired. Please request a new one.",
+      );
     }
 
     // Check if already verified
@@ -1291,7 +1465,8 @@ export async function verifyRegistrationOtp(req, res) {
         return res.status(423).json({
           success: false,
           error_code: "ACCOUNT_LOCKED",
-          message: "Too many wrong OTP attempts. Account locked for 30 minutes.",
+          message:
+            "Too many wrong OTP attempts. Account locked for 30 minutes.",
           locked_until: lockedUntil,
         });
       }
@@ -1313,12 +1488,24 @@ export async function verifyRegistrationOtp(req, res) {
     });
 
     // ✅ CREATE OWNER ACCOUNT AFTER OTP VERIFICATION
-    if (!record.full_name || !record.phone || !record.password_hash || !record.package_key) {
-      return sendError(res, 400, "REGISTRATION_DATA_MISSING", "Registration data not found. Please register again.");
+    if (
+      !record.full_name ||
+      !record.phone ||
+      !record.password_hash ||
+      !record.package_key
+    ) {
+      return sendError(
+        res,
+        400,
+        "REGISTRATION_DATA_MISSING",
+        "Registration data not found. Please register again.",
+      );
     }
 
     // Get or create package
-    let pkg = await prisma.package.findUnique({ where: { package_key: record.package_key } });
+    let pkg = await prisma.package.findUnique({
+      where: { package_key: record.package_key },
+    });
     if (!pkg) {
       pkg = await prisma.package.create({
         data: {
@@ -1392,67 +1579,91 @@ export async function verifyRegistrationOtp(req, res) {
 export async function verifyDeviceOTP(req, res) {
   try {
     let { verification_token, otp, device_session_token } = req.body;
-    
+
     // Support compatibility if only device_session_token is provided
     const token = verification_token || device_session_token;
-    
+
     if (!token || !otp) {
       return sendError(
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "Verification token and OTP are required."
+        "Verification token and OTP are required.",
       );
     }
-    
+
     const verification = await prisma.deviceVerification.findUnique({
-      where: { verification_token: token }
+      where: { verification_token: token },
     });
-    
+
     if (!verification) {
-      return sendError(res, 401, "INVALID_SESSION", "Verification failed. Invalid or expired session.");
+      return sendError(
+        res,
+        401,
+        "INVALID_SESSION",
+        "Verification failed. Invalid or expired session.",
+      );
     }
-    
+
     if (new Date() > verification.expires_at) {
-      return sendError(res, 401, "OTP_EXPIRED", "Verification failed. OTP has expired.");
+      return sendError(
+        res,
+        401,
+        "OTP_EXPIRED",
+        "Verification failed. OTP has expired.",
+      );
     }
-    
+
     if (verification.attempts >= 5) {
-      return sendError(res, 401, "TOO_MANY_ATTEMPTS", "Verification failed. Too many wrong attempts.");
+      return sendError(
+        res,
+        401,
+        "TOO_MANY_ATTEMPTS",
+        "Verification failed. Too many wrong attempts.",
+      );
     }
-    
+
     const isMatch = verifyOTPHash(otp, verification.otp_hash);
     if (!isMatch) {
       await prisma.deviceVerification.update({
         where: { verification_token: token },
-        data: { attempts: { increment: 1 } }
+        data: { attempts: { increment: 1 } },
       });
-      return sendError(res, 401, "INVALID_OTP", "Verification failed. Invalid code.");
+      return sendError(
+        res,
+        401,
+        "INVALID_OTP",
+        "Verification failed. Invalid code.",
+      );
     }
-    
+
     // Successful validation!
     // Generate new permanent device_id (UUID)
     const newDeviceId = crypto.randomUUID();
-    
+
     // Store in UserDevice
-    const deviceName = verification.device_metadata?.model || verification.device_metadata?.brand || "Unknown Device";
+    const deviceName =
+      verification.device_metadata?.model ||
+      verification.device_metadata?.brand ||
+      "Unknown Device";
     await prisma.userDevice.create({
       data: {
         device_id: newDeviceId,
         owner_id: verification.owner_id,
         device_name: deviceName,
         device_metadata: verification.device_metadata || {},
-        ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+        ip_address:
+          req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
         user_agent: req.headers["user-agent"] || null,
         is_trusted: true,
-      }
+      },
     });
-    
+
     // Delete verification record
     await prisma.deviceVerification.delete({
-      where: { verification_token: token }
+      where: { verification_token: token },
     });
-    
+
     const owner = await prisma.owner.findUnique({
       where: { owner_id: verification.owner_id },
       select: {
@@ -1467,7 +1678,7 @@ export async function verifyDeviceOTP(req, res) {
         package: { select: { package_key: true, package_name: true } },
       },
     });
-    
+
     // Check if 2FA is needed next
     if (owner.two_factor_enabled) {
       const preAuthToken = sign(
@@ -1476,9 +1687,9 @@ export async function verifyDeviceOTP(req, res) {
           purpose: "2fa_verification",
         },
         process.env.JWT_SECRET,
-        { expiresIn: "3m" }
+        { expiresIn: "3m" },
       );
-      
+
       return sendSuccess(res, 200, {
         require_2fa: true,
         pre_auth_token: preAuthToken,
@@ -1486,7 +1697,7 @@ export async function verifyDeviceOTP(req, res) {
         message: "Device verified. 2FA verification required.",
       });
     }
-    
+
     // Generate JWT login token
     const loginToken = generateToken({
       owner_id: owner.owner_id,
@@ -1494,7 +1705,7 @@ export async function verifyDeviceOTP(req, res) {
       package_id: owner.package_id,
       package_key: owner.package?.package_key ?? null,
     });
-    
+
     return sendSuccess(res, 200, {
       message: "Device verified. Login successful.",
       token: loginToken,
@@ -1509,7 +1720,7 @@ export async function verifyDeviceOTP(req, res) {
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
-      }
+      },
     });
   } catch (err) {
     console.error("verifyDeviceOTP error:", err);
@@ -1531,42 +1742,58 @@ export async function resendDeviceOTP(req, res) {
   try {
     const { verification_token, device_session_token } = req.body;
     const token = verification_token || device_session_token;
-    
+
     if (!token) {
-      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Verification token is required.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Verification token is required.",
+      );
     }
-    
+
     const verification = await prisma.deviceVerification.findUnique({
       where: { verification_token: token },
-      include: { owner: true }
+      include: { owner: true },
     });
-    
+
     if (!verification) {
-      return sendError(res, 404, "SESSION_NOT_FOUND", "Verification session not found.");
+      return sendError(
+        res,
+        404,
+        "SESSION_NOT_FOUND",
+        "Verification session not found.",
+      );
     }
-    
+
     if (verification.resend_count >= 3) {
-      return sendError(res, 400, "RESEND_LIMIT_EXCEEDED", "Verification failed. Max resend limit reached.");
+      return sendError(
+        res,
+        400,
+        "RESEND_LIMIT_EXCEEDED",
+        "Verification failed. Max resend limit reached.",
+      );
     }
-    
+
     // Enforce 30 seconds cooldown
     if (verification.last_resent_at) {
-      const timeDiff = Date.now() - new Date(verification.last_resent_at).getTime();
+      const timeDiff =
+        Date.now() - new Date(verification.last_resent_at).getTime();
       if (timeDiff < 30 * 1000) {
         const waitTime = Math.ceil((30 * 1000 - timeDiff) / 1000);
         return sendError(
-          res, 
-          429, 
-          "COOLDOWN_ACTIVE", 
-          `Please wait ${waitTime} seconds before requesting a new code.`
+          res,
+          429,
+          "COOLDOWN_ACTIVE",
+          `Please wait ${waitTime} seconds before requesting a new code.`,
         );
       }
     }
-    
+
     // Generate new OTP
     const otp = generateOtp();
     const otpHash = hashOTP(otp);
-    
+
     // Update record
     const updatedVerification = await prisma.deviceVerification.update({
       where: { verification_token: token },
@@ -1575,20 +1802,23 @@ export async function resendDeviceOTP(req, res) {
         attempts: 0,
         resend_count: { increment: 1 },
         expires_at: new Date(Date.now() + 10 * 60 * 1000), // Refresh expiry for 10 min
-        last_resent_at: new Date()
-      }
+        last_resent_at: new Date(),
+      },
     });
-    
-    const deviceName = verification.device_metadata?.model || verification.device_metadata?.brand || "Unknown Device";
-    await sendNewDeviceOtpEmail({ 
-      to: verification.owner.email, 
-      otp, 
-      device_name: deviceName 
+
+    const deviceName =
+      verification.device_metadata?.model ||
+      verification.device_metadata?.brand ||
+      "Unknown Device";
+    await sendNewDeviceOtpEmail({
+      to: verification.owner.email,
+      otp,
+      device_name: deviceName,
     });
-    
+
     return sendSuccess(res, 200, {
       message: "New code sent",
-      resends_remaining: 3 - updatedVerification.resend_count
+      resends_remaining: 3 - updatedVerification.resend_count,
     });
   } catch (err) {
     console.error("resendDeviceOTP error:", err);
@@ -1825,7 +2055,12 @@ export async function verify2FA(req, res) {
     try {
       payload = verify(pre_auth_token, process.env.JWT_SECRET);
     } catch (err) {
-      return sendError(res, 401, "INVALID_SESSION", "Session expired or invalid.");
+      return sendError(
+        res,
+        401,
+        "INVALID_SESSION",
+        "Session expired or invalid.",
+      );
     }
 
     if (payload.purpose !== "2fa_verification") {
@@ -1860,7 +2095,7 @@ export async function verify2FA(req, res) {
         res,
         403,
         "ACCOUNT_LOCKED",
-        `Account temporarily locked due to failed attempts. Try again in ${minutesLeft} minutes.`
+        `Account temporarily locked due to failed attempts. Try again in ${minutesLeft} minutes.`,
       );
     }
 
@@ -1889,7 +2124,7 @@ export async function verify2FA(req, res) {
         res,
         401,
         "INVALID_OTP",
-        `Invalid 2FA code. ${Math.max(0, 5 - newFailedAttempts)} attempts remaining.`
+        `Invalid 2FA code. ${Math.max(0, 5 - newFailedAttempts)} attempts remaining.`,
       );
     }
 
@@ -1957,7 +2192,12 @@ export async function setup2FA(req, res) {
     });
   } catch (err) {
     console.error("setup2FA error:", err);
-    return sendError(res, 500, "SERVER_ERROR", "Failed to generate 2FA setup details.");
+    return sendError(
+      res,
+      500,
+      "SERVER_ERROR",
+      "Failed to generate 2FA setup details.",
+    );
   }
 }
 
@@ -2027,7 +2267,12 @@ export async function disable2FA(req, res) {
     });
 
     if (!owner.two_factor_enabled || !owner.two_factor_secret) {
-      return sendError(res, 400, "2FA_ALREADY_DISABLED", "2FA is not enabled for this account.");
+      return sendError(
+        res,
+        400,
+        "2FA_ALREADY_DISABLED",
+        "2FA is not enabled for this account.",
+      );
     }
 
     const decryptedSecret = decryptSecret(owner.two_factor_secret);
@@ -2054,7 +2299,9 @@ export async function disable2FA(req, res) {
   }
 }
 
-const client = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
+const client = new OAuth2Client(
+  process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+);
 
 export async function googleLogin(req, res) {
   try {
@@ -2065,14 +2312,15 @@ export async function googleLogin(req, res) {
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "Google ID token is required."
+        "Google ID token is required.",
       );
     }
 
     // Verify Google ID Token
     const ticket = await client.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+      audience:
+        process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
@@ -2081,7 +2329,7 @@ export async function googleLogin(req, res) {
         res,
         400,
         "INVALID_TOKEN",
-        "Failed to verify Google token or retrieve email."
+        "Failed to verify Google token or retrieve email.",
       );
     }
 
@@ -2110,7 +2358,7 @@ export async function googleLogin(req, res) {
         res,
         404,
         "EMAIL_NOT_REGISTERED",
-        "This Google account is not registered. Please register first."
+        "This Google account is not registered. Please register first.",
       );
     }
 
@@ -2187,25 +2435,42 @@ export async function deleteDevice(req, res) {
     }
 
     if (!device_id) {
-      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "device_id is required.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "device_id is required.",
+      );
     }
 
     // Find device first to ensure owner owns it
     const device = await prisma.userDevice.findUnique({
-      where: { device_id }
+      where: { device_id },
     });
 
     if (!device || device.owner_id !== ownerId) {
-      return sendError(res, 404, "DEVICE_NOT_FOUND", "Device not found or not owned by you.");
+      return sendError(
+        res,
+        404,
+        "DEVICE_NOT_FOUND",
+        "Device not found or not owned by you.",
+      );
     }
 
     await prisma.userDevice.delete({
-      where: { device_id }
+      where: { device_id },
     });
 
-    return sendSuccess(res, 200, { message: "Device access revoked successfully." });
+    return sendSuccess(res, 200, {
+      message: "Device access revoked successfully.",
+    });
   } catch (err) {
     console.error("deleteDevice error:", err);
-    return sendError(res, 500, "SERVER_ERROR", "Failed to revoke device access.");
+    return sendError(
+      res,
+      500,
+      "SERVER_ERROR",
+      "Failed to revoke device access.",
+    );
   }
 }

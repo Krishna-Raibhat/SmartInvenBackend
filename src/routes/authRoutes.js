@@ -1,17 +1,17 @@
 import { Router } from "express";
-import { 
-  register, 
-  login, 
-  me, 
-  updateMe, 
-  changePassword, 
-  forgotPasswordSendOtp, 
-  forgotPasswordVerifyOtp, 
-  forgotPasswordReset, 
-  superAdminLogin, 
+import {
+  register,
+  login,
+  me,
+  updateMe,
+  changePassword,
+  forgotPasswordSendOtp,
+  forgotPasswordVerifyOtp,
+  forgotPasswordReset,
+  superAdminLogin,
   getAllOwners,
   verifyRegistrationOtp,
-  sendRegistrationOtp, 
+  sendRegistrationOtp,
   verifyDevice,
   verifyDeviceOTP,
   resendDeviceOTP,
@@ -25,9 +25,10 @@ import {
   approveDevice,
   denyDevice,
   getDeviceVerificationStatus,
+  checkRegistrationAvailability,
 } from "../controllers/authController.js";
 import authMiddleware from "../middlewares/authMiddleware.js";
-import { 
+import {
   otpVerifyLimiter,
   deviceLoginLimiter,
   deviceVerifyLimiter,
@@ -39,6 +40,10 @@ const router = Router();
 router.post("/register", register);
 router.post("/register/", sendRegistrationOtp);
 router.post("/register/verify-otp", verifyRegistrationOtp);
+router.post(
+  "/register/check-registration-availability",
+  checkRegistrationAvailability,
+);
 
 router.post("/login", deviceLoginLimiter, login);
 router.post("/login/google", googleLogin);
