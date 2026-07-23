@@ -413,6 +413,9 @@ class StorePurchaseSummaryService {
         };
 
         const netSpend = s.total_spend - s.total_returned;
+        // total_qty_purchased stays GROSS (units actually bought) — never
+        // goes negative, even for a supplier with returns but no new lots
+        // in this period. Returned units are reported separately.
         const netQtyPurchased = s.total_qty_purchased - s.total_qty_returned;
 
         return {
@@ -424,7 +427,9 @@ class StorePurchaseSummaryService {
           total_returned:      Number(s.total_returned.toFixed(2)),
           net_spend:           Number(netSpend.toFixed(2)),
           total_lots:          s.total_lots,
-          total_qty_purchased: netQtyPurchased,
+          total_qty_purchased: s.total_qty_purchased,
+          total_qty_returned:  s.total_qty_returned,
+          net_qty_purchased:   netQtyPurchased,
           total_qty_remaining: Math.round(s.total_qty_remaining),
           due_amount:          Number(s.due_amount.toFixed(2)),
           paid_amount:         Number(s.paid_amount.toFixed(2)),
@@ -439,7 +444,9 @@ class StorePurchaseSummaryService {
     const totalReturned      = returns.reduce((sum, r) => sum + Number(r.total_refund || 0), 0);
     const netSpend           = totalSpend - totalReturned;
     const totalLots          = suppliers.reduce((s, x) => s + x.total_lots, 0);
+    // Gross units bought (never negative) + units returned, reported separately.
     const totalQtyPurchased  = suppliers.reduce((s, x) => s + x.total_qty_purchased, 0);
+    const totalQtyReturned   = suppliers.reduce((s, x) => s + x.total_qty_returned, 0);
     const totalQtyRemaining  = suppliers.reduce((s, x) => s + x.total_qty_remaining, 0);
     const totalSuppliers     = suppliers.length;
 
@@ -498,6 +505,7 @@ class StorePurchaseSummaryService {
         net_spend:            Number(netSpend.toFixed(2)),
         total_lots:           totalLots,
         total_qty_purchased:  totalQtyPurchased,
+        total_qty_returned:   totalQtyReturned,
         total_qty_remaining:  totalQtyRemaining,
         total_suppliers:      totalSuppliers,
         unpaid_due:           Number(unpaidDue.toFixed(2)),
