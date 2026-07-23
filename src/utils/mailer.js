@@ -691,7 +691,7 @@ export const sendSuspiciousLoginEmail = async ({ to, device_name, ip_address }) 
               </p>
               <p style="margin:0 0 8px;font-size:14px;color:#1a1a2e;line-height:1.6;">
                 <strong>Device details:</strong> ${device_name || "Unknown Device"}<br/>
-                <strong>IP Address:</strong> ${ip_address || "Unknown"}
+                
               </p>
               <p style="margin:24px 0 0;font-size:14px;color:#d93025;line-height:1.6;font-weight:500;">
                 As a precaution, we have revoked trust for this device identifier. The login flow has been forced back to email OTP verification.
