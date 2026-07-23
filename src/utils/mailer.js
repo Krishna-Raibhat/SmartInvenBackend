@@ -721,8 +721,8 @@ export const sendSuspiciousLoginEmail = async ({ to, device_name, ip_address }) 
 };
 
 // DEVICE VERIFICATION LINKS EMAIL
-export const sendDeviceVerificationLinksEmail = async ({ to, device_name, approve_link, deny_link }) => {
-  const subject = "Device Login Request Approval — SmartInven";
+export const sendDeviceVerificationLinksEmail = async ({ to, device_name, ip_address, approve_link, deny_link }) => {
+  const subject = "⚠️ Security Alert: New Sign-in Attempt — SmartInven";
 
   const html = `
 <!DOCTYPE html>
@@ -730,61 +730,81 @@ export const sendDeviceVerificationLinksEmail = async ({ to, device_name, approv
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Device Login Request</title>
+  <title>Security Alert</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
     <tr>
       <td align="center">
-        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.06);border:1px solid #e5e7eb;">
 
-          <!-- Header -->
+          <!-- Top Brand Bar -->
           <tr>
-            <td align="center" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:36px 40px 28px;">
-              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
-              <div style="font-size:13px;color:#a8c7fa;margin-top:4px;letter-spacing:0.5px;">Inventory Management System</div>
+            <td align="center" style="background:#1a73e8;padding:24px 40px 20px;">
+              <div style="font-size:24px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">SmartInven</div>
+              <div style="font-size:12px;color:#d2e3fc;margin-top:2px;letter-spacing:0.5px;text-transform:uppercase;font-weight:600;">Security Notification</div>
             </td>
           </tr>
 
           <!-- Body -->
           <tr>
-            <td style="padding:40px 48px 32px;">
-              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;">Device Approval Request</p>
-              <p style="margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.6;">
-                A sign-in attempt was detected on a new or untrusted device: <strong>${device_name || "Unknown Device"}</strong>. 
-                Please approve this request to complete the login on that device, or deny if this wasn't you.
-              </p>
+            <td style="padding:40px 40px 32px;">
+              <div style="text-align:center;margin-bottom:24px;">
+                <span style="font-size:48px;">🛡️</span>
+                <h2 style="margin:12px 0 8px;font-size:22px;font-weight:600;color:#1f2937;">New Device Login Attempt</h2>
+                <p style="margin:0;font-size:14px;color:#4b5563;line-height:1.5;">
+                  We detected a login attempt for your SmartInven account from a new or untrusted device.
+                </p>
+              </div>
+
+              <!-- Device Details Table -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:28px;">
+                <tr>
+                  <td style="font-size:13px;color:#64748b;padding-bottom:8px;font-weight:600;width:30%;">Device Name</td>
+                  <td style="font-size:14px;color:#1e293b;padding-bottom:8px;font-weight:500;">${device_name || "Unknown Device"}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#64748b;padding-bottom:8px;font-weight:600;">IP Address</td>
+                  <td style="font-size:14px;color:#1e293b;padding-bottom:8px;font-family:monospace;">${ip_address || "Unknown"}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#64748b;font-weight:600;">Time</td>
+                  <td style="font-size:14px;color:#1e293b;font-weight:500;">${new Date().toLocaleString()}</td>
+                </tr>
+              </table>
+
+              <div style="text-align:center;margin-bottom:24px;">
+                <p style="margin:0;font-size:15px;font-weight:600;color:#1e293b;">Was this you?</p>
+              </div>
 
               <!-- Action Buttons -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
                 <tr>
-                  <td align="center">
-                    <a href="${approve_link}" style="display:inline-block;background-color:#28a745;color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;padding:14px 32px;border-radius:6px;box-shadow:0 4px 6px rgba(40,167,69,0.25);">
-                      Approve Device
+                  <td align="right" width="48%" style="padding-right: 8px;">
+                    <a href="${approve_link}" style="display:inline-block;background-color:#16a34a;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;padding:12px 24px;border-radius:6px;min-width:110px;text-align:center;box-shadow:0 2px 4px rgba(22,163,74,0.15);">
+                      Yes, it's me
                     </a>
                   </td>
-                </tr>
-                <tr>
-                  <td align="center" style="padding-top: 18px;">
-                    <a href="${deny_link}" style="color:#dc3545;font-size:14px;font-weight:600;text-decoration:underline;">
-                      Deny Access
+                  <td align="left" width="48%" style="padding-left: 8px;">
+                    <a href="${deny_link}" style="display:inline-block;background-color:#dc2626;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;padding:12px 24px;border-radius:6px;min-width:110px;text-align:center;box-shadow:0 2px 4px rgba(220,38,38,0.15);">
+                      No, it's not me
                     </a>
                   </td>
                 </tr>
               </table>
 
-              <p style="margin:28px 0 0;font-size:13px;color:#9ca3af;line-height:1.6;">
-                This request was generated automatically for your account security. If you did not initiate this login request, please deny it immediately.
+              <p style="margin:28px 0 0;font-size:13px;color:#6b7280;line-height:1.6;text-align:center;">
+                If you did not initiate this login request, please click <strong>"No, it's not me"</strong> immediately to block access and protect your account.
               </p>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td align="center" style="padding:24px 48px 32px;background-color:#fafafa;border-top:1px solid #eee;">
-              <p style="margin:0;font-size:12px;color:#9ca3af;">
+            <td align="center" style="padding:24px 40px 32px;background-color:#fafafa;border-top:1px solid #f3f4f6;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.5;">
                 © ${new Date().getFullYear()} SmartInven. All rights reserved.<br/>
-                This is an automated security notification.
+                This is an automated security notification. Do not reply to this email.
               </p>
             </td>
           </tr>
@@ -797,7 +817,7 @@ export const sendDeviceVerificationLinksEmail = async ({ to, device_name, approv
 </html>
   `;
 
-  const text = `A login attempt was detected on a new or untrusted device: ${device_name}.\n\nApprove Device: ${approve_link}\n\nDeny Access: ${deny_link}\n\nIf you did not request this, ignore or deny it.`;
+  const text = `⚠️ Security Alert: New Sign-in Attempt\n\nWe detected a login attempt on a new or untrusted device for your SmartInven account.\n\nDevice: ${device_name || "Unknown Device"}\nIP Address: ${ip_address || "Unknown"}\nTime: ${new Date().toLocaleString()}\n\nWas this you?\n\nYes, it's me (Approve): ${approve_link}\nNo, it's not me (Deny): ${deny_link}\n\nIf you did not request this, please deny it immediately.`;
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,

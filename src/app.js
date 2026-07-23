@@ -93,6 +93,9 @@ import storeCustomerReminderRoutes from "./routes/storeCustomerReminderRoutes.js
 
 const app = express();
 
+// Trust reverse proxy to get correct client IP address
+app.set("trust proxy", true);
+
 // Middlewares
 app.use(cors());
 app.use(json({ limit: "2mb" }));

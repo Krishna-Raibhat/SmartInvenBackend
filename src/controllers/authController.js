@@ -594,12 +594,14 @@ export async function login(req, res) {
       const finalDeviceName = device_name || device_metadata?.model || device_metadata?.brand || "Unknown Device";
       
       // Email links
-      const approveLink = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/device-verification/approve?token=${verificationToken}`;
-      const denyLink = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/device-verification/deny?token=${verificationToken}`;
+      const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get("host")}`;
+      const approveLink = `${baseUrl}/api/auth/device-verification/approve?token=${verificationToken}`;
+      const denyLink = `${baseUrl}/api/auth/device-verification/deny?token=${verificationToken}`;
       
       await sendDeviceVerificationLinksEmail({
         to: owner.email,
         device_name: finalDeviceName,
+        ip_address: req.ip,
         approve_link: approveLink,
         deny_link: denyLink,
       });
