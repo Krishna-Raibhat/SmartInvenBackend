@@ -168,7 +168,24 @@ const storeStockLotController = {
         });
       }
 
-      console.error("Error creating store stock lots:", error);
+            if (error.code === "P2028") {
+        console.error(
+          "Database transaction timeout:",
+          error,
+        );
+
+        return res.status(503).json({
+          success: false,
+          error_code: "DATABASE_BUSY",
+          message:
+            "The database is currently busy. Please try again.",
+        });
+      }
+
+      console.error(
+        "Error creating store stock lots:",
+        error,
+      );
 
       return res.status(500).json({
         success: false,
