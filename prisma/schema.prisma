@@ -884,6 +884,7 @@ model StoreProduct {
   cp                         Decimal?            @db.Decimal(10, 2)
   sp                         Decimal?            @db.Decimal(10, 2)
   type                       StoreProductType    @default(item)
+  status                     Boolean             @default(true)
   last_low_stock_notified_at DateTime?
   storeNotifications         StoreNotification[]
   category                   StoreCategory?      @relation(fields: [category_id], references: [category_id])
@@ -896,6 +897,7 @@ model StoreProduct {
   @@index([owner_id, category_id])
   @@index([owner_id, type])
   @@index([owner_id, created_at])
+  @@index([owner_id, status])
   @@map("store_products")
 }
 
@@ -1146,7 +1148,8 @@ enum StorePaymentMethod {
 }
 
 model UserDevice {
-  device_id       String   @id @default(uuid())
+  id              String   @id @default(uuid())
+  device_id       String
   owner_id        String
   device_name     String?
   device_metadata Json?
@@ -1157,6 +1160,7 @@ model UserDevice {
   last_used_at    DateTime @default(now()) @updatedAt
   owner           Owner    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
+  @@unique([owner_id,device_id])
   @@index([owner_id])
   @@map("user_devices")
 }

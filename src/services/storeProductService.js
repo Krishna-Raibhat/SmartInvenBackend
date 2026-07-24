@@ -25,6 +25,26 @@ class StoreProductService {
       throw { code: "REQUIRED_FIELDS", message: "sp is required for service." };
     }
 
+    const inactiveMatch = await prisma.storeProduct.findFirst({
+      where: { owner_id, product_name, status: false },
+    });
+
+    if (inactiveMatch) {
+      return prisma.storeProduct.update({
+        where: { product_id: inactiveMatch.product_id },
+        data: {
+          category_id: category_id || null,
+          unit_id: unit_id || null,
+          type,
+          description: description?.trim() || null,
+          cp: cp ?? null,
+          sp: sp ?? null,
+          status: true,
+        },
+        include: { category: true, unit: true },
+      });
+    }
+
     try {
       return await prisma.storeProduct.create({
         data: {
@@ -82,6 +102,7 @@ class StoreProductService {
           p.updated_at,
           p.category_id,
           p.unit_id,
+          p.status,
           CASE WHEN p.category_id IS NOT NULL THEN json_build_object(
             'category_id', c.category_id,
             'category_name', c.category_name,
@@ -108,7 +129,7 @@ class StoreProductService {
           WHERE owner_id = ${owner_id} AND qty_remaining > 0
           GROUP BY product_id
         ) sl ON p.product_id = sl.product_id
-        WHERE p.owner_id = ${owner_id}
+        WHERE p.owner_id = ${owner_id} AND p.status = true
         ORDER BY p.created_at DESC
       `;
 
@@ -134,6 +155,7 @@ class StoreProductService {
           cp: p.cp ? Number(p.cp) : null,
           sp: p.sp ? Number(p.sp) : null,
           type: p.type,
+          status: p.status,
           category: p.category,
           unit: p.unit,
           stockLots: p.stock_lots || [],
@@ -329,15 +351,18 @@ class StoreProductService {
     });
 
     if (linkedLots > 0) {
-      throw {
-        code: "IN_USE",
-        message: `Cannot delete "${existing.product_name}". It has ${linkedLots} stock lot(s) linked.`,
-        details: { stock_lots: linkedLots },
+      await prisma.storeProduct.update({
+        where: { product_id },
+        data: { status: false },
+      });
+      return {
+        message: `"${existing.product_name}" has existing stock/sales history, so it was deactivated instead of deleted.`,
+        soft_deleted: true,
       };
     }
 
     await prisma.storeProduct.delete({ where: { product_id } });
-    return { message: "Product deleted successfully." };
+    return { message: "Product deleted successfully.", soft_deleted: false };
   }
 }
 

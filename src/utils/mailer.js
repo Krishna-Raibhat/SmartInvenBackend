@@ -10,6 +10,14 @@ const transporter = nodemailer.createTransport({
   },
   // Force IPv4 to avoid ENETUNREACH errors
   family: 4,
+  // Additional connection options to force IPv4
+  dnsTimeout: 10000,
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000,
+  tls: {
+    rejectUnauthorized: false, // Allow self-signed certs (dev only)
+  },
 });
 
 // OTP EMAIL

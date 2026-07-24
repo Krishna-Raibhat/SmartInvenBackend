@@ -137,8 +137,8 @@ const storeProductController = {
     try {
       const owner_id = req.owner.owner_id;
       const { id } = req.params;
-      await storeProductService.delete(owner_id, id);
-      return res.status(200).json({ success: true, message: "Product deleted successfully." });
+      const result = await storeProductService.delete(owner_id, id);
+      return res.status(200).json({ success: true, message: result.message, soft_deleted: result.soft_deleted });
     } catch (error) {
       if (error.code === "NOT_FOUND") {
         return res.status(404).json({ success: false, error_code: "NOT_FOUND", message: error.message });

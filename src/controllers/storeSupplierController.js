@@ -1,6 +1,6 @@
 // src/controllers/storeSupplierController.js
 import storeSupplierService from "../services/storeSupplierService.js";
-import { normalizeNepalPhone, isValidNepalPhone } from "../utils/phone.js";
+import { validateSupplierPhone } from "../utils/phone.js";
 
 const isValidEmail = (email) =>
   typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -22,14 +22,15 @@ const storeSupplierController = {
         });
       }
 
-      phone = normalizeNepalPhone(phone);
-      if (!isValidNepalPhone(phone)) {
+      const phoneCheck = validateSupplierPhone(phone);
+      if (!phoneCheck.valid) {
         return res.status(400).json({
           success: false,
           error_code: "VALIDATION_PHONE_INVALID",
-          message: "Invalid phone number. Please enter a valid Nepali number.",
+          message: "Invalid phone number.",
         });
       }
+      phone = phoneCheck.formatted;
 
       if (email !== undefined && email !== null) {
         email = String(email).trim();
@@ -144,16 +145,15 @@ const storeSupplierController = {
       }
 
       if (phone !== undefined) {
-        phone = normalizeNepalPhone(String(phone || "").trim());
-        if (!isValidNepalPhone(phone)) {
+        const phoneCheck = validateSupplierPhone(String(phone || "").trim());
+        if (!phoneCheck.valid) {
           return res.status(400).json({
             success: false,
             error_code: "VALIDATION_PHONE_INVALID",
-            message:
-              "Invalid phone number. Please enter a valid Nepali number.",
+            message: "Invalid phone number.",
           });
         }
-        patch.phone = phone;
+        patch.phone = phoneCheck.formatted;
       }
 
       if (email !== undefined) {

@@ -498,13 +498,9 @@ export async function login(req, res) {
 
     if (device_id) {
       const dbDevice = await prisma.userDevice.findUnique({
-        where: { device_id },
+        where: { owner_id_device_id: { owner_id: owner.owner_id, device_id } },
       });
-      if (
-        dbDevice &&
-        dbDevice.owner_id === owner.owner_id &&
-        dbDevice.is_trusted
-      ) {
+      if (dbDevice && dbDevice.is_trusted) {
         // Retrieve stored metadata (Prisma returns it as object natively)
         const stored = dbDevice.device_metadata || {};
         const current = device_metadata || {};
@@ -514,7 +510,7 @@ export async function login(req, res) {
           metadataMismatchDetected = true;
           // Revoke trust
           await prisma.userDevice.update({
-            where: { device_id },
+            where: { owner_id_device_id: { owner_id: owner.owner_id, device_id } },
             data: { is_trusted: false },
           });
           // Send warning email alert
@@ -536,7 +532,7 @@ export async function login(req, res) {
           isDeviceTrusted = true;
           // Update device details
           await prisma.userDevice.update({
-            where: { device_id },
+            where: { owner_id_device_id: { owner_id: owner.owner_id, device_id } },
             data: {
               ip_address:
                 req.ip ||
@@ -577,7 +573,7 @@ export async function login(req, res) {
 
     if (!isDeviceTrusted) {
       // Generate Device verification session and a reserved device ID
-      const reservedDeviceId = crypto.randomUUID();
+      const reservedDeviceId = device_id || crypto.randomUUID();
       const verificationToken = crypto.randomBytes(32).toString("hex");
 
       await prisma.deviceVerification.create({
@@ -1627,7 +1623,12 @@ export async function approveDevice(req, res) {
     // Create trusted UserDevice
     const deviceName = verification.device_metadata?.model || verification.device_metadata?.brand || "Unknown Device";
     await prisma.userDevice.upsert({
-      where: { device_id: verification.device_id },
+      where: {
+        owner_id_device_id: {
+          owner_id: verification.owner_id,
+          device_id: verification.device_id,
+        },
+      },
       update: {
         owner_id: verification.owner_id,
         device_name: deviceName,
@@ -2355,10 +2356,10 @@ export async function deleteDevice(req, res) {
 
     // Find device first to ensure owner owns it
     const device = await prisma.userDevice.findUnique({
-      where: { device_id },
+      where: { owner_id_device_id: { owner_id: ownerId, device_id } },
     });
 
-    if (!device || device.owner_id !== ownerId) {
+    if (!device) {
       return sendError(
         res,
         404,
@@ -2368,7 +2369,7 @@ export async function deleteDevice(req, res) {
     }
 
     await prisma.userDevice.delete({
-      where: { device_id },
+      where: { owner_id_device_id: { owner_id: ownerId, device_id } },
     });
 
     return sendSuccess(res, 200, {
