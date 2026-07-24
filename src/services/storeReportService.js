@@ -21,7 +21,7 @@ function getNPTRanges() {
   return { todayStart, last7Start, monthStart, nowUTC };
 }
 
-function toBucket(f, totalDue) {
+function toBucket(f) {
   return {
     sales_count: f.order_count,
     sales: Number(f.actual_revenue.toFixed(2)),
@@ -32,7 +32,7 @@ function toBucket(f, totalDue) {
     total_paid: Number(f.total_paid.toFixed(2)),
     expenses: Number(f.total_expenses.toFixed(2)),
     profit: Number(f.net_profit.toFixed(2)),
-    total_due: totalDue,
+    total_due: Number(f.total_due_in_range.toFixed(2)),
   };
 }
 
@@ -41,19 +41,18 @@ class StoreReportService {
     try {
       const { todayStart, last7Start, monthStart, nowUTC } = getNPTRanges();
 
-      const [today, last7, month, allTime, totalDue] = await Promise.all([
+      const [today, last7, month, allTime] = await Promise.all([
         storeFinancialsService.getCoreFinancials(owner_id, todayStart, nowUTC),
         storeFinancialsService.getCoreFinancials(owner_id, last7Start, nowUTC),
         storeFinancialsService.getCoreFinancials(owner_id, monthStart, nowUTC),
         storeFinancialsService.getCoreFinancials(owner_id, EPOCH, nowUTC),
-        storeFinancialsService.getOutstandingDue(owner_id),
       ]);
 
       return {
-        today: toBucket(today, totalDue),
-        last_7_days: toBucket(last7, totalDue),
-        this_month: toBucket(month, totalDue),
-        all_time: toBucket(allTime, totalDue),
+        today: toBucket(today),
+        last_7_days: toBucket(last7),
+        this_month: toBucket(month),
+        all_time: toBucket(allTime),
       };
     } catch (err) {
       console.error("Error in storeReportService.getSummary:", err);

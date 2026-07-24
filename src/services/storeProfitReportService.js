@@ -196,7 +196,6 @@ class StoreProfitReportService {
       FROM store_expenses se
       WHERE se.owner_id = ${owner_id}
         AND se.created_at >= ${fromDate}::date
-        AND se.note NOT LIKE '%[SUPPLIER_PAYMENT:%'
       GROUP BY y, mon
     `;
 

@@ -5,80 +5,362 @@ import { Prisma } from "@prisma/client";
 const Decimal = Prisma.Decimal;
 
 class StoreStockLotService {
-  async create({ owner_id, product_id, supplier_id, qty_in, cp, sp }) {
+  // async create({ owner_id, product_id, supplier_id, qty_in, cp, sp }) {
+  //   if (!supplier_id) {
+  //     throw { code: "REQUIRED_FIELDS", message: "supplier_id is required." };
+  //   }
+
+  //   // Fix #1: null/undefined checks instead of falsy (allows 0)
+  //   if (cp === undefined || cp === null) throw { code: "REQUIRED_FIELDS", message: "cp is required." };
+  //   if (sp === undefined || sp === null) throw { code: "REQUIRED_FIELDS", message: "sp is required." };
+  //   if (!qty_in || qty_in <= 0) throw { code: "REQUIRED_FIELDS", message: "qty_in must be greater than 0." };
+
+  //   // Fix #5: positive price validation
+  //   if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
+  //   if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
+
+  //   try {
+  //     const createdLot = await prisma.storeStockLot.create({
+  //       data: {
+  //         owner_id,
+  //         product_id,
+  //         supplier_id,
+  //         qty_in,
+  //         qty_remaining: qty_in,
+  //         cp,
+  //         sp,
+  //       },
+  //       include: {
+  //         product: {
+  //           include: { category: true, unit: true }
+  //         },
+  //         supplier: true
+  //       }
+  //     });
+
+  //     // Post-creation security and type checks
+  //     if (createdLot.product.owner_id !== owner_id) {
+  //       await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
+  //       throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+  //     }
+  //     if (createdLot.product.type === "service") {
+  //       await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
+  //       throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
+  //     }
+  //     if (createdLot.supplier.owner_id !== owner_id) {
+  //       await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
+  //       throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
+  //     }
+
+  //     return {
+  //       ...createdLot,
+  //       product: {
+  //         ...createdLot.product,
+  //         cp: createdLot.product.cp ? new Decimal(createdLot.product.cp) : null,
+  //         sp: createdLot.product.sp ? new Decimal(createdLot.product.sp) : null,
+  //       }
+  //     };
+  //   } catch (err) {
+  //     if (err.code === "P2003") {
+  //       const [productCheck, supplierCheck] = await Promise.all([
+  //         prisma.storeProduct.findFirst({
+  //           where: { product_id, owner_id }
+  //         }),
+  //         prisma.storeSupplier.findFirst({
+  //           where: { supplier_id, owner_id }
+  //         })
+  //       ]);
+  //       if (!productCheck) {
+  //         throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+  //       }
+  //       if (!supplierCheck) {
+  //         throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
+  //       }
+  //     }
+  //     throw err;
+  //   }
+  // }
+  async create({
+    owner_id,
+    supplier_id,
+    bill_number,
+    items,
+  }) {
     if (!supplier_id) {
-      throw { code: "REQUIRED_FIELDS", message: "supplier_id is required." };
+      throw {
+        code: "REQUIRED_FIELDS",
+        message: "supplier_id is required.",
+      };
     }
 
-    // Fix #1: null/undefined checks instead of falsy (allows 0)
-    if (cp === undefined || cp === null) throw { code: "REQUIRED_FIELDS", message: "cp is required." };
-    if (sp === undefined || sp === null) throw { code: "REQUIRED_FIELDS", message: "sp is required." };
-    if (!qty_in || qty_in <= 0) throw { code: "REQUIRED_FIELDS", message: "qty_in must be greater than 0." };
+    if (!Array.isArray(items) || items.length === 0) {
+      throw {
+        code: "REQUIRED_FIELDS",
+        message: "At least one product is required.",
+      };
+    }
 
-    // Fix #5: positive price validation
-    if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
-    if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
+    if (items.length > 200) {
+      throw {
+        code: "VALIDATION_ERROR",
+        message: "A maximum of 200 products can be added at once.",
+      };
+    }
 
-    try {
-      const createdLot = await prisma.storeStockLot.create({
-        data: {
-          owner_id,
-          product_id,
-          supplier_id,
-          qty_in,
-          qty_remaining: qty_in,
-          cp,
-          sp,
-        },
-        include: {
-          product: {
-            include: { category: true, unit: true }
-          },
-          supplier: true
-        }
-      });
+    const rawBillNumber =
+    bill_number === undefined || bill_number === null
+      ? ""
+      : String(bill_number).trim();
 
-      // Post-creation security and type checks
-      if (createdLot.product.owner_id !== owner_id) {
-        await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
-        throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+  const normalizedBillNumber =
+    rawBillNumber.length > 0
+      ? rawBillNumber
+      : null;
+    if (
+      normalizedBillNumber &&
+      normalizedBillNumber.length > 100
+    ) {
+      throw {
+        code: "VALIDATION_ERROR",
+        message: "Bill number cannot exceed 100 characters.",
+      };
+    }
+
+    const normalizedItems = items.map((item, index) => {
+      const row = index + 1;
+
+      if (!item.product_id) {
+        throw {
+          code: "REQUIRED_FIELDS",
+          message: `Product is required for row ${row}.`,
+        };
       }
-      if (createdLot.product.type === "service") {
-        await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
-        throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
+
+      if (
+        item.qty_in === undefined ||
+        item.qty_in === null
+      ) {
+        throw {
+          code: "REQUIRED_FIELDS",
+          message: `Quantity is required for row ${row}.`,
+        };
       }
-      if (createdLot.supplier.owner_id !== owner_id) {
-        await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
-        throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
+
+      if (item.cp === undefined || item.cp === null) {
+        throw {
+          code: "REQUIRED_FIELDS",
+          message: `Cost price is required for row ${row}.`,
+        };
+      }
+
+      if (item.sp === undefined || item.sp === null) {
+        throw {
+          code: "REQUIRED_FIELDS",
+          message: `Selling price is required for row ${row}.`,
+        };
+      }
+
+      const qtyIn = Number(item.qty_in);
+      const cp = Number(item.cp);
+      const sp = Number(item.sp);
+
+      if (!Number.isInteger(qtyIn) || qtyIn <= 0) {
+        throw {
+          code: "VALIDATION_ERROR",
+          message:
+            `Quantity must be a positive whole number for row ${row}.`,
+        };
+      }
+
+      if (!Number.isFinite(cp) || cp < 0) {
+        throw {
+          code: "VALIDATION_ERROR",
+          message: `Invalid cost price for row ${row}.`,
+        };
+      }
+
+      if (!Number.isFinite(sp) || sp < 0) {
+        throw {
+          code: "VALIDATION_ERROR",
+          message: `Invalid selling price for row ${row}.`,
+        };
       }
 
       return {
-        ...createdLot,
-        product: {
-          ...createdLot.product,
-          cp: createdLot.product.cp ? new Decimal(createdLot.product.cp) : null,
-          sp: createdLot.product.sp ? new Decimal(createdLot.product.sp) : null,
-        }
+        product_id: String(item.product_id),
+        qty_in: qtyIn,
+        cp,
+        sp,
       };
-    } catch (err) {
-      if (err.code === "P2003") {
-        const [productCheck, supplierCheck] = await Promise.all([
-          prisma.storeProduct.findFirst({
-            where: { product_id, owner_id }
-          }),
-          prisma.storeSupplier.findFirst({
-            where: { supplier_id, owner_id }
-          })
-        ]);
-        if (!productCheck) {
-          throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
+    });
+
+    return prisma.$transaction(
+      async (tx) => {
+        const supplier =
+          await tx.storeSupplier.findFirst({
+            where: {
+              supplier_id,
+              owner_id,
+            },
+          });
+
+        if (!supplier) {
+          throw {
+            code: "SUPPLIER_NOT_FOUND",
+            message: "Supplier not found.",
+          };
         }
-        if (!supplierCheck) {
-          throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
+
+        const productIds = [
+          ...new Set(
+            normalizedItems.map(
+              (item) => item.product_id,
+            ),
+          ),
+        ];
+
+        const products =
+          await tx.storeProduct.findMany({
+            where: {
+              owner_id,
+              product_id: {
+                in: productIds,
+              },
+            },
+            include: {
+              category: true,
+              unit: true,
+            },
+          });
+
+        const productMap = new Map(
+          products.map((product) => [
+            product.product_id,
+            product,
+          ]),
+        );
+
+        for (const item of normalizedItems) {
+          const product =
+            productMap.get(item.product_id);
+
+          if (!product) {
+            throw {
+              code: "PRODUCT_NOT_FOUND",
+              message:
+                "One or more selected products were not found.",
+              details: {
+                product_id: item.product_id,
+              },
+            };
+          }
+
+          if (product.type === "service") {
+            throw {
+              code: "VALIDATION_ERROR",
+              message:
+                `Stock cannot be added for service "${product.product_name}".`,
+              details: {
+                product_id: product.product_id,
+              },
+            };
+          }
         }
-      }
-      throw err;
-    }
+
+        /*
+        * Check the bill number once.
+        *
+        * The lots created in this transaction may all share it.
+        */
+        if (normalizedBillNumber) {
+          const existingBill =
+            await tx.storeStockLot.findFirst({
+              where: {
+                owner_id,
+                bill_number: {
+                  equals: normalizedBillNumber,
+                  mode: "insensitive",
+                },
+              },
+              select: {
+                lot_id: true,
+              },
+            });
+
+          if (existingBill) {
+            throw {
+              code: "BILL_NUMBER_EXISTS",
+              message:
+                "This bill number has already been used.",
+            };
+          }
+        }
+
+        const createdLots = [];
+        let totalQuantity = 0;
+        let totalPurchaseAmount =
+          new Decimal(0);
+
+        for (const item of normalizedItems) {
+          totalQuantity += item.qty_in;
+
+          totalPurchaseAmount =
+            totalPurchaseAmount.plus(
+              new Decimal(item.cp).mul(
+                item.qty_in,
+              ),
+            );
+
+          const lot =
+            await tx.storeStockLot.create({
+              data: {
+                owner_id,
+                supplier_id,
+                product_id: item.product_id,
+                qty_in: item.qty_in,
+                qty_remaining: item.qty_in,
+                cp: item.cp,
+                sp: item.sp,
+                bill_number:
+                  normalizedBillNumber,
+              },
+              include: {
+                product: {
+                  include: {
+                    category: true,
+                    unit: true,
+                  },
+                },
+                supplier: true,
+              },
+            });
+
+          createdLots.push(lot);
+        }
+
+        return {
+          bill_number: normalizedBillNumber,
+          supplier,
+          total_products: createdLots.length,
+          total_quantity: totalQuantity,
+          total_purchase_amount: Number(
+            totalPurchaseAmount.toFixed(2),
+          ),
+
+          // Helpful for an old frontend expecting one lot.
+          lot:
+            createdLots.length === 1
+              ? createdLots[0]
+              : null,
+
+          lots: createdLots,
+        };
+      },
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   }
 
   async list(owner_id) {

@@ -2,79 +2,181 @@
 import storeStockLotService from "../services/storeStockLotService.js";
 
 const storeStockLotController = {
+  // async create(req, res) {
+  //   try {
+  //     const owner_id = req.owner.owner_id;
+  //     const { product_id, supplier_id, qty_in, cp, sp } = req.body;
+
+  //     if (!product_id) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         error_code: "REQUIRED_FIELDS",
+  //         message: "product_id is required.",
+  //       });
+  //     }
+
+  //     if (!qty_in || Number(qty_in) <= 0) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         error_code: "REQUIRED_FIELDS",
+  //         message: "qty_in must be greater than 0.",
+  //       });
+  //     }
+
+  //     if (!cp) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         error_code: "REQUIRED_FIELDS",
+  //         message: "cp is required.",
+  //       });
+  //     }
+
+  //     if (!sp) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         error_code: "REQUIRED_FIELDS",
+  //         message: "sp is required.",
+  //       });
+  //     }
+
+  //     if (!supplier_id) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         error_code: "REQUIRED_FIELDS",
+  //         message: "supplier_id is required.",
+  //       });
+  //     }
+
+  //     const lot = await storeStockLotService.create({
+  //       owner_id,
+  //       product_id,
+  //       supplier_id,
+  //       qty_in: Number(qty_in),
+  //       cp: Number(cp),
+  //       sp: Number(sp),
+  //     });
+
+  //     return res.status(201).json({ success: true, data: lot });
+  //   } catch (error) {
+  //     if (error.code === "PRODUCT_NOT_FOUND") {
+  //       return res.status(404).json({ success: false, error_code: "PRODUCT_NOT_FOUND", message: error.message });
+  //     }
+  //     if (error.code === "SUPPLIER_NOT_FOUND") {
+  //       return res.status(404).json({ success: false, error_code: "SUPPLIER_NOT_FOUND", message: error.message });
+  //     }
+  //     if (error.code === "VALIDATION_ERROR") {
+  //       return res.status(400).json({ success: false, error_code: "VALIDATION_ERROR", message: error.message });
+  //     }
+  //     if (error.code === "REQUIRED_FIELDS") {
+  //       return res.status(400).json({ success: false, error_code: "REQUIRED_FIELDS", message: error.message });
+  //     }
+  //     console.error("Error creating store stock lot:", error);
+  //     return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Failed to create stock lot." });
+  //   }
+  // },
+
   async create(req, res) {
     try {
       const owner_id = req.owner.owner_id;
-      const { product_id, supplier_id, qty_in, cp, sp } = req.body;
 
-      if (!product_id) {
-        return res.status(400).json({
-          success: false,
-          error_code: "REQUIRED_FIELDS",
-          message: "product_id is required.",
-        });
-      }
-
-      if (!qty_in || Number(qty_in) <= 0) {
-        return res.status(400).json({
-          success: false,
-          error_code: "REQUIRED_FIELDS",
-          message: "qty_in must be greater than 0.",
-        });
-      }
-
-      if (!cp) {
-        return res.status(400).json({
-          success: false,
-          error_code: "REQUIRED_FIELDS",
-          message: "cp is required.",
-        });
-      }
-
-      if (!sp) {
-        return res.status(400).json({
-          success: false,
-          error_code: "REQUIRED_FIELDS",
-          message: "sp is required.",
-        });
-      }
-
-      if (!supplier_id) {
-        return res.status(400).json({
-          success: false,
-          error_code: "REQUIRED_FIELDS",
-          message: "supplier_id is required.",
-        });
-      }
-
-      const lot = await storeStockLotService.create({
-        owner_id,
-        product_id,
+      const {
         supplier_id,
-        qty_in: Number(qty_in),
-        cp: Number(cp),
-        sp: Number(sp),
-      });
+        bill_number,
+        items,
 
-      return res.status(201).json({ success: true, data: lot });
+        // Keep these temporarily for compatibility
+        // with the old single-product frontend.
+        product_id,
+        qty_in,
+        cp,
+        sp,
+      } = req.body;
+
+      /*
+      * New request:
+      * items: [...]
+      *
+      * Old request:
+      * product_id, qty_in, cp, sp
+      *
+      * Both become one normalized items array.
+      */
+      const normalizedItems = Array.isArray(items)
+        ? items
+        : product_id
+          ? [
+              {
+                product_id,
+                qty_in,
+                cp,
+                sp,
+              },
+            ]
+          : [];
+
+      const result =
+        await storeStockLotService.create({
+          owner_id,
+          supplier_id,
+          bill_number,
+          items: normalizedItems,
+        });
+
+      return res.status(201).json({
+        success: true,
+        message:
+          result.total_products === 1
+            ? "Stock added successfully."
+            : `${result.total_products} products stocked in successfully.`,
+        data: result,
+      });
     } catch (error) {
       if (error.code === "PRODUCT_NOT_FOUND") {
-        return res.status(404).json({ success: false, error_code: "PRODUCT_NOT_FOUND", message: error.message });
+        return res.status(404).json({
+          success: false,
+          error_code: error.code,
+          message: error.message,
+          details: error.details,
+        });
       }
+
       if (error.code === "SUPPLIER_NOT_FOUND") {
-        return res.status(404).json({ success: false, error_code: "SUPPLIER_NOT_FOUND", message: error.message });
+        return res.status(404).json({
+          success: false,
+          error_code: error.code,
+          message: error.message,
+        });
       }
-      if (error.code === "VALIDATION_ERROR") {
-        return res.status(400).json({ success: false, error_code: "VALIDATION_ERROR", message: error.message });
+
+      if (error.code === "BILL_NUMBER_EXISTS") {
+        return res.status(409).json({
+          success: false,
+          error_code: error.code,
+          message: error.message,
+        });
       }
-      if (error.code === "REQUIRED_FIELDS") {
-        return res.status(400).json({ success: false, error_code: "REQUIRED_FIELDS", message: error.message });
+
+      if (
+        error.code === "VALIDATION_ERROR" ||
+        error.code === "REQUIRED_FIELDS"
+      ) {
+        return res.status(400).json({
+          success: false,
+          error_code: error.code,
+          message: error.message,
+          details: error.details,
+        });
       }
-      console.error("Error creating store stock lot:", error);
-      return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Failed to create stock lot." });
+
+      console.error("Error creating store stock lots:", error);
+
+      return res.status(500).json({
+        success: false,
+        error_code: "SERVER_ERROR",
+        message: "Failed to add stock.",
+      });
     }
   },
-
   async list(req, res) {
     try {
       const owner_id = req.owner.owner_id;

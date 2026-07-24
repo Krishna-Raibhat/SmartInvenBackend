@@ -65,7 +65,6 @@ class StoreFinancialsService {
         WHERE owner_id = ${owner_id}
           AND created_at >= ${from}
           AND created_at <= ${to}
-          AND note NOT LIKE '%[SUPPLIER_PAYMENT:%'
       )
       SELECT
         COALESCE(COUNT(s.sales_id), 0)::int          AS order_count,
@@ -358,7 +357,6 @@ class StoreFinancialsService {
       WHERE se.owner_id = ${owner_id}
         AND se.created_at >= ${from}
         AND se.created_at <= ${to}
-        AND se.note NOT LIKE '%[SUPPLIER_PAYMENT:%'
       GROUP BY t.title_id, t.title
       ORDER BY amount DESC
     `;

@@ -17,18 +17,46 @@ const storeDashboardReportController = {
       return fail(res, 500, "SERVER_ERROR", "Failed to fetch dashboard summary.");
     }
   },
-
   async salesByService(req, res) {
     try {
       const owner_id = req.owner.owner_id;
       const { from, to } = req.query;
-      const data = await storeSalesByServiceReportService.salesByService(owner_id, { from, to });
-      return res.json({ success: true, data });
+
+      const data =
+        await storeSalesByServiceReportService.salesByService(
+          owner_id,
+          { from, to },
+        );
+
+      return res.json({
+        success: true,
+        data,
+      });
     } catch (err) {
-      console.error("Error fetching sales by service report:", err);
-      return fail(res, 500, "SERVER_ERROR", "Failed to fetch sales by service report.");
+      console.error(
+        "Error fetching sales by service report:",
+        err,
+      );
+
+      return fail(
+        res,
+        err.status || 500,
+        err.code || "SERVER_ERROR",
+        err.message || "Failed to fetch sales by service report.",
+      );
     }
   },
+  // async salesByService(req, res) {
+  //   try {
+  //     const owner_id = req.owner.owner_id;
+  //     const { from, to } = req.query;
+  //     const data = await storeSalesByServiceReportService.salesByService(owner_id, { from, to });
+  //     return res.json({ success: true, data });
+  //   } catch (err) {
+  //     console.error("Error fetching sales by service report:", err);
+  //     return fail(res, 500, "SERVER_ERROR", "Failed to fetch sales by service report.");
+  //   }
+  // },
 
   async customerDues(req, res) {
     try {

@@ -248,7 +248,6 @@ class StoreDashboardService {
               COALESCE(SUM(amount), 0)::numeric AS all_expenses
             FROM store_expenses
             WHERE owner_id = ${owner_id}
-              AND note NOT LIKE '%[SUPPLIER_PAYMENT:%'
           ),
           product_metrics AS (
             SELECT
@@ -457,7 +456,6 @@ class StoreDashboardService {
             WHERE owner_id = ${owner_id}
               AND created_at >= ${startDate}
               AND created_at <= ${endDate}
-              AND note NOT LIKE '%[SUPPLIER_PAYMENT:%'
           )
           SELECT * FROM sales_totals, profit_calc, expense_totals
         `
@@ -516,7 +514,6 @@ class StoreDashboardService {
             SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
             FROM store_expenses
             WHERE owner_id = ${owner_id}
-              AND note NOT LIKE '%[SUPPLIER_PAYMENT:%'
           )
           SELECT * FROM sales_totals, profit_calc, expense_totals
         `;

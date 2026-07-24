@@ -912,6 +912,7 @@ model StoreStockLot {
   sp                  Decimal                   @db.Decimal(10, 2)
   qty_in              Int
   qty_remaining       Int
+  bill_number         String?
   notes               String?
   created_at          DateTime                  @default(now())
   updated_at          DateTime                  @updatedAt
@@ -924,6 +925,8 @@ model StoreStockLot {
 
   @@index([owner_id, product_id])
   @@index([owner_id, supplier_id])
+  @@index([owner_id, bill_number])
+  @@index([owner_id, supplier_id, bill_number])
   @@index([owner_id, created_at])
   @@map("store_stock_lots")
 }
