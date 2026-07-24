@@ -21,6 +21,7 @@ model Package {
 model Owner {
   owner_id                   String                        @id @default(uuid())
   full_name                  String
+  business_name              String?
   email                      String                        @unique
   phone                      String                        @unique
   password                   String                        @map("password_hash")
@@ -105,6 +106,7 @@ model PasswordResetOtp {
 
 model RegistrationOtp {
   id             String    @id @default(uuid())
+  business_name  String?
   email          String
   otp_hash       String
   expires_at     DateTime

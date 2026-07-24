@@ -346,9 +346,23 @@ class StoreProductService {
 
     if (!existing) throw { code: "NOT_FOUND", message: "Product not found." };
 
-    const linkedLots = await prisma.storeStockLot.count({
-      where: { product_id },
-    });
+    const [linkedLots, stockAgg] = await Promise.all([
+      prisma.storeStockLot.count({ where: { product_id } }),
+      prisma.storeStockLot.aggregate({
+        where: { product_id },
+        _sum: { qty_remaining: true },
+      }),
+    ]);
+
+    const currentStock = Number(stockAgg._sum.qty_remaining ?? 0);
+
+    if (currentStock > 0) {
+      throw {
+        code: "IN_USE",
+        message: `Cannot delete "${existing.product_name}". It still has ${currentStock} unit(s) in stock. Clear the stock before deleting.`,
+        details: { current_stock: currentStock },
+      };
+    }
 
     if (linkedLots > 0) {
       await prisma.storeProduct.update({

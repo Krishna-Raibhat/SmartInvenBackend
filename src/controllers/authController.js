@@ -113,6 +113,7 @@ export async function register(req, res) {
       package_key,
       status,
       business_category,
+      business_name,
     } = req.body;
 
     email = normalizeEmail(email);
@@ -126,7 +127,8 @@ export async function register(req, res) {
       !email ||
       !password ||
       !confirm_password ||
-      !package_key
+      !package_key ||
+      !business_name
     ) {
       return sendError(
         res,
@@ -135,7 +137,7 @@ export async function register(req, res) {
         "All fields are required.",
       );
     }
-
+    business_name = String(business_name).trim();
     // ✅ allow only these packages
     const allowed = new Set(["hardware", "clothing", "grocery", "store"]);
     if (!allowed.has(package_key)) {
@@ -239,6 +241,7 @@ export async function register(req, res) {
         password_hash: hashedPassword,
         package_key,
         business_category: finalBusinessCategory,
+        business_name,
       },
     });
 
@@ -352,6 +355,7 @@ export async function login(req, res) {
         subscription_expires_at: true,
         two_factor_enabled: true,
         business_category: true,
+        business_name: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -674,6 +678,7 @@ export async function login(req, res) {
         phone: owner.phone,
         package_id: owner.package_id,
         business_category: owner.business_category,
+        business_name: owner.business_name,
         status: owner.status,
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
@@ -743,6 +748,7 @@ export async function me(req, res) {
         created_at: true,
         package_id: true,
         business_category: true,
+        business_name: true,
         subscription_expires_at: true,
         two_factor_enabled: true,
 
@@ -788,6 +794,7 @@ export async function me(req, res) {
         package_key: owner.package?.package_key ?? null,
         package_name: owner.package?.package_name ?? null,
         business_category: owner.business_category,
+        business_name: owner.business_name,
         subscription_expires_at: owner.subscription_expires_at,
         two_factor_enabled: owner.two_factor_enabled,
 
@@ -814,10 +821,12 @@ export async function updateMe(req, res) {
     if (!ownerId)
       return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
 
-    const { full_name, phone, email } = req.body;
+    const { full_name, phone, email ,business_name} = req.body;
     const normalizedEmail = email ? normalizeEmail(email) : null;
+    const trimmedBusinessName =
+    business_name !== undefined ? String(business_name).trim() : undefined;
 
-    if (!full_name && !phone && !email) {
+    if (!full_name && !phone && !email && !trimmedBusinessName) {
       return sendError(
         res,
         400,
@@ -825,7 +834,14 @@ export async function updateMe(req, res) {
         "At least one field is required.",
       );
     }
-
+    if (trimmedBusinessName === "") {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_BUSINESS_NAME_EMPTY",
+        "Business name cannot be empty.",
+      );
+    }
     // Validate email format if provided
     if (normalizedEmail) {
       const emailError = validateEmail(normalizedEmail);
@@ -886,6 +902,7 @@ export async function updateMe(req, res) {
         ...(full_name ? { full_name } : {}),
         ...(normalizedEmail ? { email: normalizedEmail } : {}),
         ...(phone ? { phone } : {}),
+        ...(trimmedBusinessName ? { business_name: trimmedBusinessName } : {}),
       },
       select: {
         owner_id: true,
@@ -893,6 +910,7 @@ export async function updateMe(req, res) {
         email: true,
         phone: true,
         package_id: true,
+        business_name: true,
         two_factor_enabled: true,
       },
     });
@@ -1512,7 +1530,8 @@ export async function verifyRegistrationOtp(req, res) {
       !record.full_name ||
       !record.phone ||
       !record.password_hash ||
-      !record.package_key
+      !record.package_key ||
+      !record.business_name
     ) {
       return sendError(
         res,
@@ -1544,6 +1563,7 @@ export async function verifyRegistrationOtp(req, res) {
         password: record.password_hash,
         package_id: pkg.package_id,
         business_category: record.business_category,
+        business_name: record.business_name,
         status: "trial", // default status
       },
       select: {
@@ -1553,6 +1573,7 @@ export async function verifyRegistrationOtp(req, res) {
         phone: true,
         package_id: true,
         business_category: true,
+        business_name: true,
         status: true,
         package: { select: { package_key: true, package_name: true } },
       },
