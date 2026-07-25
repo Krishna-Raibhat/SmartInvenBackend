@@ -299,6 +299,11 @@ class StoreSupplierService {
 
   /**
    * User enters a payment amount against the supplier's due.
+   * Creates a payment transaction record (separate from expenses).
+   * Note: Supplier payments are NOT expenses - they pay for inventory purchases
+   * already accounted for in COGS. Recording them as expenses would double-count
+   * and incorrectly reduce profit.
+   * 
    * Rules:
    *   - amount > 0 required
    *   - overpayment is allowed — just clears the due
@@ -371,26 +376,14 @@ class StoreSupplierService {
     }
 
     return prisma.$transaction(async (tx) => {
-      let title = await tx.storeExpenseTitle.findFirst({
-        where: { owner_id, title: "Supplier Payment" },
-      });
-
-      if (!title) {
-        title = await tx.storeExpenseTitle.create({
-          data: {
-            owner_id,
-            title: "Supplier Payment",
-          },
-        });
-      }
-
-      const paymentNote = `${(note || `Payment to supplier ${supplier.supplier_name}`).trim()} [SUPPLIER_PAYMENT:${supplier_id}]`;
-      await tx.storeExpense.create({
+      // Create payment transaction record (no longer an expense)
+      await tx.storeSupplierPaymentTransaction.create({
         data: {
           owner_id,
-          title_id: title.title_id,
+          supplier_id,
           amount: payAmount,
-          note: paymentNote,
+          payment_method: "cash", // default, could be parameterized later
+          note: note || `Payment to supplier ${supplier.supplier_name}`,
         },
       });
 
@@ -406,27 +399,21 @@ class StoreSupplierService {
   }
 
   async getPayments(owner_id, supplier_id) {
-    const expenses = await prisma.storeExpense.findMany({
+    const payments = await prisma.storeSupplierPaymentTransaction.findMany({
       where: {
         owner_id,
-        note: {
-          contains: `[SUPPLIER_PAYMENT:${supplier_id}]`,
-        },
+        supplier_id,
       },
       orderBy: { created_at: "desc" },
     });
 
-    return expenses.map((exp) => {
-      const suffix = ` [SUPPLIER_PAYMENT:${supplier_id}]`;
-      let cleanNote = exp.note || "";
-      if (cleanNote.endsWith(suffix)) {
-        cleanNote = cleanNote.substring(0, cleanNote.length - suffix.length);
-      }
+    return payments.map((payment) => {
       return {
-        expense_id: exp.expense_id,
-        amount: Number(exp.amount),
-        note: cleanNote,
-        created_at: exp.created_at,
+        transaction_id: payment.transaction_id,
+        amount: Number(payment.amount),
+        payment_method: payment.payment_method,
+        note: payment.note || "",
+        created_at: payment.created_at,
       };
     });
   }
