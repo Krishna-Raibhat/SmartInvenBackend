@@ -2539,19 +2539,71 @@ export async function googleLogin(req, res) {
     // 2. Google ID not found. Check if email collision blocks register.
     const existingEmailOwner = await prisma.owner.findUnique({
       where: { email },
-      select: { auth_provider: true },
+      select: { 
+        owner_id: true,
+        auth_provider: true, 
+        google_id: true,
+        full_name: true,
+        phone: true,
+        package_id: true,
+        business_category: true,
+        business_name: true,
+        status: true,
+        created_at: true,
+        subscription_expires_at: true,
+        two_factor_enabled: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
     });
 
     if (existingEmailOwner) {
       const isGoogleLinked = existingEmailOwner.auth_provider === "google";
       
       if (isGoogleLinked) {
-        return sendError(
-          res,
-          409,
-          "EMAIL_ALREADY_EXISTS",
-          "This email is already linked to a different Google account. Please log in with that account.",
-        );
+        // Check if it's the same Google account
+        if (existingEmailOwner.google_id === googleId) {
+          // Same Google account, allow login
+          // Update fcm_token if provided
+          if (fcm_token) {
+            await prisma.owner.update({
+              where: { owner_id: existingEmailOwner.owner_id },
+              data: { fcm_token },
+            });
+          }
+
+          const token = generateToken({
+            owner_id: existingEmailOwner.owner_id,
+            email: existingEmailOwner.email,
+            package_id: existingEmailOwner.package_id,
+            package_key: existingEmailOwner.package?.package_key ?? null,
+          });
+
+          return sendSuccess(res, 200, {
+            message: "Login successful.",
+            token,
+            owner: {
+              owner_id: existingEmailOwner.owner_id,
+              full_name: existingEmailOwner.full_name,
+              email: existingEmailOwner.email,
+              phone: existingEmailOwner.phone,
+              package_id: existingEmailOwner.package_id,
+              business_category: existingEmailOwner.business_category,
+              business_name: existingEmailOwner.business_name,
+              status: existingEmailOwner.status,
+              package_key: existingEmailOwner.package?.package_key ?? null,
+              package_name: existingEmailOwner.package?.package_name ?? null,
+              two_factor_enabled: existingEmailOwner.two_factor_enabled,
+            },
+          });
+        } else {
+          // Different Google account with same email
+          return sendError(
+            res,
+            409,
+            "EMAIL_ALREADY_EXISTS",
+            "This email is already linked to a different Google account. Please log in with that account.",
+          );
+        }
       } else {
         // Local account exists - should use email/password login
         return sendError(

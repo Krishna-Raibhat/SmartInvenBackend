@@ -21,6 +21,7 @@ export const deviceLoginLimiter = rateLimit({
     const email = req.body?.email ? String(req.body.email).trim().toLowerCase() : "";
     return `${identifier}_${email}`;
   },
+  
   message: {
     success: false,
     error_code: "TOO_MANY_ATTEMPTS",
