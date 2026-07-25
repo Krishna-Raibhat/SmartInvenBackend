@@ -2,79 +2,7 @@
 import storeStockLotService from "../services/storeStockLotService.js";
 
 const storeStockLotController = {
-  // async create(req, res) {
-  //   try {
-  //     const owner_id = req.owner.owner_id;
-  //     const { product_id, supplier_id, qty_in, cp, sp } = req.body;
-
-  //     if (!product_id) {
-  //       return res.status(400).json({
-  //         success: false,
-  //         error_code: "REQUIRED_FIELDS",
-  //         message: "product_id is required.",
-  //       });
-  //     }
-
-  //     if (!qty_in || Number(qty_in) <= 0) {
-  //       return res.status(400).json({
-  //         success: false,
-  //         error_code: "REQUIRED_FIELDS",
-  //         message: "qty_in must be greater than 0.",
-  //       });
-  //     }
-
-  //     if (!cp) {
-  //       return res.status(400).json({
-  //         success: false,
-  //         error_code: "REQUIRED_FIELDS",
-  //         message: "cp is required.",
-  //       });
-  //     }
-
-  //     if (!sp) {
-  //       return res.status(400).json({
-  //         success: false,
-  //         error_code: "REQUIRED_FIELDS",
-  //         message: "sp is required.",
-  //       });
-  //     }
-
-  //     if (!supplier_id) {
-  //       return res.status(400).json({
-  //         success: false,
-  //         error_code: "REQUIRED_FIELDS",
-  //         message: "supplier_id is required.",
-  //       });
-  //     }
-
-  //     const lot = await storeStockLotService.create({
-  //       owner_id,
-  //       product_id,
-  //       supplier_id,
-  //       qty_in: Number(qty_in),
-  //       cp: Number(cp),
-  //       sp: Number(sp),
-  //     });
-
-  //     return res.status(201).json({ success: true, data: lot });
-  //   } catch (error) {
-  //     if (error.code === "PRODUCT_NOT_FOUND") {
-  //       return res.status(404).json({ success: false, error_code: "PRODUCT_NOT_FOUND", message: error.message });
-  //     }
-  //     if (error.code === "SUPPLIER_NOT_FOUND") {
-  //       return res.status(404).json({ success: false, error_code: "SUPPLIER_NOT_FOUND", message: error.message });
-  //     }
-  //     if (error.code === "VALIDATION_ERROR") {
-  //       return res.status(400).json({ success: false, error_code: "VALIDATION_ERROR", message: error.message });
-  //     }
-  //     if (error.code === "REQUIRED_FIELDS") {
-  //       return res.status(400).json({ success: false, error_code: "REQUIRED_FIELDS", message: error.message });
-  //     }
-  //     console.error("Error creating store stock lot:", error);
-  //     return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Failed to create stock lot." });
-  //   }
-  // },
-
+  
   async create(req, res) {
     try {
       const owner_id = req.owner.owner_id;
@@ -242,9 +170,15 @@ const storeStockLotController = {
     try {
       const owner_id = req.owner.owner_id;
       const { id } = req.params;
-      const { cp, sp, qty_in, qty_remaining } = req.body;
+      const { cp, sp, qty_in, qty_remaining, bill_number } = req.body;
 
-      if (cp === undefined && sp === undefined && qty_in === undefined && qty_remaining === undefined) {
+      if (
+        cp === undefined &&
+        sp === undefined &&
+        qty_in === undefined &&
+        qty_remaining === undefined &&
+        bill_number === undefined
+      ) {
         return res.status(400).json({
           success: false,
           error_code: "REQUIRED_FIELDS",
@@ -257,12 +191,16 @@ const storeStockLotController = {
         sp: sp !== undefined ? Number(sp) : undefined,
         qty_in: qty_in !== undefined ? Number(qty_in) : undefined,
         qty_remaining: qty_remaining !== undefined ? Number(qty_remaining) : undefined,
+        bill_number, // pass through as-is (string or null); service normalizes it
       });
 
       return res.status(200).json({ success: true, data: lot });
     } catch (error) {
       if (error.code === "NOT_FOUND") {
         return res.status(404).json({ success: false, error_code: "NOT_FOUND", message: error.message });
+      }
+      if (error.code === "BILL_NUMBER_EXISTS") {
+        return res.status(409).json({ success: false, error_code: "BILL_NUMBER_EXISTS", message: error.message });
       }
       if (error.code === "VALIDATION_ERROR") {
         return res.status(400).json({ success: false, error_code: "VALIDATION_ERROR", message: error.message });

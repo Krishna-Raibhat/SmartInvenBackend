@@ -5,81 +5,7 @@ import { Prisma } from "@prisma/client";
 const Decimal = Prisma.Decimal;
 
 class StoreStockLotService {
-  // async create({ owner_id, product_id, supplier_id, qty_in, cp, sp }) {
-  //   if (!supplier_id) {
-  //     throw { code: "REQUIRED_FIELDS", message: "supplier_id is required." };
-  //   }
-
-  //   // Fix #1: null/undefined checks instead of falsy (allows 0)
-  //   if (cp === undefined || cp === null) throw { code: "REQUIRED_FIELDS", message: "cp is required." };
-  //   if (sp === undefined || sp === null) throw { code: "REQUIRED_FIELDS", message: "sp is required." };
-  //   if (!qty_in || qty_in <= 0) throw { code: "REQUIRED_FIELDS", message: "qty_in must be greater than 0." };
-
-  //   // Fix #5: positive price validation
-  //   if (Number(cp) < 0) throw { code: "VALIDATION_ERROR", message: "cp cannot be negative." };
-  //   if (Number(sp) < 0) throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
-
-  //   try {
-  //     const createdLot = await prisma.storeStockLot.create({
-  //       data: {
-  //         owner_id,
-  //         product_id,
-  //         supplier_id,
-  //         qty_in,
-  //         qty_remaining: qty_in,
-  //         cp,
-  //         sp,
-  //       },
-  //       include: {
-  //         product: {
-  //           include: { category: true, unit: true }
-  //         },
-  //         supplier: true
-  //       }
-  //     });
-
-  //     // Post-creation security and type checks
-  //     if (createdLot.product.owner_id !== owner_id) {
-  //       await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
-  //       throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
-  //     }
-  //     if (createdLot.product.type === "service") {
-  //       await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
-  //       throw { code: "VALIDATION_ERROR", message: "Stock lot is not allowed for service." };
-  //     }
-  //     if (createdLot.supplier.owner_id !== owner_id) {
-  //       await prisma.storeStockLot.delete({ where: { lot_id: createdLot.lot_id } });
-  //       throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
-  //     }
-
-  //     return {
-  //       ...createdLot,
-  //       product: {
-  //         ...createdLot.product,
-  //         cp: createdLot.product.cp ? new Decimal(createdLot.product.cp) : null,
-  //         sp: createdLot.product.sp ? new Decimal(createdLot.product.sp) : null,
-  //       }
-  //     };
-  //   } catch (err) {
-  //     if (err.code === "P2003") {
-  //       const [productCheck, supplierCheck] = await Promise.all([
-  //         prisma.storeProduct.findFirst({
-  //           where: { product_id, owner_id }
-  //         }),
-  //         prisma.storeSupplier.findFirst({
-  //           where: { supplier_id, owner_id }
-  //         })
-  //       ]);
-  //       if (!productCheck) {
-  //         throw { code: "PRODUCT_NOT_FOUND", message: "Product not found." };
-  //       }
-  //       if (!supplierCheck) {
-  //         throw { code: "SUPPLIER_NOT_FOUND", message: "Supplier not found." };
-  //       }
-  //     }
-  //     throw err;
-  //   }
-  // }
+  
   async create({
     owner_id,
     supplier_id,
@@ -408,7 +334,7 @@ class StoreStockLotService {
     return lot;
   }
 
-  async update(owner_id, lot_id, { cp, sp, qty_in, qty_remaining }) {
+  async update(owner_id, lot_id, { cp, sp, qty_in, qty_remaining, bill_number }) {
     const existing = await prisma.storeStockLot.findFirst({
       where: { lot_id, owner_id },
       select: { lot_id: true, qty_in: true, qty_remaining: true },
@@ -445,11 +371,41 @@ class StoreStockLotService {
       throw { code: "VALIDATION_ERROR", message: "sp cannot be negative." };
     }
 
+    // --- Bill number handling ---
+    let normalizedBillNumber;
+    if (bill_number !== undefined) {
+      const rawBillNumber = bill_number === null ? "" : String(bill_number).trim();
+      normalizedBillNumber = rawBillNumber.length > 0 ? rawBillNumber : null;
+
+      if (normalizedBillNumber && normalizedBillNumber.length > 100) {
+        throw { code: "VALIDATION_ERROR", message: "Bill number cannot exceed 100 characters." };
+      }
+
+      if (normalizedBillNumber) {
+        const existingBill = await prisma.storeStockLot.findFirst({
+          where: {
+            owner_id,
+            bill_number: {
+              equals: normalizedBillNumber,
+              mode: "insensitive",
+            },
+            lot_id: { not: lot_id }, // exclude current lot
+          },
+          select: { lot_id: true },
+        });
+
+        if (existingBill) {
+          throw { code: "BILL_NUMBER_EXISTS", message: "This bill number has already been used." };
+        }
+      }
+    }
+
     const data = {};
     if (cp !== undefined) data.cp = cp;
     if (sp !== undefined) data.sp = sp;
     if (qty_in !== undefined) data.qty_in = newQtyIn;
     if (qty_remaining !== undefined) data.qty_remaining = newQtyRemaining;
+    if (bill_number !== undefined) data.bill_number = normalizedBillNumber;
 
     // Fix #2: include owner_id in where clause for explicit ownership
     return prisma.storeStockLot.update({
