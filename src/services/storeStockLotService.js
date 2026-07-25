@@ -193,34 +193,34 @@ class StoreStockLotService {
           }
         }
 
-        /*
-        * Check the bill number once.
-        *
-        * The lots created in this transaction may all share it.
-        */
-        if (normalizedBillNumber) {
-          const existingBill =
-            await tx.storeStockLot.findFirst({
-              where: {
-                owner_id,
-                bill_number: {
-                  equals: normalizedBillNumber,
-                  mode: "insensitive",
-                },
-              },
-              select: {
-                lot_id: true,
-              },
-            });
+        // /*
+        // * Check the bill number once.
+        // *
+        // * The lots created in this transaction may all share it.
+        // */
+        // if (normalizedBillNumber) {
+        //   const existingBill =
+        //     await tx.storeStockLot.findFirst({
+        //       where: {
+        //         owner_id,
+        //         bill_number: {
+        //           equals: normalizedBillNumber,
+        //           mode: "insensitive",
+        //         },
+        //       },
+        //       select: {
+        //         lot_id: true,
+        //       },
+        //     });
 
-          if (existingBill) {
-            throw {
-              code: "BILL_NUMBER_EXISTS",
-              message:
-                "This bill number has already been used.",
-            };
-          }
-        }
+        //   if (existingBill) {
+        //     throw {
+        //       code: "BILL_NUMBER_EXISTS",
+        //       message:
+        //         "This bill number has already been used.",
+        //     };
+        //   }
+        // }
 
         const createdLots = [];
         let totalQuantity = 0;
@@ -381,23 +381,23 @@ class StoreStockLotService {
         throw { code: "VALIDATION_ERROR", message: "Bill number cannot exceed 100 characters." };
       }
 
-      if (normalizedBillNumber) {
-        const existingBill = await prisma.storeStockLot.findFirst({
-          where: {
-            owner_id,
-            bill_number: {
-              equals: normalizedBillNumber,
-              mode: "insensitive",
-            },
-            lot_id: { not: lot_id }, // exclude current lot
-          },
-          select: { lot_id: true },
-        });
+      // if (normalizedBillNumber) {
+      //   const existingBill = await prisma.storeStockLot.findFirst({
+      //     where: {
+      //       owner_id,
+      //       bill_number: {
+      //         equals: normalizedBillNumber,
+      //         mode: "insensitive",
+      //       },
+      //       lot_id: { not: lot_id }, // exclude current lot
+      //     },
+      //     select: { lot_id: true },
+      //   });
 
-        if (existingBill) {
-          throw { code: "BILL_NUMBER_EXISTS", message: "This bill number has already been used." };
-        }
-      }
+      //   if (existingBill) {
+      //     throw { code: "BILL_NUMBER_EXISTS", message: "This bill number has already been used." };
+      //   }
+      // }
     }
 
     const data = {};
