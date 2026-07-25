@@ -766,14 +766,11 @@ export const sendDeviceVerificationLinksEmail = async ({ to, device_name, ip_add
               </div>
 
               <!-- Device Details Table -->
+              <!-- Device Details Table -->
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:28px;">
                 <tr>
                   <td style="font-size:13px;color:#64748b;padding-bottom:8px;font-weight:600;width:30%;">Device Name</td>
                   <td style="font-size:14px;color:#1e293b;padding-bottom:8px;font-weight:500;">${device_name || "Unknown Device"}</td>
-                </tr>
-                <tr>
-                  <td style="font-size:13px;color:#64748b;padding-bottom:8px;font-weight:600;">IP Address</td>
-                  <td style="font-size:14px;color:#1e293b;padding-bottom:8px;font-family:monospace;">${ip_address || "Unknown"}</td>
                 </tr>
                 <tr>
                   <td style="font-size:13px;color:#64748b;font-weight:600;">Time</td>
@@ -786,15 +783,16 @@ export const sendDeviceVerificationLinksEmail = async ({ to, device_name, ip_add
               </div>
 
               <!-- Action Buttons -->
+              <!-- Action Buttons -->
               <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
                 <tr>
                   <td align="right" width="48%" style="padding-right: 8px;">
-                    <a href="${approve_link}" style="display:inline-block;background-color:#16a34a;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;padding:12px 24px;border-radius:6px;min-width:110px;text-align:center;box-shadow:0 2px 4px rgba(22,163,74,0.15);">
+                    <a href="${approve_link}" style="display:inline-block;background-color:#6366a8;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:12px 24px;border-radius:8px;min-width:110px;text-align:center;box-shadow:0 1px 3px rgba(99,102,168,0.2);">
                       Yes, it's me
                     </a>
                   </td>
                   <td align="left" width="48%" style="padding-left: 8px;">
-                    <a href="${deny_link}" style="display:inline-block;background-color:#dc2626;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;padding:12px 24px;border-radius:6px;min-width:110px;text-align:center;box-shadow:0 2px 4px rgba(220,38,38,0.15);">
+                    <a href="${deny_link}" style="display:inline-block;background-color:#ffffff;color:#64748b;font-size:14px;font-weight:600;text-decoration:none;padding:11px 24px;border-radius:8px;min-width:110px;text-align:center;border:1px solid #d5dae1;">
                       No, it's not me
                     </a>
                   </td>
