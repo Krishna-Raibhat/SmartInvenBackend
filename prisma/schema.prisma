@@ -24,18 +24,23 @@ model Owner {
   business_name              String?
   email                      String                        @unique
   phone                      String                        @unique
-  password                   String                        @map("password_hash")
+  password                   String?                       @map("password_hash")
   fcm_token                  String?
   package_id                 String?
   business_category          String?                       @map("business_category")
   created_at                 DateTime                      @default(now())
   updated_at                 DateTime                      @updatedAt
   status                     OwnerStatus                   @default(trial)
+  google_id                  String?                       @unique
+  auth_provider              String                        @default("local")
   subscription_expires_at    DateTime?
   subscription_reminder_sent Boolean                       @default(false)
   two_factor_enabled         Boolean                       @default(false)
   failed_2fa_attempts        Int                           @default(0)
   locked_until               DateTime?
+  failed_login_attempts      Int                           @default(0)
+  login_locked_until         DateTime?
+  last_failed_login          DateTime?
   twoFactorOtp               TwoFactorOtp?
   clothingCustomerReturns    ClothingCustomerReturn[]
   clothingNotifications      ClothingNotification[]

@@ -356,6 +356,9 @@ export async function login(req, res) {
         two_factor_enabled: true,
         business_category: true,
         business_name: true,
+        auth_provider: true,
+        failed_login_attempts: true,
+        login_locked_until: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -369,14 +372,85 @@ export async function login(req, res) {
       );
     }
 
+    // Check if account is locked due to too many failed login attempts
+    if (owner.login_locked_until && new Date() < new Date(owner.login_locked_until)) {
+      const remainingTime = Math.ceil(
+        (new Date(owner.login_locked_until).getTime() - Date.now()) / 60000
+      );
+      return sendError(
+        res,
+        423,
+        "ACCOUNT_LOCKED",
+        `Too many failed login attempts. Account locked for ${remainingTime} more minute(s).`,
+        { locked_until: owner.login_locked_until },
+      );
+    }
+
+    // Check if account was created with Google or has no password
+    if (owner.auth_provider === "google" || !owner.password) {
+      return sendError(
+        res,
+        400,
+        "GOOGLE_ACCOUNT",
+        "This account was created with Google. Please sign in with Google instead.",
+      );
+    }
+
     const isMatch = await compare(password, owner.password);
     if (!isMatch) {
+      // Increment failed login attempts
+      const newAttempts = (owner.failed_login_attempts || 0) + 1;
+      const maxAttempts = 6;
+
+      if (newAttempts >= maxAttempts) {
+        // Lock account for 30 minutes
+        const lockUntil = new Date(Date.now() + 30 * 60 * 1000);
+        await prisma.owner.update({
+          where: { owner_id: owner.owner_id },
+          data: {
+            failed_login_attempts: newAttempts,
+            login_locked_until: lockUntil,
+            last_failed_login: new Date(),
+          },
+        });
+
+        return sendError(
+          res,
+          423,
+          "ACCOUNT_LOCKED",
+          "Too many failed login attempts. Account locked for 30 minutes.",
+          { locked_until: lockUntil },
+        );
+      }
+
+      // Update failed attempts
+      await prisma.owner.update({
+        where: { owner_id: owner.owner_id },
+        data: {
+          failed_login_attempts: newAttempts,
+          last_failed_login: new Date(),
+        },
+      });
+
+      const attemptsLeft = maxAttempts - newAttempts;
       return sendError(
         res,
         401,
         "INVALID_CREDENTIALS",
-        "Invalid email or password.",
+        `Invalid email or password. ${attemptsLeft} attempt(s) remaining before account lock.`,
       );
+    }
+
+    // Password correct - reset failed login attempts
+    if (owner.failed_login_attempts > 0 || owner.login_locked_until) {
+      await prisma.owner.update({
+        where: { owner_id: owner.owner_id },
+        data: {
+          failed_login_attempts: 0,
+          login_locked_until: null,
+          last_failed_login: null,
+        },
+      });
     }
 
     // Check account status
@@ -434,40 +508,39 @@ export async function login(req, res) {
       }
     }
     if (owner.status === "trial") {
+      // First check if there's a pending payment (user chose yearly plan and uploaded payment)
+      const pendingPayment = await prisma.paymentProof.findFirst({
+        where: { owner_id: owner.owner_id, status: "pending" },
+        select: { id: true },
+      });
+
+      if (pendingPayment) {
+        return sendError(
+          res,
+          403,
+          "PAYMENT_PENDING",
+          "Your payment proof is under review. Please wait for approval.",
+          {
+            owner: {
+              owner_id: owner.owner_id,
+              full_name: owner.full_name,
+              email: owner.email,
+              phone: owner.phone,
+              package_id: owner.package_id,
+              status: owner.status,
+              package_key: owner.package?.package_key ?? null,
+              package_name: owner.package?.package_name ?? null,
+            },
+          },
+        );
+      }
+
+      // No pending payment - check if trial has expired
       const trialExpiry = new Date(
         new Date(owner.created_at).getTime() + 7 * 24 * 60 * 60 * 1000,
       );
 
       if (new Date() > trialExpiry) {
-        const pendingPayment = await prisma.paymentProof.findFirst({
-          where: { owner_id: owner.owner_id, status: "pending" },
-          select: { id: true },
-        });
-
-        if (pendingPayment) {
-          return sendError(
-            res,
-            403,
-            "TRIAL_EXPIRED",
-            "Your payment is still in verification. Please wait for approval or upload a new payment receipt if needed.",
-            {
-              owner: {
-                owner_id: owner.owner_id,
-                full_name: owner.full_name,
-                email: owner.email,
-                phone: owner.phone,
-                package_id: owner.package_id,
-                status: owner.status,
-                package_key: owner.package?.package_key ?? null,
-                package_name: owner.package?.package_name ?? null,
-              },
-              can_update_payment: true,
-              payment_status: "pending",
-              upload_url: "/api/payment-proof",
-            },
-          );
-        }
-
         return sendError(
           res,
           403,
@@ -982,11 +1055,21 @@ export async function changePassword(req, res) {
 
     const owner = await prisma.owner.findUnique({
       where: { owner_id: ownerId },
-      select: { owner_id: true, password: true },
+      select: { owner_id: true, password: true, auth_provider: true },
     });
 
     if (!owner)
       return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
+
+    // Check if this is a Google account without a password
+    if (!owner.password || owner.auth_provider === "google") {
+      return sendError(
+        res,
+        400,
+        "GOOGLE_ACCOUNT",
+        "This account uses Google Sign-In. Password changes are not applicable.",
+      );
+    }
 
     const isOldMatch = await compare(old_password, owner.password);
     if (!isOldMatch) {
@@ -1040,7 +1123,7 @@ export async function forgotPasswordSendOtp(req, res) {
 
     const owner = await prisma.owner.findUnique({
       where: { email },
-      select: { owner_id: true, email: true },
+      select: { owner_id: true, email: true, auth_provider: true },
     });
 
     // Security best practice: don't reveal whether email exists
@@ -1048,6 +1131,16 @@ export async function forgotPasswordSendOtp(req, res) {
       return res
         .status(200)
         .json({ message: "If the email exists, an OTP has been sent." });
+    }
+
+    // Check if this is a Google account
+    if (owner.auth_provider === "google") {
+      return sendError(
+        res,
+        400,
+        "GOOGLE_ACCOUNT",
+        "This account uses Google Sign-In. Password reset is not applicable.",
+      );
     }
 
     const activeRecord = await prisma.passwordResetOtp.findFirst({
@@ -2237,7 +2330,7 @@ const client = new OAuth2Client(
 
 export async function googleLogin(req, res) {
   try {
-    const { idToken } = req.body;
+    const { idToken, fcm_token, package_key, phone, business_name, business_category } = req.body;
 
     if (!idToken) {
       return sendError(
@@ -2249,11 +2342,21 @@ export async function googleLogin(req, res) {
     }
 
     // Verify Google ID Token
-    const ticket = await client.verifyIdToken({
-      idToken,
-      audience:
-        process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
-    });
+    let ticket;
+    try {
+      ticket = await client.verifyIdToken({
+        idToken,
+        audience: process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+      });
+    } catch (err) {
+      return sendError(
+        res,
+        400,
+        "INVALID_TOKEN",
+        "Failed to verify Google token.",
+        { detail: err?.message }
+      );
+    }
 
     const payload = ticket.getPayload();
     if (!payload || !payload.email) {
@@ -2261,61 +2364,352 @@ export async function googleLogin(req, res) {
         res,
         400,
         "INVALID_TOKEN",
-        "Failed to verify Google token or retrieve email.",
+        "Failed to retrieve email from Google token.",
       );
     }
 
+    const googleId = payload.sub;
     const email = normalizeEmail(payload.email);
+    const fullName = payload.name || "";
 
-    // Find existing owner by email
-    const owner = await prisma.owner.findUnique({
-      where: { email },
+    // 1. Check if owner exists by google_id
+    const existingGoogleOwner = await prisma.owner.findUnique({
+      where: { google_id: googleId },
       select: {
         owner_id: true,
         full_name: true,
         email: true,
         phone: true,
         package_id: true,
+        business_category: true,
+        business_name: true,
         status: true,
         created_at: true,
         subscription_expires_at: true,
-        business_category: true,
         two_factor_enabled: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
 
-    if (!owner) {
+    if (existingGoogleOwner) {
+      // Check account status before allowing login
+      if (existingGoogleOwner.status === "inactive") {
+        const pendingPayment = await prisma.paymentProof.findFirst({
+          where: {
+            owner_id: existingGoogleOwner.owner_id,
+            status: "pending",
+          },
+        });
+
+        if (pendingPayment) {
+          return sendError(
+            res,
+            403,
+            "PAYMENT_PENDING",
+            "Your payment proof is under review. Please wait for approval.",
+            {
+              owner: {
+                owner_id: existingGoogleOwner.owner_id,
+                full_name: existingGoogleOwner.full_name,
+                email: existingGoogleOwner.email,
+                phone: existingGoogleOwner.phone,
+                package_id: existingGoogleOwner.package_id,
+                status: existingGoogleOwner.status,
+                package_key: existingGoogleOwner.package?.package_key ?? null,
+                package_name: existingGoogleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+
+        if (
+          existingGoogleOwner.subscription_expires_at &&
+          new Date(existingGoogleOwner.subscription_expires_at) < new Date()
+        ) {
+          return sendError(
+            res,
+            403,
+            "SUBSCRIPTION_EXPIRED",
+            "Your subscription has expired. Please renew to continue.",
+            {
+              owner: {
+                owner_id: existingGoogleOwner.owner_id,
+                full_name: existingGoogleOwner.full_name,
+                email: existingGoogleOwner.email,
+                phone: existingGoogleOwner.phone,
+                package_id: existingGoogleOwner.package_id,
+                status: existingGoogleOwner.status,
+                package_key: existingGoogleOwner.package?.package_key ?? null,
+                package_name: existingGoogleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+      }
+
+      if (existingGoogleOwner.status === "trial") {
+        // First check if there's a pending payment (user chose yearly plan and uploaded payment)
+        const pendingPayment = await prisma.paymentProof.findFirst({
+          where: { owner_id: existingGoogleOwner.owner_id, status: "pending" },
+          select: { id: true },
+        });
+
+        if (pendingPayment) {
+          return sendError(
+            res,
+            403,
+            "PAYMENT_PENDING",
+            "Your payment proof is under review. Please wait for approval.",
+            {
+              owner: {
+                owner_id: existingGoogleOwner.owner_id,
+                full_name: existingGoogleOwner.full_name,
+                email: existingGoogleOwner.email,
+                phone: existingGoogleOwner.phone,
+                package_id: existingGoogleOwner.package_id,
+                status: existingGoogleOwner.status,
+                package_key: existingGoogleOwner.package?.package_key ?? null,
+                package_name: existingGoogleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+
+        // No pending payment - check if trial has expired
+        const trialExpiry = new Date(
+          new Date(existingGoogleOwner.created_at).getTime() + 7 * 24 * 60 * 60 * 1000,
+        );
+
+        if (new Date() > trialExpiry) {
+          return sendError(
+            res,
+            403,
+            "TRIAL_EXPIRED",
+            "Your 7-day trial has expired. Please subscribe to continue.",
+            {
+              owner: {
+                owner_id: existingGoogleOwner.owner_id,
+                full_name: existingGoogleOwner.full_name,
+                email: existingGoogleOwner.email,
+                phone: existingGoogleOwner.phone,
+                package_id: existingGoogleOwner.package_id,
+                status: existingGoogleOwner.status,
+                package_key: existingGoogleOwner.package?.package_key ?? null,
+                package_name: existingGoogleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+      }
+
+      // Pure login: Update fcm_token if provided
+      if (fcm_token) {
+        await prisma.owner.update({
+          where: { owner_id: existingGoogleOwner.owner_id },
+          data: { fcm_token },
+        });
+      }
+
+      const token = generateToken({
+        owner_id: existingGoogleOwner.owner_id,
+        email: existingGoogleOwner.email,
+        package_id: existingGoogleOwner.package_id,
+        package_key: existingGoogleOwner.package?.package_key ?? null,
+      });
+
+      return sendSuccess(res, 200, {
+        message: "Login successful.",
+        token,
+        owner: {
+          owner_id: existingGoogleOwner.owner_id,
+          full_name: existingGoogleOwner.full_name,
+          email: existingGoogleOwner.email,
+          phone: existingGoogleOwner.phone,
+          package_id: existingGoogleOwner.package_id,
+          business_category: existingGoogleOwner.business_category,
+          business_name: existingGoogleOwner.business_name,
+          status: existingGoogleOwner.status,
+          package_key: existingGoogleOwner.package?.package_key ?? null,
+          package_name: existingGoogleOwner.package?.package_name ?? null,
+          two_factor_enabled: existingGoogleOwner.two_factor_enabled,
+        },
+      });
+    }
+
+    // 2. Google ID not found. Check if email collision blocks register.
+    const existingEmailOwner = await prisma.owner.findUnique({
+      where: { email },
+      select: { auth_provider: true },
+    });
+
+    if (existingEmailOwner) {
+      const isGoogleLinked = existingEmailOwner.auth_provider === "google";
+      
+      if (isGoogleLinked) {
+        return sendError(
+          res,
+          409,
+          "EMAIL_ALREADY_EXISTS",
+          "This email is already linked to a different Google account. Please log in with that account.",
+        );
+      } else {
+        // Local account exists - should use email/password login
+        return sendError(
+          res,
+          409,
+          "LOCAL_ACCOUNT",
+          "This email is already registered with a password. Please log in with your email and password.",
+        );
+      }
+    }
+
+    // 3. Brand new user. Check if registration info is supplied.
+    if (!package_key && !phone && !business_name) {
+      return sendSuccess(res, 200, {
+        requires_additional_info: true,
+        prefill: {
+          email,
+          full_name: fullName,
+        },
+        required_fields: ["package_key", "phone", "business_name"],
+        optional_fields: ["business_category"],
+      });
+    }
+
+    // If some but not all required fields are provided
+    if (!package_key || !phone || !business_name) {
       return sendError(
         res,
-        404,
-        "EMAIL_NOT_REGISTERED",
-        "This Google account is not registered. Please register first.",
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "package_key, phone, and business_name are required for registration.",
       );
     }
 
-    // Google Sign-In is verified and trusted. Generate token directly.
-    const token = generateToken({
-      owner_id: owner.owner_id,
-      email: owner.email,
-      package_id: owner.package_id,
-      package_key: owner.package?.package_key ?? null,
+    // Validate package_key
+    const cleanedPackageKey = String(package_key).trim().toLowerCase();
+    const allowedPackages = new Set(["hardware", "clothing", "grocery", "store"]);
+    if (!allowedPackages.has(cleanedPackageKey)) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_PACKAGE_INVALID",
+        "Invalid package key.",
+      );
+    }
+
+    // Validate phone number format (must be 10 digits)
+    const phoneError = validatePhone(phone);
+    if (phoneError) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_PHONE_INVALID",
+        phoneError,
+      );
+    }
+
+    // Check if phone number already exists
+    const existingPhoneOwner = await prisma.owner.findUnique({
+      where: { phone },
+    });
+    if (existingPhoneOwner) {
+      return sendError(
+        res,
+        409,
+        "PHONE_ALREADY_EXISTS",
+        "Phone number is already registered.",
+      );
+    }
+
+    // Get or create Package
+    let pkg = await prisma.package.findUnique({
+      where: { package_key: cleanedPackageKey },
+    });
+    if (!pkg) {
+      pkg = await prisma.package.create({
+        data: {
+          package_key: cleanedPackageKey,
+          package_name: packageNameMap[cleanedPackageKey] || cleanedPackageKey,
+        },
+      });
+    }
+
+    // Business category defaults
+    let finalBusinessCategory = business_category ? String(business_category).trim() : null;
+    if (!finalBusinessCategory) {
+      if (cleanedPackageKey === "grocery") finalBusinessCategory = "Grocery Store";
+      else if (cleanedPackageKey === "clothing") finalBusinessCategory = "Clothing Store";
+      else if (cleanedPackageKey === "hardware") finalBusinessCategory = "Hardware Store";
+      else if (cleanedPackageKey === "store") finalBusinessCategory = "Store";
+    }
+
+    // Create owner (password is null for Google sign-in users)
+    const newOwner = await prisma.owner.create({
+      data: {
+        full_name: fullName,
+        phone,
+        email,
+        password: null,
+        google_id: googleId,
+        auth_provider: "google",
+        package_id: pkg.package_id,
+        business_category: finalBusinessCategory,
+        business_name: String(business_name).trim(),
+        status: "trial",
+        fcm_token: fcm_token || null,
+      },
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        package_id: true,
+        business_category: true,
+        business_name: true,
+        status: true,
+        two_factor_enabled: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
     });
 
-    return sendSuccess(res, 200, {
-      message: "Login successful.",
+    // Seed default store category for store package
+    if (cleanedPackageKey === "store") {
+      try {
+        await prisma.storeCategory.create({
+          data: {
+            owner_id: newOwner.owner_id,
+            category_name: "general",
+          },
+        });
+      } catch (err) {
+        console.error("Failed to create default store category:", err);
+      }
+    }
+
+    // Generate JWT token
+    const token = generateToken({
+      owner_id: newOwner.owner_id,
+      email: newOwner.email,
+      package_id: newOwner.package_id,
+      package_key: newOwner.package?.package_key ?? null,
+    });
+
+    return sendSuccess(res, 201, {
+      message: "Registration successful.",
       token,
       owner: {
-        owner_id: owner.owner_id,
-        full_name: owner.full_name,
-        email: owner.email,
-        phone: owner.phone,
-        package_id: owner.package_id,
-        business_category: owner.business_category,
-        status: owner.status,
-        package_key: owner.package?.package_key ?? null,
-        package_name: owner.package?.package_name ?? null,
-        two_factor_enabled: owner.two_factor_enabled,
+        owner_id: newOwner.owner_id,
+        full_name: newOwner.full_name,
+        email: newOwner.email,
+        phone: newOwner.phone,
+        package_id: newOwner.package_id,
+        business_category: newOwner.business_category,
+        business_name: newOwner.business_name,
+        status: newOwner.status,
+        package_key: newOwner.package?.package_key ?? null,
+        package_name: newOwner.package?.package_name ?? null,
+        two_factor_enabled: newOwner.two_factor_enabled,
       },
     });
   } catch (err) {

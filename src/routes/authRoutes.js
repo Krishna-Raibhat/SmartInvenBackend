@@ -44,6 +44,7 @@ router.post(
 
 router.post("/login", deviceLoginLimiter, login);
 router.post("/login/google", googleLogin);
+router.post("/google", googleLogin);
 router.post("/login/verify-2fa", otpVerifyLimiter, verify2FA);
 
 // Device verification via email links
