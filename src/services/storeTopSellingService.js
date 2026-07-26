@@ -3,7 +3,20 @@ import { prisma } from "../prisma/client.js";
 
 const fmt = (iso) => {
   const d = new Date(iso);
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
 };
 
@@ -24,20 +37,43 @@ class StoreTopSellingService {
     }
 
     const startDate = from ? new Date(from) : null;
-    const endDate   = to   ? (() => { const d = new Date(to); d.setHours(23,59,59,999); return d; })() : null;
+    const endDate = to
+      ? (() => {
+          const d = new Date(to);
+          d.setHours(23, 59, 59, 999);
+          return d;
+        })()
+      : null;
 
     // Previous period for growth comparison
+    // Previous period with the same number of days.
     let prevStart = null;
-    let prevEnd   = null;
+    let prevEnd = null;
+
     if (startDate && endDate) {
-      const rangeMs = endDate.getTime() - startDate.getTime();
-      prevEnd   = new Date(startDate.getTime() - 1);
-      prevStart = new Date(startDate.getTime() - rangeMs);
+      const dayMs = 24 * 60 * 60 * 1000;
+
+      const periodDays =
+        Math.floor((endDate.getTime() - startDate.getTime()) / dayMs) + 1;
+
+      prevEnd = new Date(startDate.getTime() - 1);
+
+      prevStart = new Date(prevEnd);
+
+      prevStart.setDate(prevStart.getDate() - (periodDays - 1));
+
+      prevStart.setHours(0, 0, 0, 0);
     }
 
     // ── All queries in parallel ─────────────────────────────────────────────
-    const [topRows, returnRows, stockRows, prevRows, trendRawRows] = await Promise.all([
-
+    const [
+      topRows,
+      returnRows,
+      stockRows,
+      prevRows,
+      trendRawRows,
+      previousTrendRawRows,
+    ] = await Promise.all([
       // Top products by net revenue (DB-side aggregation)
       // Uses SP * qty instead of line_total to match sales by item report
       startDate && endDate
@@ -145,75 +181,226 @@ class StoreTopSellingService {
           `
         : Promise.resolve([{ prev_revenue: 0, prev_qty: 0 }]),
 
-      // Daily trend for top-5 products (by product_id via subquery)
-      // Uses SP * qty instead of line_total to match sales by item report
+      // Current-period daily quantity and revenue.
+      // generate_series creates rows for dates with no sales.
       startDate && endDate
         ? prisma.$queryRaw`
-            SELECT
-              DATE(ss.created_at)::text AS day,
-              p.product_id,
-              p.product_name,
-              SUM(ssi.qty)::int AS qty
-            FROM store_sales_items ssi
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            JOIN store_products p ON p.product_id = ssi.product_id
-            WHERE ss.owner_id = ${owner_id}
-              AND p.type = 'item'
-              AND ss.created_at >= ${startDate}
-              AND ss.created_at <= ${endDate}
-              AND ssi.product_id IN (
-                SELECT ssi2.product_id
-                FROM store_sales_items ssi2
-                JOIN store_sales ss2 ON ss2.sales_id = ssi2.sales_id
-                JOIN store_products p2 ON p2.product_id = ssi2.product_id
-                WHERE ss2.owner_id = ${owner_id}
-                  AND p2.type = 'item'
-                  AND ss2.created_at >= ${startDate}
-                  AND ss2.created_at <= ${endDate}
-                GROUP BY ssi2.product_id
-                ORDER BY SUM(ssi2.sp * ssi2.qty) DESC
-                LIMIT 5
-              )
-            GROUP BY DATE(ss.created_at), p.product_id, p.product_name
-            ORDER BY day ASC
-          `
+      WITH days AS (
+        SELECT
+          generate_series(
+            DATE(${startDate}),
+            DATE(${endDate}),
+            INTERVAL '1 day'
+          )::date AS day
+      ),
+
+      sales_daily AS (
+        SELECT
+          DATE(ss.created_at) AS day,
+          COALESCE(
+            SUM(ssi.qty),
+            0
+          )::numeric AS qty,
+          COALESCE(
+            SUM(ssi.sp * ssi.qty),
+            0
+          )::numeric AS revenue
+        FROM store_sales_items ssi
+        JOIN store_sales ss
+          ON ss.sales_id = ssi.sales_id
+        JOIN store_products p
+          ON p.product_id = ssi.product_id
+        WHERE ss.owner_id = ${owner_id}
+          AND p.type = 'item'
+          AND ss.created_at >= ${startDate}
+          AND ss.created_at <= ${endDate}
+        GROUP BY DATE(ss.created_at)
+      ),
+
+      returns_daily AS (
+        SELECT
+          DATE(scr.created_at) AS day,
+          COALESCE(
+            SUM(scri.qty),
+            0
+          )::numeric AS qty,
+          COALESCE(
+            SUM(ssi.sp * scri.qty),
+            0
+          )::numeric AS revenue
+        FROM store_customer_return_items scri
+        JOIN store_customer_returns scr
+          ON scr.return_id = scri.return_id
+        JOIN store_sales_items ssi
+          ON ssi.sales_item_id =
+             scri.sales_item_id
+        JOIN store_products p
+          ON p.product_id = ssi.product_id
+        WHERE scr.owner_id = ${owner_id}
+          AND p.type = 'item'
+          AND scr.created_at >= ${startDate}
+          AND scr.created_at <= ${endDate}
+        GROUP BY DATE(scr.created_at)
+      )
+
+      SELECT
+        TO_CHAR(
+          d.day,
+          'YYYY-MM-DD'
+        ) AS day,
+
+        GREATEST(
+          COALESCE(s.qty, 0) -
+          COALESCE(r.qty, 0),
+          0
+        )::int AS qty,
+
+        GREATEST(
+          COALESCE(s.revenue, 0) -
+          COALESCE(r.revenue, 0),
+          0
+        )::numeric AS revenue
+
+      FROM days d
+
+      LEFT JOIN sales_daily s
+        ON s.day = d.day
+
+      LEFT JOIN returns_daily r
+        ON r.day = d.day
+
+      ORDER BY d.day ASC
+    `
+        : Promise.resolve([]),
+
+      // Previous-period daily quantity and revenue.
+      prevStart && prevEnd
+        ? prisma.$queryRaw`
+      WITH days AS (
+        SELECT
+          generate_series(
+            DATE(${prevStart}),
+            DATE(${prevEnd}),
+            INTERVAL '1 day'
+          )::date AS day
+      ),
+
+      sales_daily AS (
+        SELECT
+          DATE(ss.created_at) AS day,
+          COALESCE(
+            SUM(ssi.qty),
+            0
+          )::numeric AS qty,
+          COALESCE(
+            SUM(ssi.sp * ssi.qty),
+            0
+          )::numeric AS revenue
+        FROM store_sales_items ssi
+        JOIN store_sales ss
+          ON ss.sales_id = ssi.sales_id
+        JOIN store_products p
+          ON p.product_id = ssi.product_id
+        WHERE ss.owner_id = ${owner_id}
+          AND p.type = 'item'
+          AND ss.created_at >= ${prevStart}
+          AND ss.created_at <= ${prevEnd}
+        GROUP BY DATE(ss.created_at)
+      ),
+
+      returns_daily AS (
+        SELECT
+          DATE(scr.created_at) AS day,
+          COALESCE(
+            SUM(scri.qty),
+            0
+          )::numeric AS qty,
+          COALESCE(
+            SUM(ssi.sp * scri.qty),
+            0
+          )::numeric AS revenue
+        FROM store_customer_return_items scri
+        JOIN store_customer_returns scr
+          ON scr.return_id = scri.return_id
+        JOIN store_sales_items ssi
+          ON ssi.sales_item_id =
+             scri.sales_item_id
+        JOIN store_products p
+          ON p.product_id = ssi.product_id
+        WHERE scr.owner_id = ${owner_id}
+          AND p.type = 'item'
+          AND scr.created_at >= ${prevStart}
+          AND scr.created_at <= ${prevEnd}
+        GROUP BY DATE(scr.created_at)
+      )
+
+      SELECT
+        TO_CHAR(
+          d.day,
+          'YYYY-MM-DD'
+        ) AS day,
+
+        GREATEST(
+          COALESCE(s.qty, 0) -
+          COALESCE(r.qty, 0),
+          0
+        )::int AS qty,
+
+        GREATEST(
+          COALESCE(s.revenue, 0) -
+          COALESCE(r.revenue, 0),
+          0
+        )::numeric AS revenue
+
+      FROM days d
+
+      LEFT JOIN sales_daily s
+        ON s.day = d.day
+
+      LEFT JOIN returns_daily r
+        ON r.day = d.day
+
+      ORDER BY d.day ASC
+    `
         : Promise.resolve([]),
     ]);
 
     // ── Build lookup maps ───────────────────────────────────────────────────
     const returnMap = new Map(returnRows.map((r) => [r.product_id, r]));
-    const stockMap  = new Map(stockRows.map((s) => [s.product_id, Number(s.stock)]));
+    const stockMap = new Map(
+      stockRows.map((s) => [s.product_id, Number(s.stock)]),
+    );
 
     const prevRevenue = Number(prevRows[0]?.prev_revenue || 0);
-    const prevQty     = Number(prevRows[0]?.prev_qty     || 0);
+    const prevQty = Number(prevRows[0]?.prev_qty || 0);
 
     // ── Shape top products ──────────────────────────────────────────────────
     const products = topRows
       .map((p) => {
-        const ret          = returnMap.get(p.product_id);
-        const refundedQty  = Number(ret?.refunded_qty  || 0);
-        const refundAmt    = Number(ret?.refund_amount  || 0);
-        const grossRev     = Number(p.revenue);
-        const netRev       = grossRev - refundAmt;
-        const netQty       = Number(p.qty_sold) - refundedQty;
-        const cp           = Number(p.cp);
-        const sp           = Number(p.sp);
-        const margin       = sp > 0 ? ((sp - cp) / sp) * 100 : 0;
+        const ret = returnMap.get(p.product_id);
+        const refundedQty = Number(ret?.refunded_qty || 0);
+        const refundAmt = Number(ret?.refund_amount || 0);
+        const grossRev = Number(p.revenue);
+        const netRev = grossRev - refundAmt;
+        const netQty = Number(p.qty_sold) - refundedQty;
+        const cp = Number(p.cp);
+        const sp = Number(p.sp);
+        const margin = sp > 0 ? ((sp - cp) / sp) * 100 : 0;
 
         return {
-          product_id:       p.product_id,
-          product_name:     p.product_name,
-          category:         p.category_name,
-          category_id:      p.category_id,
-          unit:             p.unit_name,
+          product_id: p.product_id,
+          product_name: p.product_name,
+          category: p.category_name,
+          category_id: p.category_id,
+          unit: p.unit_name,
           cp,
           sp,
-          qty_sold:         netQty,
-          revenue:          Number(netRev.toFixed(2)),
-          refunded_qty:     refundedQty,
-          refund_amount:    Number(refundAmt.toFixed(2)),
-          stock_remaining:  stockMap.get(p.product_id) ?? 0,
-          margin_percent:   Number(margin.toFixed(1)),
+          qty_sold: netQty,
+          revenue: Number(netRev.toFixed(2)),
+          refunded_qty: refundedQty,
+          refund_amount: Number(refundAmt.toFixed(2)),
+          stock_remaining: stockMap.get(p.product_id) ?? 0,
+          margin_percent: Number(margin.toFixed(1)),
         };
       })
       .filter((p) => p.qty_sold > 0)
@@ -221,17 +408,23 @@ class StoreTopSellingService {
 
     // ── Summary KPIs ────────────────────────────────────────────────────────
     const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
-    const totalQty     = products.reduce((s, p) => s + p.qty_sold, 0);
-    const avgMargin    = totalRevenue > 0
-      ? products.reduce((s, p) => s + p.margin_percent * p.revenue, 0) / totalRevenue
-      : 0;
-    const bestSeller   = products[0] ?? null;
-    const growthPct    = prevRevenue > 0
-      ? Number((((totalRevenue - prevRevenue) / prevRevenue) * 100).toFixed(1))
-      : 0;
-    const qtyGrowth    = prevQty > 0
-      ? Number((((totalQty - prevQty) / prevQty) * 100).toFixed(1))
-      : 0;
+    const totalQty = products.reduce((s, p) => s + p.qty_sold, 0);
+    const avgMargin =
+      totalRevenue > 0
+        ? products.reduce((s, p) => s + p.margin_percent * p.revenue, 0) /
+          totalRevenue
+        : 0;
+    const bestSeller = products[0] ?? null;
+    const growthPct =
+      prevRevenue > 0
+        ? Number(
+            (((totalRevenue - prevRevenue) / prevRevenue) * 100).toFixed(1),
+          )
+        : 0;
+    const qtyGrowth =
+      prevQty > 0
+        ? Number((((totalQty - prevQty) / prevQty) * 100).toFixed(1))
+        : 0;
 
     // ── Category breakdown ───────────────────────────────────────────────────
     const catMap = new Map();
@@ -244,34 +437,44 @@ class StoreTopSellingService {
       .map(([name, total]) => ({
         name,
         total: Number(total.toFixed(2)),
-        pct:   catTotal > 0 ? Number(((total / catTotal) * 100).toFixed(1)) : 0,
+        pct: catTotal > 0 ? Number(((total / catTotal) * 100).toFixed(1)) : 0,
       }));
 
     // ── Daily trend ──────────────────────────────────────────────────────────
-    const top5Names = products.slice(0, 5).map((p) => p.product_name);
-    const trendMap  = new Map();
-    for (const row of trendRawRows) {
-      const day = row.day;
-      if (!trendMap.has(day)) trendMap.set(day, {});
-      trendMap.get(day)[row.product_name] = Number(row.qty);
-    }
-    const trend = [...trendMap.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([iso, vals]) => {
-        const entry = { d: fmt(iso) };
-        for (const name of top5Names) entry[name] = vals[name] ?? 0;
-        return entry;
-      });
+    const trend = trendRawRows.map((row, index) => {
+      const previousRow = previousTrendRawRows[index];
+
+      const currentRevenue = Number(row.revenue || 0);
+
+      const previousRevenue = Number(previousRow?.revenue || 0);
+
+      return {
+        date: row.day,
+        label: fmt(row.day),
+
+        qty: Number(row.qty || 0),
+
+        revenue: Number(currentRevenue.toFixed(2)),
+
+        previous_date: previousRow?.day ?? null,
+
+        previous_label: previousRow?.day ? fmt(previousRow.day) : null,
+
+        previous_qty: Number(previousRow?.qty || 0),
+
+        previous_revenue: Number(previousRevenue.toFixed(2)),
+      };
+    });
 
     const result = {
       summary: {
-        total_revenue:   Number(totalRevenue.toFixed(2)),
-        total_qty_sold:  totalQty,
-        avg_margin:      Number(avgMargin.toFixed(1)),
-        best_seller:     bestSeller?.product_name ?? null,
+        total_revenue: Number(totalRevenue.toFixed(2)),
+        total_qty_sold: totalQty,
+        avg_margin: Number(avgMargin.toFixed(1)),
+        best_seller: bestSeller?.product_name ?? null,
         best_seller_qty: bestSeller?.qty_sold ?? 0,
-        growth_percent:  growthPct,
-        qty_growth:      qtyGrowth,
+        growth_percent: growthPct,
+        qty_growth: qtyGrowth,
       },
       products,
       trend,

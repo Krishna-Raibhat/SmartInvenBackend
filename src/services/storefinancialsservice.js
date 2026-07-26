@@ -121,6 +121,47 @@ class StoreFinancialsService {
     return Number(rows[0]?.total_due || 0);
   }
 
+  /**
+   * Customer-wise outstanding dues for sales created inside a period.
+   */
+  async getDueBreakdown(owner_id, from, to) {
+    const rows = await prisma.$queryRaw`
+    SELECT
+      COALESCE(c.full_name, 'Walk-in Customer') AS customer_name,
+      COUNT(ss.sales_id)::int AS invoice_count,
+      COALESCE(SUM(ss.due_amount), 0)::numeric AS amount
+    FROM store_sales ss
+    LEFT JOIN customers c
+      ON c.customer_id = ss.customer_id
+    WHERE ss.owner_id = ${owner_id}
+      AND ss.created_at >= ${from}
+      AND ss.created_at <= ${to}
+      AND ss.due_amount > 0
+    GROUP BY
+      c.customer_id,
+      c.full_name
+    ORDER BY amount DESC
+  `;
+
+    const customers = rows.map((row) => ({
+      customer_name: row.customer_name,
+      invoice_count: Number(row.invoice_count) || 0,
+      amount: Number(row.amount) || 0,
+    }));
+
+    const topCustomers = customers.slice(0, 5);
+
+    const otherAmount = customers
+      .slice(5)
+      .reduce((sum, customer) => sum + customer.amount, 0);
+
+    return {
+      customer_count: customers.length,
+      top_customers: topCustomers,
+      other_amount: Number(otherAmount.toFixed(2)),
+    };
+  }
+
   /** Per-day revenue and COGS, both net of returns (day of the original sale). */
   async getDailyTrend(owner_id, from, to) {
     const rows = await prisma.$queryRaw`
@@ -172,7 +213,10 @@ class StoreFinancialsService {
     `;
 
     return rows.map((row) => ({
-      date: (row.day instanceof Date ? row.day.toISOString() : String(row.day)).slice(0, 10),
+      date: (row.day instanceof Date
+        ? row.day.toISOString()
+        : String(row.day)
+      ).slice(0, 10),
       revenue: Number(row.revenue) || 0,
       cogs: Number(row.cogs) || 0,
     }));

@@ -1,39 +1,174 @@
+// // src/services/storeReportService.js
+// import storeFinancialsService from "./storeFinancialsService.js";
+
+// const NPT_OFFSET_MS = 5 * 60 * 60 * 1000 + 45 * 60 * 1000; // UTC+5:45
+// const EPOCH = new Date(0);
+
+// function getNPTRanges() {
+//   const nowUTC = new Date();
+//   const npt = new Date(nowUTC.getTime() + NPT_OFFSET_MS);
+
+//   const todayStart = new Date(
+//     Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), npt.getUTCDate(), 0, 0, 0, 0) - NPT_OFFSET_MS
+//   );
+//   const last7Start = new Date(
+//     Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), npt.getUTCDate() - 6, 0, 0, 0, 0) - NPT_OFFSET_MS
+//   );
+//   const monthStart = new Date(
+//     Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), 1, 0, 0, 0, 0) - NPT_OFFSET_MS
+//   );
+
+//   return { todayStart, last7Start, monthStart, nowUTC };
+// }
+
+// function toBucket(f) {
+//   return {
+//     sales_count: f.order_count,
+//     sales: Number(f.actual_revenue.toFixed(2)),
+//     gross_sales: Number(f.net_revenue.toFixed(2)),
+//     actual_revenue: Number(f.actual_revenue.toFixed(2)),
+//     total_refund: Number(f.total_refund.toFixed(2)),
+//     total_cost: Number(f.net_cost.toFixed(2)),
+//     total_paid: Number(f.total_paid.toFixed(2)),
+//     expenses: Number(f.total_expenses.toFixed(2)),
+//     profit: Number(f.net_profit.toFixed(2)),
+//     total_due: Number(f.total_due_in_range.toFixed(2)),
+//   };
+// }
+
+// class StoreReportService {
+//   async getSummary(owner_id) {
+//     try {
+//       const { todayStart, last7Start, monthStart, nowUTC } = getNPTRanges();
+
+//       const [today, last7, month, allTime] = await Promise.all([
+//         storeFinancialsService.getCoreFinancials(owner_id, todayStart, nowUTC),
+//         storeFinancialsService.getCoreFinancials(owner_id, last7Start, nowUTC),
+//         storeFinancialsService.getCoreFinancials(owner_id, monthStart, nowUTC),
+//         storeFinancialsService.getCoreFinancials(owner_id, EPOCH, nowUTC),
+//       ]);
+
+//       return {
+//         today: toBucket(today),
+//         last_7_days: toBucket(last7),
+//         this_month: toBucket(month),
+//         all_time: toBucket(allTime),
+//       };
+//     } catch (err) {
+//       console.error("Error in storeReportService.getSummary:", err);
+//       throw err;
+//     }
+//   }
+// }
+
+// export default new StoreReportService();
+
 // src/services/storeReportService.js
 import storeFinancialsService from "./storeFinancialsService.js";
 
-const NPT_OFFSET_MS = 5 * 60 * 60 * 1000 + 45 * 60 * 1000; // UTC+5:45
+const NPT_OFFSET_MS = 5 * 60 * 60 * 1000 + 45 * 60 * 1000;
+
 const EPOCH = new Date(0);
 
 function getNPTRanges() {
   const nowUTC = new Date();
+
   const npt = new Date(nowUTC.getTime() + NPT_OFFSET_MS);
 
   const todayStart = new Date(
-    Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), npt.getUTCDate(), 0, 0, 0, 0) - NPT_OFFSET_MS
-  );
-  const last7Start = new Date(
-    Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), npt.getUTCDate() - 6, 0, 0, 0, 0) - NPT_OFFSET_MS
-  );
-  const monthStart = new Date(
-    Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), 1, 0, 0, 0, 0) - NPT_OFFSET_MS
+    Date.UTC(
+      npt.getUTCFullYear(),
+      npt.getUTCMonth(),
+      npt.getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+    ) - NPT_OFFSET_MS,
   );
 
-  return { todayStart, last7Start, monthStart, nowUTC };
+  const last7Start = new Date(
+    Date.UTC(
+      npt.getUTCFullYear(),
+      npt.getUTCMonth(),
+      npt.getUTCDate() - 6,
+      0,
+      0,
+      0,
+      0,
+    ) - NPT_OFFSET_MS,
+  );
+
+  const monthStart = new Date(
+    Date.UTC(npt.getUTCFullYear(), npt.getUTCMonth(), 1, 0, 0, 0, 0) -
+      NPT_OFFSET_MS,
+  );
+
+  return {
+    todayStart,
+    last7Start,
+    monthStart,
+    nowUTC,
+  };
 }
 
-function toBucket(f) {
+function money(value) {
+  return Number(Number(value || 0).toFixed(2));
+}
+
+function toBucket(financials, expenseBreakdown, dueBreakdown) {
   return {
-    sales_count: f.order_count,
-    sales: Number(f.actual_revenue.toFixed(2)),
-    gross_sales: Number(f.net_revenue.toFixed(2)),
-    actual_revenue: Number(f.actual_revenue.toFixed(2)),
-    total_refund: Number(f.total_refund.toFixed(2)),
-    total_cost: Number(f.net_cost.toFixed(2)),
-    total_paid: Number(f.total_paid.toFixed(2)),
-    expenses: Number(f.total_expenses.toFixed(2)),
-    profit: Number(f.net_profit.toFixed(2)),
-    total_due: Number(f.total_due_in_range.toFixed(2)),
+    sales_count: financials.order_count,
+
+    // Keep existing fields for compatibility.
+    sales: money(financials.actual_revenue),
+    gross_sales: money(financials.net_revenue),
+    actual_revenue: money(financials.actual_revenue),
+
+    // Explicit calculation fields.
+    gross_revenue: money(financials.gross_revenue),
+    total_discount: money(financials.total_discount),
+    net_revenue: money(financials.net_revenue),
+    total_refund: money(financials.total_refund),
+
+    cogs: money(financials.cogs),
+    returned_cost: money(financials.returned_cost),
+    total_cost: money(financials.net_cost),
+
+    gross_profit: money(financials.gross_profit),
+
+    total_paid: money(financials.total_paid),
+
+    expenses: money(financials.total_expenses),
+
+    profit: money(financials.net_profit),
+
+    total_due: money(financials.total_due_in_range),
+
+    expense_breakdown: expenseBreakdown,
+    due_breakdown: dueBreakdown,
   };
+}
+
+async function getPeriodBucket(owner_id, from, to) {
+  const financials = await storeFinancialsService.getCoreFinancials(
+    owner_id,
+    from,
+    to,
+  );
+
+  const [expenseBreakdown, dueBreakdown] = await Promise.all([
+    storeFinancialsService.getExpenseBreakdown(
+      owner_id,
+      from,
+      to,
+      financials.total_expenses,
+    ),
+
+    storeFinancialsService.getDueBreakdown(owner_id, from, to),
+  ]);
+
+  return toBucket(financials, expenseBreakdown, dueBreakdown);
 }
 
 class StoreReportService {
@@ -42,21 +177,25 @@ class StoreReportService {
       const { todayStart, last7Start, monthStart, nowUTC } = getNPTRanges();
 
       const [today, last7, month, allTime] = await Promise.all([
-        storeFinancialsService.getCoreFinancials(owner_id, todayStart, nowUTC),
-        storeFinancialsService.getCoreFinancials(owner_id, last7Start, nowUTC),
-        storeFinancialsService.getCoreFinancials(owner_id, monthStart, nowUTC),
-        storeFinancialsService.getCoreFinancials(owner_id, EPOCH, nowUTC),
+        getPeriodBucket(owner_id, todayStart, nowUTC),
+
+        getPeriodBucket(owner_id, last7Start, nowUTC),
+
+        getPeriodBucket(owner_id, monthStart, nowUTC),
+
+        getPeriodBucket(owner_id, EPOCH, nowUTC),
       ]);
 
       return {
-        today: toBucket(today),
-        last_7_days: toBucket(last7),
-        this_month: toBucket(month),
-        all_time: toBucket(allTime),
+        today,
+        last_7_days: last7,
+        this_month: month,
+        all_time: allTime,
       };
-    } catch (err) {
-      console.error("Error in storeReportService.getSummary:", err);
-      throw err;
+    } catch (error) {
+      console.error("Error in storeReportService.getSummary:", error);
+
+      throw error;
     }
   }
 }
