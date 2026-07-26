@@ -85,6 +85,7 @@ model Owner {
   userDevices                UserDevice[]
   deviceVerifications        DeviceVerification[]
   storeCustomerReminders     StoreCustomerReminder[]
+  storeSupplierPayments      StoreSupplierPaymentTransaction[]
 
   @@map("owners")
 }
@@ -859,24 +860,41 @@ model StoreUnit {
 }
 
 model StoreSupplier {
-  supplier_id    String                     @id @default(uuid())
+  supplier_id    String                            @id @default(uuid())
   owner_id       String
   supplier_name  String
   phone          String
   email          String?
   address        String?
-  created_at     DateTime                   @default(now())
-  updated_at     DateTime                   @updatedAt
-  due_amount     Decimal                    @default(0) @db.Decimal(10, 2)
-  paid_amount    Decimal                    @default(0) @db.Decimal(10, 2)
-  payment_status StoreSupplierPaymentStatus @default(paid)
+  created_at     DateTime                          @default(now())
+  updated_at     DateTime                          @updatedAt
+  due_amount     Decimal                           @default(0) @db.Decimal(10, 2)
+  paid_amount    Decimal                           @default(0) @db.Decimal(10, 2)
+  payment_status StoreSupplierPaymentStatus        @default(paid)
   stockLots      StoreStockLot[]
   returns        StoreSupplierReturn[]
-  owner          Owner                      @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  payments       StoreSupplierPaymentTransaction[]
+  owner          Owner                             @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
 
   @@unique([owner_id, phone])
   @@index([owner_id])
   @@map("store_suppliers")
+}
+
+model StoreSupplierPaymentTransaction {
+  transaction_id String        @id @default(uuid())
+  owner_id       String
+  supplier_id    String
+  amount         Decimal       @db.Decimal(10, 2)
+  payment_method String        @default("cash")
+  note           String?
+  created_at     DateTime      @default(now())
+  owner          Owner         @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  supplier       StoreSupplier @relation(fields: [supplier_id], references: [supplier_id], onDelete: Cascade)
+
+  @@index([owner_id, supplier_id])
+  @@index([created_at])
+  @@map("store_supplier_payment_transactions")
 }
 
 model StoreProduct {
