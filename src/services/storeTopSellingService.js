@@ -36,10 +36,10 @@ class StoreTopSellingService {
     }
 
     // ── All queries in parallel ─────────────────────────────────────────────
-    const [topRows, returnRows, stockRows, prevRows, trendRawRows] = await Promise.all([
+    const [topRows, returnRows, stockRows, prevRows, trendRawRows, discountData] = await Promise.all([
 
-      // Top products by net revenue (DB-side aggregation)
-      // Uses SP * qty instead of line_total to match sales by item report
+      // Top products by net revenue (DB-side aggregation with discount allocation)
+      // Discount is allocated proportionally: item_revenue * (1 - sale_discount / sale_total)
       startDate && endDate
         ? prisma.$queryRaw`
             SELECT
@@ -51,7 +51,14 @@ class StoreTopSellingService {
               COALESCE(p.cp, 0)::numeric                 AS cp,
               COALESCE(p.sp, 0)::numeric                 AS sp,
               SUM(ssi.qty)::int                          AS qty_sold,
-              SUM(ssi.sp * ssi.qty)::numeric             AS revenue
+              SUM(
+                ssi.sp * ssi.qty * 
+                CASE 
+                  WHEN ss.total_amount > 0 
+                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
+                  ELSE 1
+                END
+              )::numeric AS revenue
             FROM store_sales_items ssi
             JOIN store_sales ss ON ss.sales_id = ssi.sales_id
             JOIN store_products p ON p.product_id = ssi.product_id
@@ -75,7 +82,14 @@ class StoreTopSellingService {
               COALESCE(p.cp, 0)::numeric                 AS cp,
               COALESCE(p.sp, 0)::numeric                 AS sp,
               SUM(ssi.qty)::int                          AS qty_sold,
-              SUM(ssi.sp * ssi.qty)::numeric             AS revenue
+              SUM(
+                ssi.sp * ssi.qty * 
+                CASE 
+                  WHEN ss.total_amount > 0 
+                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
+                  ELSE 1
+                END
+              )::numeric AS revenue
             FROM store_sales_items ssi
             JOIN store_sales ss ON ss.sales_id = ssi.sales_id
             JOIN store_products p ON p.product_id = ssi.product_id
@@ -88,17 +102,24 @@ class StoreTopSellingService {
             LIMIT 10
           `,
 
-      // Returns for those products in the same period
-      // Uses SP * qty instead of amount to match sales by item report
+      // Returns for those products in the same period (with discount allocation)
       startDate && endDate
         ? prisma.$queryRaw`
             SELECT
               ssi.product_id,
-              SUM(scri.qty)::int                    AS refunded_qty,
-              SUM(ssi.sp * scri.qty)::numeric       AS refund_amount
+              SUM(scri.qty)::int AS refunded_qty,
+              SUM(
+                ssi.sp * scri.qty * 
+                CASE 
+                  WHEN ss.total_amount > 0 
+                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
+                  ELSE 1
+                END
+              )::numeric AS refund_amount
             FROM store_customer_return_items scri
             JOIN store_customer_returns scr ON scr.return_id = scri.return_id
             JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
             JOIN store_products p ON p.product_id = ssi.product_id
             WHERE scr.owner_id = ${owner_id}
               AND p.type = 'item'
@@ -109,11 +130,19 @@ class StoreTopSellingService {
         : prisma.$queryRaw`
             SELECT
               ssi.product_id,
-              SUM(scri.qty)::int                    AS refunded_qty,
-              SUM(ssi.sp * scri.qty)::numeric       AS refund_amount
+              SUM(scri.qty)::int AS refunded_qty,
+              SUM(
+                ssi.sp * scri.qty * 
+                CASE 
+                  WHEN ss.total_amount > 0 
+                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
+                  ELSE 1
+                END
+              )::numeric AS refund_amount
             FROM store_customer_return_items scri
             JOIN store_customer_returns scr ON scr.return_id = scri.return_id
             JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
             JOIN store_products p ON p.product_id = ssi.product_id
             WHERE scr.owner_id = ${owner_id}
               AND p.type = 'item'
@@ -128,13 +157,21 @@ class StoreTopSellingService {
         GROUP BY product_id
       `,
 
-      // Previous period totals (for growth)
-      // Uses SP * qty instead of line_total to match sales by item report
+      // Previous period totals (for growth) - with discount allocation
       prevStart && prevEnd
         ? prisma.$queryRaw`
             SELECT
-              COALESCE(SUM(ssi.sp * ssi.qty), 0)::numeric AS prev_revenue,
-              COALESCE(SUM(ssi.qty), 0)::int               AS prev_qty
+              COALESCE(
+                SUM(
+                  ssi.sp * ssi.qty * 
+                  CASE 
+                    WHEN ss.total_amount > 0 
+                    THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
+                    ELSE 1
+                  END
+                ), 0
+              )::numeric AS prev_revenue,
+              COALESCE(SUM(ssi.qty), 0)::int AS prev_qty
             FROM store_sales_items ssi
             JOIN store_sales ss ON ss.sales_id = ssi.sales_id
             JOIN store_products p ON p.product_id = ssi.product_id
@@ -146,7 +183,6 @@ class StoreTopSellingService {
         : Promise.resolve([{ prev_revenue: 0, prev_qty: 0 }]),
 
       // Daily trend for top-5 products (by product_id via subquery)
-      // Uses SP * qty instead of line_total to match sales by item report
       startDate && endDate
         ? prisma.$queryRaw`
             SELECT
@@ -171,13 +207,35 @@ class StoreTopSellingService {
                   AND ss2.created_at >= ${startDate}
                   AND ss2.created_at <= ${endDate}
                 GROUP BY ssi2.product_id
-                ORDER BY SUM(ssi2.sp * ssi2.qty) DESC
+                ORDER BY SUM(
+                  ssi2.sp * ssi2.qty * 
+                  CASE 
+                    WHEN ss2.total_amount > 0 
+                    THEN (1 - COALESCE(ss2.discount, 0) / ss2.total_amount)
+                    ELSE 1
+                  END
+                ) DESC
                 LIMIT 5
               )
             GROUP BY DATE(ss.created_at), p.product_id, p.product_name
             ORDER BY day ASC
           `
         : Promise.resolve([]),
+
+      // Total discount given in the period (for summary card)
+      startDate && endDate
+        ? prisma.$queryRaw`
+            SELECT COALESCE(SUM(discount), 0)::numeric AS total_discount
+            FROM store_sales
+            WHERE owner_id = ${owner_id}
+              AND created_at >= ${startDate}
+              AND created_at <= ${endDate}
+          `
+        : prisma.$queryRaw`
+            SELECT COALESCE(SUM(discount), 0)::numeric AS total_discount
+            FROM store_sales
+            WHERE owner_id = ${owner_id}
+          `,
     ]);
 
     // ── Build lookup maps ───────────────────────────────────────────────────
@@ -222,6 +280,7 @@ class StoreTopSellingService {
     // ── Summary KPIs ────────────────────────────────────────────────────────
     const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
     const totalQty     = products.reduce((s, p) => s + p.qty_sold, 0);
+    const totalDiscount = Number(discountData[0]?.total_discount || 0);
     const avgMargin    = totalRevenue > 0
       ? products.reduce((s, p) => s + p.margin_percent * p.revenue, 0) / totalRevenue
       : 0;
@@ -266,6 +325,7 @@ class StoreTopSellingService {
     const result = {
       summary: {
         total_revenue:   Number(totalRevenue.toFixed(2)),
+        total_discount:  Number(totalDiscount.toFixed(2)),
         total_qty_sold:  totalQty,
         avg_margin:      Number(avgMargin.toFixed(1)),
         best_seller:     bestSeller?.product_name ?? null,
