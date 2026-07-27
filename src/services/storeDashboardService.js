@@ -105,152 +105,449 @@ class StoreDashboardService {
               AND created_at >= ${startDate}
               AND created_at <= ${endDate}
           ),
+
+          /*
+          * Home Screen Sales:
+          * Selling price × original quantity sold.
+          *
+          * Discount, refund and returns do not reduce this value.
+          */
+          gross_sales AS (
+            SELECT
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.sp, 0) *
+                  COALESCE(ssi.qty, 0)
+                ),
+                0
+              )::numeric AS gross_sales_amount
+            FROM store_sales_items ssi
+            INNER JOIN sales_in_period sip
+              ON sip.sales_id = ssi.sales_id
+          ),
+
           sales_totals AS (
             SELECT
-              COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
-              COALESCE(SUM(discount), 0)::numeric      AS total_discount,
-              COALESCE(SUM(paid_amount), 0)::numeric   AS total_paid,
-              COALESCE(SUM(due_amount), 0)::numeric    AS total_due,
-              COUNT(sales_id)::int                     AS sales_count
+              COALESCE(SUM(discount), 0)::numeric AS total_discount,
+              COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
+              COALESCE(SUM(due_amount), 0)::numeric AS total_due,
+              COUNT(sales_id)::int AS sales_count
             FROM store_sales
             WHERE owner_id = ${owner_id}
               AND created_at >= ${startDate}
               AND created_at <= ${endDate}
           ),
+
+          /*
+          * Profit calculation remains unchanged.
+          * Discount and refund still affect actual revenue and profit.
+          */
           sold AS (
             SELECT
               ss.sales_id,
-              GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
-              COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0)         AS sold_cost
+
+              GREATEST(
+                ss.total_amount -
+                COALESCE(ss.discount, 0),
+                0
+              ) AS effective_total,
+
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.cp, 0) *
+                  COALESCE(ssi.qty, 0)
+                ),
+                0
+              ) AS sold_cost
+
             FROM store_sales_items ssi
-            JOIN sales_in_period sip ON sip.sales_id = ssi.sales_id
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            GROUP BY ss.sales_id, ss.total_amount, ss.discount
+
+            INNER JOIN sales_in_period sip
+              ON sip.sales_id = ssi.sales_id
+
+            INNER JOIN store_sales ss
+              ON ss.sales_id = ssi.sales_id
+
+            GROUP BY
+              ss.sales_id,
+              ss.total_amount,
+              ss.discount
           ),
+
           returns AS (
             SELECT
-              r_refund.sales_id,
-              COALESCE(r_refund.total_refund, 0) AS total_refund,
-              COALESCE(r_cost.returned_cost, 0) AS returned_cost
+              refund_data.sales_id,
+
+              COALESCE(
+                refund_data.total_refund,
+                0
+              ) AS total_refund,
+
+              COALESCE(
+                cost_data.returned_cost,
+                0
+              ) AS returned_cost
+
             FROM (
-              SELECT scr.sales_id, SUM(scr.refund_amount) AS total_refund
+              SELECT
+                scr.sales_id,
+
+                SUM(
+                  COALESCE(scr.refund_amount, 0)
+                ) AS total_refund
+
               FROM store_customer_returns scr
-              INNER JOIN sold s ON s.sales_id = scr.sales_id
+
+              INNER JOIN sold s
+                ON s.sales_id = scr.sales_id
+
               WHERE scr.owner_id = ${owner_id}
+
               GROUP BY scr.sales_id
-            ) r_refund
+            ) refund_data
+
             LEFT JOIN (
-              SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
+              SELECT
+                scr.sales_id,
+
+                SUM(
+                  COALESCE(ssi.cp, 0) *
+                  COALESCE(scri.qty, 0)
+                ) AS returned_cost
+
               FROM store_customer_returns scr
-              INNER JOIN sold s ON s.sales_id = scr.sales_id
-              JOIN store_customer_return_items scri
-              ON scri.return_id = scr.return_id
-              JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
+
+              INNER JOIN sold s
+                ON s.sales_id = scr.sales_id
+
+              INNER JOIN store_customer_return_items scri
+                ON scri.return_id = scr.return_id
+
+              INNER JOIN store_sales_items ssi
+                ON ssi.sales_item_id =
+                  scri.sales_item_id
+
               WHERE scr.owner_id = ${owner_id}
+
               GROUP BY scr.sales_id
-            ) r_cost ON r_cost.sales_id = r_refund.sales_id
+            ) cost_data
+              ON cost_data.sales_id =
+                refund_data.sales_id
           ),
+
           profit_calc AS (
             SELECT
-              COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund), 0)  AS actual_revenue,
-              COALESCE(SUM(s.sold_cost), 0)       - COALESCE(SUM(r.returned_cost), 0) AS net_cost,
-              COALESCE(SUM(r.total_refund), 0)                                        AS total_refund
+              COALESCE(
+                SUM(s.effective_total),
+                0
+              ) -
+              COALESCE(
+                SUM(r.total_refund),
+                0
+              ) AS actual_revenue,
+
+              COALESCE(
+                SUM(s.sold_cost),
+                0
+              ) -
+              COALESCE(
+                SUM(r.returned_cost),
+                0
+              ) AS net_cost,
+
+              COALESCE(
+                SUM(r.total_refund),
+                0
+              ) AS total_refund
+
             FROM sold s
-            LEFT JOIN returns r ON r.sales_id = s.sales_id
+
+            LEFT JOIN returns r
+              ON r.sales_id = s.sales_id
           ),
+
           expense_totals AS (
-            SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
+            SELECT
+              COALESCE(
+                SUM(amount),
+                0
+              )::numeric AS total_expenses
+
             FROM store_expenses
+
             WHERE owner_id = ${owner_id}
               AND created_at >= ${startDate}
               AND created_at <= ${endDate}
           )
-          SELECT * FROM sales_totals, profit_calc, expense_totals
+
+          SELECT
+            gross_sales.gross_sales_amount,
+            sales_totals.total_discount,
+            sales_totals.total_paid,
+            sales_totals.total_due,
+            sales_totals.sales_count,
+            profit_calc.actual_revenue,
+            profit_calc.net_cost,
+            profit_calc.total_refund,
+            expense_totals.total_expenses
+
+          FROM gross_sales,
+              sales_totals,
+              profit_calc,
+              expense_totals
         `
       : await prisma.$queryRaw`
-          WITH sold AS (
+          /*
+          * All-time Home Screen Sales:
+          * Selling price × original quantity sold.
+          */
+          WITH gross_sales AS (
             SELECT
-              ss.sales_id,
-              GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
-              COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0)         AS sold_cost
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.sp, 0) *
+                  COALESCE(ssi.qty, 0)
+                ),
+                0
+              )::numeric AS gross_sales_amount
+
             FROM store_sales_items ssi
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
+
+            INNER JOIN store_sales ss
+              ON ss.sales_id = ssi.sales_id
+
             WHERE ss.owner_id = ${owner_id}
-            GROUP BY ss.sales_id, ss.total_amount, ss.discount
           ),
-          returns AS (
-            SELECT
-              r_refund.sales_id,
-              COALESCE(r_refund.total_refund, 0) AS total_refund,
-              COALESCE(r_cost.returned_cost, 0) AS returned_cost
-            FROM (
-              SELECT scr.sales_id, SUM(scr.refund_amount) AS total_refund
-              FROM store_customer_returns scr
-              INNER JOIN sold s ON s.sales_id = scr.sales_id
-              WHERE scr.owner_id = ${owner_id}
-              GROUP BY scr.sales_id
-            ) r_refund
-            LEFT JOIN (
-              SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
-              FROM store_customer_returns scr
-              INNER JOIN sold s ON s.sales_id = scr.sales_id
-              JOIN store_customer_return_items scri ON scri.return_id = scr.return_id
-              JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-              WHERE scr.owner_id = ${owner_id}
-              GROUP BY scr.sales_id
-            ) r_cost ON r_cost.sales_id = r_refund.sales_id
-          ),
-          profit_calc AS (
-            SELECT
-              COALESCE(SUM(s.effective_total), 0) - COALESCE(SUM(r.total_refund), 0)  AS actual_revenue,
-              COALESCE(SUM(s.sold_cost), 0)       - COALESCE(SUM(r.returned_cost), 0) AS net_cost,
-              COALESCE(SUM(r.total_refund), 0)                                        AS total_refund
-            FROM sold s
-            LEFT JOIN returns r ON r.sales_id = s.sales_id
-          ),
+
           sales_totals AS (
             SELECT
-              COALESCE(SUM(total_amount), 0)::numeric AS total_amount,
-              COALESCE(SUM(discount), 0)::numeric      AS total_discount,
-              COALESCE(SUM(paid_amount), 0)::numeric   AS total_paid,
-              COALESCE(SUM(due_amount), 0)::numeric    AS total_due,
-              COUNT(sales_id)::int                     AS sales_count
+              COALESCE(SUM(discount), 0)::numeric AS total_discount,
+              COALESCE(SUM(paid_amount), 0)::numeric AS total_paid,
+              COALESCE(SUM(due_amount), 0)::numeric AS total_due,
+              COUNT(sales_id)::int AS sales_count
+
             FROM store_sales
+
             WHERE owner_id = ${owner_id}
           ),
+
+          sold AS (
+            SELECT
+              ss.sales_id,
+
+              GREATEST(
+                ss.total_amount -
+                COALESCE(ss.discount, 0),
+                0
+              ) AS effective_total,
+
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.cp, 0) *
+                  COALESCE(ssi.qty, 0)
+                ),
+                0
+              ) AS sold_cost
+
+            FROM store_sales_items ssi
+
+            INNER JOIN store_sales ss
+              ON ss.sales_id = ssi.sales_id
+
+            WHERE ss.owner_id = ${owner_id}
+
+            GROUP BY
+              ss.sales_id,
+              ss.total_amount,
+              ss.discount
+          ),
+
+          returns AS (
+            SELECT
+              refund_data.sales_id,
+
+              COALESCE(
+                refund_data.total_refund,
+                0
+              ) AS total_refund,
+
+              COALESCE(
+                cost_data.returned_cost,
+                0
+              ) AS returned_cost
+
+            FROM (
+              SELECT
+                scr.sales_id,
+
+                SUM(
+                  COALESCE(scr.refund_amount, 0)
+                ) AS total_refund
+
+              FROM store_customer_returns scr
+
+              INNER JOIN sold s
+                ON s.sales_id = scr.sales_id
+
+              WHERE scr.owner_id = ${owner_id}
+
+              GROUP BY scr.sales_id
+            ) refund_data
+
+            LEFT JOIN (
+              SELECT
+                scr.sales_id,
+
+                SUM(
+                  COALESCE(ssi.cp, 0) *
+                  COALESCE(scri.qty, 0)
+                ) AS returned_cost
+
+              FROM store_customer_returns scr
+
+              INNER JOIN sold s
+                ON s.sales_id = scr.sales_id
+
+              INNER JOIN store_customer_return_items scri
+                ON scri.return_id = scr.return_id
+
+              INNER JOIN store_sales_items ssi
+                ON ssi.sales_item_id =
+                  scri.sales_item_id
+
+              WHERE scr.owner_id = ${owner_id}
+
+              GROUP BY scr.sales_id
+            ) cost_data
+              ON cost_data.sales_id =
+                refund_data.sales_id
+          ),
+
+          profit_calc AS (
+            SELECT
+              COALESCE(
+                SUM(s.effective_total),
+                0
+              ) -
+              COALESCE(
+                SUM(r.total_refund),
+                0
+              ) AS actual_revenue,
+
+              COALESCE(
+                SUM(s.sold_cost),
+                0
+              ) -
+              COALESCE(
+                SUM(r.returned_cost),
+                0
+              ) AS net_cost,
+
+              COALESCE(
+                SUM(r.total_refund),
+                0
+              ) AS total_refund
+
+            FROM sold s
+
+            LEFT JOIN returns r
+              ON r.sales_id = s.sales_id
+          ),
+
           expense_totals AS (
-            SELECT COALESCE(SUM(amount), 0)::numeric AS total_expenses
+            SELECT
+              COALESCE(
+                SUM(amount),
+                0
+              )::numeric AS total_expenses
+
             FROM store_expenses
+
             WHERE owner_id = ${owner_id}
           )
-          SELECT * FROM sales_totals, profit_calc, expense_totals
+
+          SELECT
+            gross_sales.gross_sales_amount,
+            sales_totals.total_discount,
+            sales_totals.total_paid,
+            sales_totals.total_due,
+            sales_totals.sales_count,
+            profit_calc.actual_revenue,
+            profit_calc.net_cost,
+            profit_calc.total_refund,
+            expense_totals.total_expenses
+
+          FROM gross_sales,
+              sales_totals,
+              profit_calc,
+              expense_totals
         `;
 
     const row = rows[0] || {};
-    const actualRevenue = Number(row.actual_revenue  || 0);
-    const netCost       = Number(row.net_cost        || 0);
-    const totalRefund   = Number(row.total_refund    || 0);
-    const totalExpenses = Number(row.total_expenses  || 0);
+
+    const grossSales = Number(
+      row.gross_sales_amount || 0,
+    );
+
+    const actualRevenue = Number(
+      row.actual_revenue || 0,
+    );
+
+    const netCost = Number(
+      row.net_cost || 0,
+    );
+
+    const totalRefund = Number(
+      row.total_refund || 0,
+    );
+
+    const totalExpenses = Number(
+      row.total_expenses || 0,
+    );
 
     return {
       sales: {
-        total_amount:    Number(row.total_amount   || 0),
-        total_discount:  Number(row.total_discount || 0),
-        effective_total: actualRevenue,
-        paid_amount:     Number(row.total_paid     || 0),
-        due_amount:      Number(row.total_due      || 0),
-        total_refund:    totalRefund,
-        count:           Number(row.sales_count    || 0),
+        /*
+        * Values used by the Home Screen Sales card.
+        *
+        * Both fields equal SP × original quantity sold.
+        */
+        total_amount: grossSales,
+        effective_total: grossSales,
+
+        // Informational values only.
+        total_discount: Number(
+          row.total_discount || 0,
+        ),
+
+        paid_amount: Number(
+          row.total_paid || 0,
+        ),
+
+        due_amount: Number(
+          row.total_due || 0,
+        ),
+
+        total_refund: totalRefund,
+
+        count: Number(
+          row.sales_count || 0,
+        ),
       },
+
       profit: {
+        // Discount and refunds still affect profit.
         actual_revenue: actualRevenue,
-        total_cost:     netCost,
+
+        // Returned item cost is restored.
+        total_cost: netCost,
+
         total_expenses: totalExpenses,
-        profit:         actualRevenue - netCost - totalExpenses,
+
+        profit: actualRevenue - netCost,
       },
     };
   }
-
 
   
 
@@ -284,7 +581,8 @@ class StoreDashboardService {
         LEFT JOIN (
           SELECT scr.sales_id, SUM(COALESCE(ssi.cp, 0) * scri.qty) AS returned_cost
           FROM store_customer_returns scr
-          JOIN store_customer_return_items scri ON scri.return_id = scri.return_id
+          JOIN store_customer_return_items scri
+          ON scri.return_id = scr.return_id
           JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
           WHERE scr.owner_id = ${owner_id}
             AND scr.created_at >= ${startDate}

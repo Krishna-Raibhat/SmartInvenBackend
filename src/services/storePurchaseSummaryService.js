@@ -2,212 +2,7 @@
 import { prisma } from "../prisma/client.js";
 
 class StorePurchaseSummaryService {
-  // async getReport(owner_id, { from, to } = {}) {
-  //   // ── Date range ─────────────────────────────────────────────────
-  //   const dateFilter = {};
-  //   if (from) dateFilter.gte = new Date(from);
-  //   if (to) {
-  //     const end = new Date(to);
-  //     end.setHours(23, 59, 59, 999);
-  //     dateFilter.lte = end;
-  //   }
-  //   const hasDates = Object.keys(dateFilter).length > 0;
-
-  //   const lotWhere = {
-  //     owner_id,
-  //     ...(hasDates && { created_at: dateFilter }),
-  //   };
-
-  //   // ── Previous period for growth comparison ─────────────────────
-  //   let prevSpend = 0;
-  //   if (from && to) {
-  //     const startMs = new Date(from).getTime();
-  //     const endMs   = new Date(to);
-  //     endMs.setHours(23, 59, 59, 999);
-  //     const rangeMs = endMs.getTime() - startMs;
-  //     const prevFilter = {
-  //       gte: new Date(startMs - rangeMs),
-  //       lte: new Date(startMs - 1),
-  //     };
-  //     const prevAgg = await prisma.storeStockLot.aggregate({
-  //       where: { owner_id, created_at: prevFilter },
-  //       _sum: { cp: true, qty_in: true },
-  //       // cp * qty_in is the spend — we'll do it in raw query for accuracy
-  //     });
-  //     // Use raw for prev spend (cp × qty_in per lot)
-  //     const prevRows = await prisma.$queryRaw`
-  //       SELECT COALESCE(SUM(cp * qty_in), 0)::numeric AS total_spend
-  //       FROM store_stock_lots
-  //       WHERE owner_id = ${owner_id}
-  //         AND created_at >= ${prevFilter.gte}
-  //         AND created_at <= ${prevFilter.lte}
-  //     `;
-  //     prevSpend = Number(prevRows[0]?.total_spend || 0);
-  //   }
-
-  //   // ── 1. Aggregate lots by supplier ─────────────────────────────
-  //   const lots = await prisma.storeStockLot.findMany({
-  //     where: lotWhere,
-  //     select: {
-  //       lot_id: true,
-  //       supplier_id: true,
-  //       cp: true,
-  //       qty_in: true,
-  //       qty_remaining: true,
-  //       created_at: true,
-  //       product: {
-  //         select: { product_name: true },
-  //       },
-  //       supplier: {
-  //         select: {
-  //           supplier_id: true,
-  //           supplier_name: true,
-  //           phone: true,
-  //           due_amount: true,
-  //           paid_amount: true,
-  //           payment_status: true,
-  //         },
-  //       },
-  //     },
-  //     orderBy: { created_at: "asc" },
-  //   });
-
-  //   // ── 2. Aggregate per supplier ──────────────────────────────────
-  //   const supplierMap = new Map();
-
-  //   for (const lot of lots) {
-  //     const sup = lot.supplier;
-  //     if (!sup) continue;
-  //     const sid = sup.supplier_id;
-  //     const spend = Number(lot.cp) * lot.qty_in;
-
-  //     if (!supplierMap.has(sid)) {
-  //       supplierMap.set(sid, {
-  //         supplier_id:         sid,
-  //         supplier_name:       sup.supplier_name,
-  //         phone:               sup.phone,
-  //         payment_status:      sup.payment_status ?? "paid",
-  //         due_amount:          Number(sup.due_amount ?? 0),
-  //         paid_amount:         Number(sup.paid_amount ?? 0),
-  //         total_spend:         0,
-  //         total_lots:          0,
-  //         total_qty_purchased: 0,
-  //         total_qty_remaining: 0,
-  //         last_purchased_at:   null,
-  //         top_product:         null,
-  //         _productSpend:       new Map(), // product_name → spend (for top product)
-  //       });
-  //     }
-
-  //     const se = supplierMap.get(sid);
-  //     se.total_spend         += spend;
-  //     se.total_lots          += 1;
-  //     se.total_qty_purchased += lot.qty_in;
-  //     se.total_qty_remaining += Number(lot.qty_remaining);
-
-  //     // Track latest purchase date
-  //     if (!se.last_purchased_at || lot.created_at > se.last_purchased_at) {
-  //       se.last_purchased_at = lot.created_at;
-  //     }
-
-  //     // Track top product by spend
-  //     const pName = lot.product?.product_name ?? "Unknown";
-  //     se._productSpend.set(pName, (se._productSpend.get(pName) ?? 0) + spend);
-  //   }
-
-  //   // ── 3. Shape supplier list ────────────────────────────────────
-  //   const suppliers = [...supplierMap.values()]
-  //     .map((s) => {
-  //       // Top product = highest spend product from this supplier
-  //       let topProduct = null;
-  //       let topSpend = 0;
-  //       for (const [name, sp] of s._productSpend) {
-  //         if (sp > topSpend) { topSpend = sp; topProduct = name; }
-  //       }
-
-  //       const fmtDate = (d) => {
-  //         if (!d) return null;
-  //         return d.toISOString().slice(0, 10); // 'YYYY-MM-DD'
-  //       };
-
-  //       return {
-  //         supplier_id:         s.supplier_id,
-  //         supplier_name:       s.supplier_name,
-  //         phone:               s.phone,
-  //         payment_status:      s.payment_status,
-  //         total_spend:         Number(s.total_spend.toFixed(2)),
-  //         total_lots:          s.total_lots,
-  //         total_qty_purchased: s.total_qty_purchased,
-  //         total_qty_remaining: Math.round(s.total_qty_remaining),
-  //         due_amount:          Number(s.due_amount.toFixed(2)),
-  //         paid_amount:         Number(s.paid_amount.toFixed(2)),
-  //         last_purchased_at:   fmtDate(s.last_purchased_at),
-  //         top_product:         topProduct ?? "—",
-  //       };
-  //     })
-  //     .sort((a, b) => b.total_spend - a.total_spend);
-
-  //   // ── 4. Summary KPIs ───────────────────────────────────────────
-  //   const totalSpend         = suppliers.reduce((s, x) => s + x.total_spend, 0);
-  //   const totalLots          = suppliers.reduce((s, x) => s + x.total_lots, 0);
-  //   const totalQtyPurchased  = suppliers.reduce((s, x) => s + x.total_qty_purchased, 0);
-  //   const totalQtyRemaining  = suppliers.reduce((s, x) => s + x.total_qty_remaining, 0);
-  //   const totalSuppliers     = suppliers.length;
-
-  //   // Due breakdown — from live supplier table (not date-filtered, reflects current state)
-  //   const dueRows = await prisma.storeSupplier.findMany({
-  //     where: { owner_id },
-  //     select: { due_amount: true, payment_status: true },
-  //   });
-  //   let unpaidDue  = 0;
-  //   let partialDue = 0;
-  //   for (const r of dueRows) {
-  //     const due = Number(r.due_amount ?? 0);
-  //     if (r.payment_status === "unpaid")  unpaidDue  += due;
-  //     if (r.payment_status === "partial") partialDue += due;
-  //   }
-
-  //   const vsLastPeriod = prevSpend > 0
-  //     ? Number((((totalSpend - prevSpend) / prevSpend) * 100).toFixed(1))
-  //     : 0;
-
-  //   // ── 5. Daily spend trend ──────────────────────────────────────
-  //   const trendMap = new Map(); // 'YYYY-MM-DD' → spend
-
-  //   for (const lot of lots) {
-  //     const day   = lot.created_at.toISOString().slice(0, 10);
-  //     const spend = Number(lot.cp) * lot.qty_in;
-  //     trendMap.set(day, (trendMap.get(day) ?? 0) + spend);
-  //   }
-
-  //   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  //   const fmtDay = (iso) => {
-  //     const d = new Date(iso);
-  //     return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
-  //   };
-
-  //   const trend = [...trendMap.entries()]
-  //     .sort(([a], [b]) => a.localeCompare(b))
-  //     .map(([iso, spend]) => ({
-  //       d:     fmtDay(iso),
-  //       spend: Number(spend.toFixed(2)),
-  //     }));
-
-  //   return {
-  //     summary: {
-  //       total_spend:          Number(totalSpend.toFixed(2)),
-  //       total_lots:           totalLots,
-  //       total_qty_purchased:  totalQtyPurchased,
-  //       total_qty_remaining:  totalQtyRemaining,
-  //       total_suppliers:      totalSuppliers,
-  //       unpaid_due:           Number(unpaidDue.toFixed(2)),
-  //       partial_due:          Number(partialDue.toFixed(2)),
-  //       vs_last_period:       vsLastPeriod,
-  //     },
-  //     suppliers,
-  //     trend,
-  //   };
-  // }
+  
   async getReport(owner_id, { from, to } = {}) {
   // ── Date range ─────────────────────────────────────────────────
     const dateFilter = {};
@@ -237,8 +32,8 @@ class StorePurchaseSummaryService {
       };
     }
 
-    // ── 1. Fetch lots, returns, live supplier dues, and prev-period spend concurrently ──
-    const [lots, returns, dueRows, prevRows] = await Promise.all([
+    // ── 1. Fetch lots, returns, and prev-period spend concurrently ──
+    const [lots, returns, prevRows] = await Promise.all([
       prisma.storeStockLot.findMany({
         where: lotWhere,
         select: {
@@ -291,10 +86,6 @@ class StorePurchaseSummaryService {
             },
           },
         },
-      }),
-      prisma.storeSupplier.findMany({
-        where: { owner_id },
-        select: { due_amount: true, payment_status: true },
       }),
       prevFilter
         ? prisma.$queryRaw`
@@ -450,13 +241,62 @@ class StorePurchaseSummaryService {
     const totalQtyRemaining  = suppliers.reduce((s, x) => s + x.total_qty_remaining, 0);
     const totalSuppliers     = suppliers.length;
 
-    // Due breakdown — from live supplier table (not date-filtered, reflects current state)
-    let unpaidDue  = 0;
+    // Due breakdown — calculate ACTUAL dues dynamically from lots (not from DB field)
+    // The due_amount field in DB is only updated on manual payment, not on purchase.
+    // So we calculate: (total purchased - total returned) - total paid for each supplier
+    let unpaidDue = 0;
     let partialDue = 0;
-    for (const r of dueRows) {
-      const due = Number(r.due_amount ?? 0);
-      if (r.payment_status === "unpaid")  unpaidDue  += due;
-      if (r.payment_status === "partial") partialDue += due;
+
+    // Calculate dues for ALL suppliers (not just those in current date range)
+    const allSuppliers = await prisma.storeSupplier.findMany({
+      where: { owner_id },
+      select: { supplier_id: true, paid_amount: true },
+    });
+
+    for (const supplier of allSuppliers) {
+      const supplierId = supplier.supplier_id;
+      
+      // Get all lots for this supplier (all-time, not date-filtered)
+      const supplierLots = await prisma.storeStockLot.findMany({
+        where: { owner_id, supplier_id: supplierId },
+        select: { cp: true, qty_in: true },
+      });
+
+      // Get all returns for this supplier (all-time)
+      const supplierReturns = await prisma.storeSupplierReturn.aggregate({
+        where: { owner_id, supplier_id: supplierId },
+        _sum: { total_refund: true },
+      });
+
+      // Calculate total purchased
+      const totalPurchased = supplierLots.reduce((sum, lot) => {
+        return sum + (Number(lot.cp) * Number(lot.qty_in));
+      }, 0);
+
+      // Calculate total returned
+      const totalRefunded = Number(supplierReturns._sum.total_refund ?? 0);
+
+      // Net amount owed
+      const netOwed = totalPurchased - totalRefunded;
+
+      // Amount paid
+      const paidAmount = Number(supplier.paid_amount ?? 0);
+
+      // Calculate actual due
+      const actualDue = Math.max(netOwed - paidAmount, 0);
+
+      if (actualDue <= 0) {
+        continue; // No due
+      }
+
+      // Categorize based on payment made
+      if (paidAmount === 0 && actualDue > 0) {
+        // Nothing paid yet - unpaid
+        unpaidDue += actualDue;
+      } else if (paidAmount > 0 && actualDue > 0) {
+        // Partially paid
+        partialDue += actualDue;
+      }
     }
 
     const vsLastPeriod = prevSpend > 0

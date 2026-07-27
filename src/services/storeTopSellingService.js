@@ -3,6 +3,7 @@ import { prisma } from "../prisma/client.js";
 
 const fmt = (iso) => {
   const d = new Date(iso);
+
   const months = [
     "Jan",
     "Feb",
@@ -17,35 +18,42 @@ const fmt = (iso) => {
     "Nov",
     "Dec",
   ];
+
   return `${d.getUTCDate()} ${months[d.getUTCMonth()]}`;
 };
 
-// Simple in-memory cache — 60s TTL (TEMPORARILY DISABLED FOR TESTING)
+// In-memory report cache.
+// Set CACHE_TTL_MS above 0 when you want to enable caching.
 const cache = new Map();
-const CACHE_TTL_MS = 0; // Set to 0 to disable cache
+const CACHE_TTL_MS = 0;
 
-function cacheKey(owner_id, from, to) {
-  return `${owner_id}:${from ?? ""}:${to ?? ""}`;
+function cacheKey(ownerId, from, to) {
+  return `${ownerId}:${from ?? ""}:${to ?? ""}`;
 }
 
 class StoreTopSellingService {
-  async getReport(owner_id, { from, to } = {}) {
-    const key = cacheKey(owner_id, from, to);
+  async getReport(ownerId, { from, to } = {}) {
+    const key = cacheKey(ownerId, from, to);
     const cached = cache.get(key);
-    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+
+    if (
+      CACHE_TTL_MS > 0 &&
+      cached &&
+      Date.now() - cached.ts < CACHE_TTL_MS
+    ) {
       return cached.data;
     }
 
     const startDate = from ? new Date(from) : null;
+
     const endDate = to
       ? (() => {
-          const d = new Date(to);
-          d.setHours(23, 59, 59, 999);
-          return d;
+          const date = new Date(to);
+          date.setHours(23, 59, 59, 999);
+          return date;
         })()
       : null;
 
-    // Previous period for growth comparison
     // Previous period with the same number of days.
     let prevStart = null;
     let prevEnd = null;
@@ -59,13 +67,10 @@ class StoreTopSellingService {
       prevEnd = new Date(startDate.getTime() - 1);
 
       prevStart = new Date(prevEnd);
-
       prevStart.setDate(prevStart.getDate() - (periodDays - 1));
-
       prevStart.setHours(0, 0, 0, 0);
     }
 
-    // ── All queries in parallel ─────────────────────────────────────────────
     const [
       topRows,
       returnRows,
@@ -74,473 +79,678 @@ class StoreTopSellingService {
       trendRawRows,
       previousTrendRawRows,
     ] = await Promise.all([
-      // Top products by net revenue (DB-side aggregation)
-      // Uses SP * qty instead of line_total to match sales by item report
+      // ─────────────────────────────────────────────────────────────────────
+      // Top products
+      //
+      // Revenue = original item selling price × original quantity sold.
+      // Discounts and customer returns do not reduce this revenue.
+      // ─────────────────────────────────────────────────────────────────────
       startDate && endDate
         ? prisma.$queryRaw`
             SELECT
               p.product_id,
               p.product_name,
-              COALESCE(c.category_name, 'Uncategorized') AS category_name,
-              COALESCE(c.category_id::text, null)        AS category_id,
-              COALESCE(u.unit_name, 'pcs')               AS unit_name,
-              COALESCE(p.cp, 0)::numeric                 AS cp,
-              COALESCE(p.sp, 0)::numeric                 AS sp,
-              SUM(ssi.qty)::int                          AS qty_sold,
-              SUM(
-                ssi.sp * ssi.qty * 
-                CASE 
-                  WHEN ss.total_amount > 0 
-                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
-                  ELSE 1
-                END
+
+              COALESCE(
+                c.category_name,
+                'Uncategorized'
+              ) AS category_name,
+
+              c.category_id::text AS category_id,
+
+              COALESCE(
+                u.unit_name,
+                'pcs'
+              ) AS unit_name,
+
+              COALESCE(
+                p.cp,
+                0
+              )::numeric AS cp,
+
+              COALESCE(
+                p.sp,
+                0
+              )::numeric AS sp,
+
+              COALESCE(
+                SUM(ssi.qty),
+                0
+              )::int AS qty_sold,
+
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.sp, 0) * ssi.qty
+                ),
+                0
               )::numeric AS revenue
+
             FROM store_sales_items ssi
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            JOIN store_products p ON p.product_id = ssi.product_id
-            LEFT JOIN store_categories c ON c.category_id = p.category_id
-            LEFT JOIN store_units u ON u.unit_id = p.unit_id
-            WHERE ss.owner_id = ${owner_id}
+
+            JOIN store_sales ss
+              ON ss.sales_id = ssi.sales_id
+
+            JOIN store_products p
+              ON p.product_id = ssi.product_id
+
+            LEFT JOIN store_categories c
+              ON c.category_id = p.category_id
+
+            LEFT JOIN store_units u
+              ON u.unit_id = p.unit_id
+
+            WHERE ss.owner_id = ${ownerId}
               AND p.type = 'item'
               AND ss.created_at >= ${startDate}
               AND ss.created_at <= ${endDate}
-            GROUP BY p.product_id, p.product_name, c.category_name, c.category_id, u.unit_name, p.cp, p.sp
+
+            GROUP BY
+              p.product_id,
+              p.product_name,
+              c.category_name,
+              c.category_id,
+              u.unit_name,
+              p.cp,
+              p.sp
+
             ORDER BY revenue DESC
+
             LIMIT 10
           `
         : prisma.$queryRaw`
             SELECT
               p.product_id,
               p.product_name,
-              COALESCE(c.category_name, 'Uncategorized') AS category_name,
-              COALESCE(c.category_id::text, null)        AS category_id,
-              COALESCE(u.unit_name, 'pcs')               AS unit_name,
-              COALESCE(p.cp, 0)::numeric                 AS cp,
-              COALESCE(p.sp, 0)::numeric                 AS sp,
-              SUM(ssi.qty)::int                          AS qty_sold,
-              SUM(
-                ssi.sp * ssi.qty * 
-                CASE 
-                  WHEN ss.total_amount > 0 
-                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
-                  ELSE 1
-                END
+
+              COALESCE(
+                c.category_name,
+                'Uncategorized'
+              ) AS category_name,
+
+              c.category_id::text AS category_id,
+
+              COALESCE(
+                u.unit_name,
+                'pcs'
+              ) AS unit_name,
+
+              COALESCE(
+                p.cp,
+                0
+              )::numeric AS cp,
+
+              COALESCE(
+                p.sp,
+                0
+              )::numeric AS sp,
+
+              COALESCE(
+                SUM(ssi.qty),
+                0
+              )::int AS qty_sold,
+
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.sp, 0) * ssi.qty
+                ),
+                0
               )::numeric AS revenue
+
             FROM store_sales_items ssi
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            JOIN store_products p ON p.product_id = ssi.product_id
-            LEFT JOIN store_categories c ON c.category_id = p.category_id
-            LEFT JOIN store_units u ON u.unit_id = p.unit_id
-            WHERE ss.owner_id = ${owner_id}
+
+            JOIN store_sales ss
+              ON ss.sales_id = ssi.sales_id
+
+            JOIN store_products p
+              ON p.product_id = ssi.product_id
+
+            LEFT JOIN store_categories c
+              ON c.category_id = p.category_id
+
+            LEFT JOIN store_units u
+              ON u.unit_id = p.unit_id
+
+            WHERE ss.owner_id = ${ownerId}
               AND p.type = 'item'
-            GROUP BY p.product_id, p.product_name, c.category_name, c.category_id, u.unit_name, p.cp, p.sp
+
+            GROUP BY
+              p.product_id,
+              p.product_name,
+              c.category_name,
+              c.category_id,
+              u.unit_name,
+              p.cp,
+              p.sp
+
             ORDER BY revenue DESC
+
             LIMIT 10
           `,
 
-      // Returns for those products in the same period (with discount allocation)
+      // ─────────────────────────────────────────────────────────────────────
+      // Customer returns
+      //
+      // These values are informational only.
+      // They do not reduce qty_sold or revenue in this report.
+      // ─────────────────────────────────────────────────────────────────────
       startDate && endDate
         ? prisma.$queryRaw`
             SELECT
               ssi.product_id,
-              SUM(scri.qty)::int AS refunded_qty,
-              SUM(
-                ssi.sp * scri.qty * 
-                CASE 
-                  WHEN ss.total_amount > 0 
-                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
-                  ELSE 1
-                END
+
+              COALESCE(
+                SUM(scri.qty),
+                0
+              )::int AS refunded_qty,
+
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.sp, 0) * scri.qty
+                ),
+                0
               )::numeric AS refund_amount
+
             FROM store_customer_return_items scri
-            JOIN store_customer_returns scr ON scr.return_id = scri.return_id
-            JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            JOIN store_products p ON p.product_id = ssi.product_id
-            WHERE scr.owner_id = ${owner_id}
+
+            JOIN store_customer_returns scr
+              ON scr.return_id = scri.return_id
+
+            JOIN store_sales_items ssi
+              ON ssi.sales_item_id = scri.sales_item_id
+
+            JOIN store_products p
+              ON p.product_id = ssi.product_id
+
+            WHERE scr.owner_id = ${ownerId}
               AND p.type = 'item'
               AND scr.created_at >= ${startDate}
               AND scr.created_at <= ${endDate}
+
             GROUP BY ssi.product_id
           `
         : prisma.$queryRaw`
             SELECT
               ssi.product_id,
-              SUM(scri.qty)::int AS refunded_qty,
-              SUM(
-                ssi.sp * scri.qty * 
-                CASE 
-                  WHEN ss.total_amount > 0 
-                  THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
-                  ELSE 1
-                END
+
+              COALESCE(
+                SUM(scri.qty),
+                0
+              )::int AS refunded_qty,
+
+              COALESCE(
+                SUM(
+                  COALESCE(ssi.sp, 0) * scri.qty
+                ),
+                0
               )::numeric AS refund_amount
+
             FROM store_customer_return_items scri
-            JOIN store_customer_returns scr ON scr.return_id = scri.return_id
-            JOIN store_sales_items ssi ON ssi.sales_item_id = scri.sales_item_id
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            JOIN store_products p ON p.product_id = ssi.product_id
-            WHERE scr.owner_id = ${owner_id}
+
+            JOIN store_customer_returns scr
+              ON scr.return_id = scri.return_id
+
+            JOIN store_sales_items ssi
+              ON ssi.sales_item_id = scri.sales_item_id
+
+            JOIN store_products p
+              ON p.product_id = ssi.product_id
+
+            WHERE scr.owner_id = ${ownerId}
               AND p.type = 'item'
+
             GROUP BY ssi.product_id
           `,
 
-      // Current stock per product
+      // ─────────────────────────────────────────────────────────────────────
+      // Current stock
+      // ─────────────────────────────────────────────────────────────────────
       prisma.$queryRaw`
-        SELECT product_id, COALESCE(SUM(qty_remaining), 0)::int AS stock
+        SELECT
+          product_id,
+
+          COALESCE(
+            SUM(qty_remaining),
+            0
+          )::int AS stock
+
         FROM store_stock_lots
-        WHERE owner_id = ${owner_id}
+
+        WHERE owner_id = ${ownerId}
+
         GROUP BY product_id
       `,
 
-      // Previous period totals (for growth) - with discount allocation
+      // ─────────────────────────────────────────────────────────────────────
+      // Previous-period totals for growth comparison.
+      //
+      // Uses the same gross item-sales calculation as the current period.
+      // ─────────────────────────────────────────────────────────────────────
       prevStart && prevEnd
         ? prisma.$queryRaw`
             SELECT
               COALESCE(
                 SUM(
-                  ssi.sp * ssi.qty * 
-                  CASE 
-                    WHEN ss.total_amount > 0 
-                    THEN (1 - COALESCE(ss.discount, 0) / ss.total_amount)
-                    ELSE 1
-                  END
-                ), 0
+                  COALESCE(ssi.sp, 0) * ssi.qty
+                ),
+                0
               )::numeric AS prev_revenue,
-              COALESCE(SUM(ssi.qty), 0)::int AS prev_qty
+
+              COALESCE(
+                SUM(ssi.qty),
+                0
+              )::int AS prev_qty
+
             FROM store_sales_items ssi
-            JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-            JOIN store_products p ON p.product_id = ssi.product_id
-            WHERE ss.owner_id = ${owner_id}
+
+            JOIN store_sales ss
+              ON ss.sales_id = ssi.sales_id
+
+            JOIN store_products p
+              ON p.product_id = ssi.product_id
+
+            WHERE ss.owner_id = ${ownerId}
               AND p.type = 'item'
               AND ss.created_at >= ${prevStart}
               AND ss.created_at <= ${prevEnd}
           `
-        : Promise.resolve([{ prev_revenue: 0, prev_qty: 0 }]),
+        : Promise.resolve([
+            {
+              prev_revenue: 0,
+              prev_qty: 0,
+            },
+          ]),
 
-      // Current-period daily quantity and revenue.
-      // generate_series creates rows for dates with no sales.
+      // ─────────────────────────────────────────────────────────────────────
+      // Current-period trend.
+      //
+      // Returns and discounts are not subtracted.
+      // ─────────────────────────────────────────────────────────────────────
       startDate && endDate
         ? prisma.$queryRaw`
-      WITH days AS (
-        SELECT
-          generate_series(
-            DATE(${startDate}),
-            DATE(${endDate}),
-            INTERVAL '1 day'
-          )::date AS day
-      ),
+            WITH days AS (
+              SELECT
+                generate_series(
+                  DATE(${startDate}),
+                  DATE(${endDate}),
+                  INTERVAL '1 day'
+                )::date AS day
+            ),
 
-      sales_daily AS (
-        SELECT
-          DATE(ss.created_at) AS day,
-          COALESCE(
-            SUM(ssi.qty),
-            0
-          )::numeric AS qty,
-          COALESCE(
-            SUM(ssi.sp * ssi.qty),
-            0
-          )::numeric AS revenue
-        FROM store_sales_items ssi
-        JOIN store_sales ss
-          ON ss.sales_id = ssi.sales_id
-        JOIN store_products p
-          ON p.product_id = ssi.product_id
-        WHERE ss.owner_id = ${owner_id}
-          AND p.type = 'item'
-          AND ss.created_at >= ${startDate}
-          AND ss.created_at <= ${endDate}
-        GROUP BY DATE(ss.created_at)
-      ),
+            sales_daily AS (
+              SELECT
+                DATE(ss.created_at) AS day,
 
-      returns_daily AS (
-        SELECT
-          DATE(scr.created_at) AS day,
-          COALESCE(
-            SUM(scri.qty),
-            0
-          )::numeric AS qty,
-          COALESCE(
-            SUM(ssi.sp * scri.qty),
-            0
-          )::numeric AS revenue
-        FROM store_customer_return_items scri
-        JOIN store_customer_returns scr
-          ON scr.return_id = scri.return_id
-        JOIN store_sales_items ssi
-          ON ssi.sales_item_id =
-             scri.sales_item_id
-        JOIN store_products p
-          ON p.product_id = ssi.product_id
-        WHERE scr.owner_id = ${owner_id}
-          AND p.type = 'item'
-          AND scr.created_at >= ${startDate}
-          AND scr.created_at <= ${endDate}
-        GROUP BY DATE(scr.created_at)
-      )
+                COALESCE(
+                  SUM(ssi.qty),
+                  0
+                )::numeric AS qty,
 
-      SELECT
-        TO_CHAR(
-          d.day,
-          'YYYY-MM-DD'
-        ) AS day,
+                COALESCE(
+                  SUM(
+                    COALESCE(ssi.sp, 0) * ssi.qty
+                  ),
+                  0
+                )::numeric AS revenue
 
-        GREATEST(
-          COALESCE(s.qty, 0) -
-          COALESCE(r.qty, 0),
-          0
-        )::int AS qty,
+              FROM store_sales_items ssi
 
-        GREATEST(
-          COALESCE(s.revenue, 0) -
-          COALESCE(r.revenue, 0),
-          0
-        )::numeric AS revenue
+              JOIN store_sales ss
+                ON ss.sales_id = ssi.sales_id
 
-      FROM days d
+              JOIN store_products p
+                ON p.product_id = ssi.product_id
 
-      LEFT JOIN sales_daily s
-        ON s.day = d.day
+              WHERE ss.owner_id = ${ownerId}
+                AND p.type = 'item'
+                AND ss.created_at >= ${startDate}
+                AND ss.created_at <= ${endDate}
 
-      LEFT JOIN returns_daily r
-        ON r.day = d.day
+              GROUP BY DATE(ss.created_at)
+            )
 
-      ORDER BY d.day ASC
-    `
+            SELECT
+              TO_CHAR(
+                d.day,
+                'YYYY-MM-DD'
+              ) AS day,
+
+              COALESCE(
+                s.qty,
+                0
+              )::int AS qty,
+
+              COALESCE(
+                s.revenue,
+                0
+              )::numeric AS revenue
+
+            FROM days d
+
+            LEFT JOIN sales_daily s
+              ON s.day = d.day
+
+            ORDER BY d.day ASC
+          `
         : Promise.resolve([]),
 
-      // Previous-period daily quantity and revenue.
+      // ─────────────────────────────────────────────────────────────────────
+      // Previous-period trend.
+      //
+      // Returns and discounts are not subtracted.
+      // ─────────────────────────────────────────────────────────────────────
       prevStart && prevEnd
         ? prisma.$queryRaw`
-      WITH days AS (
-        SELECT
-          generate_series(
-            DATE(${prevStart}),
-            DATE(${prevEnd}),
-            INTERVAL '1 day'
-          )::date AS day
-      ),
+            WITH days AS (
+              SELECT
+                generate_series(
+                  DATE(${prevStart}),
+                  DATE(${prevEnd}),
+                  INTERVAL '1 day'
+                )::date AS day
+            ),
 
-      sales_daily AS (
-        SELECT
-          DATE(ss.created_at) AS day,
-          COALESCE(
-            SUM(ssi.qty),
-            0
-          )::numeric AS qty,
-          COALESCE(
-            SUM(ssi.sp * ssi.qty),
-            0
-          )::numeric AS revenue
-        FROM store_sales_items ssi
-        JOIN store_sales ss
-          ON ss.sales_id = ssi.sales_id
-        JOIN store_products p
-          ON p.product_id = ssi.product_id
-        WHERE ss.owner_id = ${owner_id}
-          AND p.type = 'item'
-          AND ss.created_at >= ${prevStart}
-          AND ss.created_at <= ${prevEnd}
-        GROUP BY DATE(ss.created_at)
-      ),
+            sales_daily AS (
+              SELECT
+                DATE(ss.created_at) AS day,
 
-      returns_daily AS (
-        SELECT
-          DATE(scr.created_at) AS day,
-          COALESCE(
-            SUM(scri.qty),
-            0
-          )::numeric AS qty,
-          COALESCE(
-            SUM(ssi.sp * scri.qty),
-            0
-          )::numeric AS revenue
-        FROM store_customer_return_items scri
-        JOIN store_customer_returns scr
-          ON scr.return_id = scri.return_id
-        JOIN store_sales_items ssi
-          ON ssi.sales_item_id =
-             scri.sales_item_id
-        JOIN store_products p
-          ON p.product_id = ssi.product_id
-        WHERE scr.owner_id = ${owner_id}
-          AND p.type = 'item'
-          AND scr.created_at >= ${prevStart}
-          AND scr.created_at <= ${prevEnd}
-        GROUP BY DATE(scr.created_at)
-      )
+                COALESCE(
+                  SUM(ssi.qty),
+                  0
+                )::numeric AS qty,
 
-      SELECT
-        TO_CHAR(
-          d.day,
-          'YYYY-MM-DD'
-        ) AS day,
+                COALESCE(
+                  SUM(
+                    COALESCE(ssi.sp, 0) * ssi.qty
+                  ),
+                  0
+                )::numeric AS revenue
 
-        GREATEST(
-          COALESCE(s.qty, 0) -
-          COALESCE(r.qty, 0),
-          0
-        )::int AS qty,
+              FROM store_sales_items ssi
 
-        GREATEST(
-          COALESCE(s.revenue, 0) -
-          COALESCE(r.revenue, 0),
-          0
-        )::numeric AS revenue
+              JOIN store_sales ss
+                ON ss.sales_id = ssi.sales_id
 
-      FROM days d
+              JOIN store_products p
+                ON p.product_id = ssi.product_id
 
-      LEFT JOIN sales_daily s
-        ON s.day = d.day
+              WHERE ss.owner_id = ${ownerId}
+                AND p.type = 'item'
+                AND ss.created_at >= ${prevStart}
+                AND ss.created_at <= ${prevEnd}
 
-      LEFT JOIN returns_daily r
-        ON r.day = d.day
+              GROUP BY DATE(ss.created_at)
+            )
 
-      ORDER BY d.day ASC
-    `
-        : Promise.resolve([]),
+            SELECT
+              TO_CHAR(
+                d.day,
+                'YYYY-MM-DD'
+              ) AS day,
 
-      // Total discount given in the period (for summary card)
-      startDate && endDate
-        ? prisma.$queryRaw`
-            SELECT COALESCE(SUM(discount), 0)::numeric AS total_discount
-            FROM store_sales
-            WHERE owner_id = ${owner_id}
-              AND created_at >= ${startDate}
-              AND created_at <= ${endDate}
+              COALESCE(
+                s.qty,
+                0
+              )::int AS qty,
+
+              COALESCE(
+                s.revenue,
+                0
+              )::numeric AS revenue
+
+            FROM days d
+
+            LEFT JOIN sales_daily s
+              ON s.day = d.day
+
+            ORDER BY d.day ASC
           `
-        : prisma.$queryRaw`
-            SELECT COALESCE(SUM(discount), 0)::numeric AS total_discount
-            FROM store_sales
-            WHERE owner_id = ${owner_id}
-          `,
+        : Promise.resolve([]),
     ]);
 
-    // ── Build lookup maps ───────────────────────────────────────────────────
-    const returnMap = new Map(returnRows.map((r) => [r.product_id, r]));
-    const stockMap = new Map(
-      stockRows.map((s) => [s.product_id, Number(s.stock)]),
+    // ───────────────────────────────────────────────────────────────────────
+    // Lookup maps
+    // ───────────────────────────────────────────────────────────────────────
+    const returnMap = new Map(
+      returnRows.map((row) => [row.product_id, row]),
     );
 
-    const prevRevenue = Number(prevRows[0]?.prev_revenue || 0);
-    const prevQty = Number(prevRows[0]?.prev_qty || 0);
+    const stockMap = new Map(
+      stockRows.map((row) => [
+        row.product_id,
+        Number(row.stock || 0),
+      ]),
+    );
 
-    // ── Shape top products ──────────────────────────────────────────────────
+    const previousRevenue = Number(
+      prevRows[0]?.prev_revenue || 0,
+    );
+
+    const previousQty = Number(
+      prevRows[0]?.prev_qty || 0,
+    );
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Product response
+    // ───────────────────────────────────────────────────────────────────────
     const products = topRows
-      .map((p) => {
-        const ret = returnMap.get(p.product_id);
-        const refundedQty = Number(ret?.refunded_qty || 0);
-        const refundAmt = Number(ret?.refund_amount || 0);
-        const grossRev = Number(p.revenue);
-        const netRev = grossRev - refundAmt;
-        const netQty = Number(p.qty_sold) - refundedQty;
-        const cp = Number(p.cp);
-        const sp = Number(p.sp);
-        const margin = sp > 0 ? ((sp - cp) / sp) * 100 : 0;
+      .map((row) => {
+        const returnData = returnMap.get(row.product_id);
+
+        const refundedQty = Number(
+          returnData?.refunded_qty || 0,
+        );
+
+        const refundAmount = Number(
+          returnData?.refund_amount || 0,
+        );
+
+        const originalQtySold = Number(
+          row.qty_sold || 0,
+        );
+
+        const grossRevenue = Number(
+          row.revenue || 0,
+        );
+
+        const cp = Number(row.cp || 0);
+        const sp = Number(row.sp || 0);
+
+        const marginPercent =
+          sp > 0 ? ((sp - cp) / sp) * 100 : 0;
 
         return {
-          product_id: p.product_id,
-          product_name: p.product_name,
-          category: p.category_name,
-          category_id: p.category_id,
-          unit: p.unit_name,
+          product_id: row.product_id,
+          product_name: row.product_name,
+
+          category: row.category_name,
+          category_id: row.category_id,
+
+          unit: row.unit_name,
+
           cp,
           sp,
-          qty_sold: netQty,
-          revenue: Number(netRev.toFixed(2)),
+
+          // Original sales figures.
+          qty_sold: originalQtySold,
+          revenue: Number(grossRevenue.toFixed(2)),
+
+          // Informational return figures.
           refunded_qty: refundedQty,
-          refund_amount: Number(refundAmt.toFixed(2)),
-          stock_remaining: stockMap.get(p.product_id) ?? 0,
-          margin_percent: Number(margin.toFixed(1)),
+          refund_amount: Number(refundAmount.toFixed(2)),
+
+          stock_remaining:
+            stockMap.get(row.product_id) ?? 0,
+
+          margin_percent: Number(
+            marginPercent.toFixed(1),
+          ),
         };
       })
-      .filter((p) => p.qty_sold > 0)
+      .filter((product) => product.qty_sold > 0)
       .sort((a, b) => b.revenue - a.revenue);
 
-    // ── Summary KPIs ────────────────────────────────────────────────────────
-    const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
-    const totalQty = products.reduce((s, p) => s + p.qty_sold, 0);
-    const avgMargin =
+    // ───────────────────────────────────────────────────────────────────────
+    // Summary
+    // ───────────────────────────────────────────────────────────────────────
+    const totalRevenue = products.reduce(
+      (sum, product) => sum + product.revenue,
+      0,
+    );
+
+    const totalQty = products.reduce(
+      (sum, product) => sum + product.qty_sold,
+      0,
+    );
+
+    const averageMargin =
       totalRevenue > 0
-        ? products.reduce((s, p) => s + p.margin_percent * p.revenue, 0) /
-          totalRevenue
-        : 0;
-    const bestSeller = products[0] ?? null;
-    const growthPct =
-      prevRevenue > 0
-        ? Number(
-            (((totalRevenue - prevRevenue) / prevRevenue) * 100).toFixed(1),
-          )
-        : 0;
-    const qtyGrowth =
-      prevQty > 0
-        ? Number((((totalQty - prevQty) / prevQty) * 100).toFixed(1))
+        ? products.reduce(
+            (sum, product) =>
+              sum +
+              product.margin_percent *
+                product.revenue,
+            0,
+          ) / totalRevenue
         : 0;
 
-    // ── Category breakdown ───────────────────────────────────────────────────
-    const catMap = new Map();
-    for (const p of products) {
-      catMap.set(p.category, (catMap.get(p.category) ?? 0) + p.revenue);
+    const bestSeller = products[0] ?? null;
+
+    const growthPercent =
+      previousRevenue > 0
+        ? Number(
+            (
+              ((totalRevenue - previousRevenue) /
+                previousRevenue) *
+              100
+            ).toFixed(1),
+          )
+        : 0;
+
+    const qtyGrowth =
+      previousQty > 0
+        ? Number(
+            (
+              ((totalQty - previousQty) /
+                previousQty) *
+              100
+            ).toFixed(1),
+          )
+        : 0;
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Category breakdown
+    // ───────────────────────────────────────────────────────────────────────
+    const categoryMap = new Map();
+
+    for (const product of products) {
+      categoryMap.set(
+        product.category,
+        (categoryMap.get(product.category) ?? 0) +
+          product.revenue,
+      );
     }
-    const catTotal = [...catMap.values()].reduce((s, v) => s + v, 0);
-    const categories = [...catMap.entries()]
-      .sort(([, a], [, b]) => b - a)
+
+    const categoryTotal = [...categoryMap.values()].reduce(
+      (sum, value) => sum + value,
+      0,
+    );
+
+    const categories = [...categoryMap.entries()]
+      .sort(([, firstTotal], [, secondTotal]) => {
+        return secondTotal - firstTotal;
+      })
       .map(([name, total]) => ({
         name,
         total: Number(total.toFixed(2)),
-        pct: catTotal > 0 ? Number(((total / catTotal) * 100).toFixed(1)) : 0,
+        pct:
+          categoryTotal > 0
+            ? Number(
+                ((total / categoryTotal) * 100).toFixed(1),
+              )
+            : 0,
       }));
 
-    // ── Daily trend ──────────────────────────────────────────────────────────
+    // ───────────────────────────────────────────────────────────────────────
+    // Daily trend
+    // ───────────────────────────────────────────────────────────────────────
     const trend = trendRawRows.map((row, index) => {
-      const previousRow = previousTrendRawRows[index];
+      const previousRow =
+        previousTrendRawRows[index];
 
-      const currentRevenue = Number(row.revenue || 0);
+      const currentRevenue = Number(
+        row.revenue || 0,
+      );
 
-      const previousRevenue = Number(previousRow?.revenue || 0);
+      const previousPeriodRevenue = Number(
+        previousRow?.revenue || 0,
+      );
 
       return {
         date: row.day,
         label: fmt(row.day),
 
         qty: Number(row.qty || 0),
-
         revenue: Number(currentRevenue.toFixed(2)),
 
         previous_date: previousRow?.day ?? null,
 
-        previous_label: previousRow?.day ? fmt(previousRow.day) : null,
+        previous_label: previousRow?.day
+          ? fmt(previousRow.day)
+          : null,
 
-        previous_qty: Number(previousRow?.qty || 0),
+        previous_qty: Number(
+          previousRow?.qty || 0,
+        ),
 
-        previous_revenue: Number(previousRevenue.toFixed(2)),
+        previous_revenue: Number(
+          previousPeriodRevenue.toFixed(2),
+        ),
       };
     });
 
     const result = {
       summary: {
-        total_revenue: Number(totalRevenue.toFixed(2)),
+        total_revenue: Number(
+          totalRevenue.toFixed(2),
+        ),
+
         total_qty_sold: totalQty,
-        avg_margin: Number(avgMargin.toFixed(1)),
-        best_seller: bestSeller?.product_name ?? null,
-        best_seller_qty: bestSeller?.qty_sold ?? 0,
-        growth_percent: growthPct,
+
+        avg_margin: Number(
+          averageMargin.toFixed(1),
+        ),
+
+        best_seller:
+          bestSeller?.product_name ?? null,
+
+        best_seller_qty:
+          bestSeller?.qty_sold ?? 0,
+
+        growth_percent: growthPercent,
         qty_growth: qtyGrowth,
       },
+
       products,
       trend,
       categories,
     };
 
-    cache.set(key, { ts: Date.now(), data: result });
+    if (CACHE_TTL_MS > 0) {
+      cache.set(key, {
+        ts: Date.now(),
+        data: result,
+      });
+    }
+
     return result;
   }
 
-  // Call this after a sale or return is created to invalidate cached reports
-  invalidate(owner_id) {
-    for (const k of cache.keys()) {
-      if (k.startsWith(`${owner_id}:`)) cache.delete(k);
+  // Call after creating, updating, or deleting a sale or return.
+  invalidate(ownerId) {
+    for (const key of cache.keys()) {
+      if (key.startsWith(`${ownerId}:`)) {
+        cache.delete(key);
+      }
     }
   }
 }

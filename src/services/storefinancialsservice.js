@@ -26,14 +26,44 @@ class StoreFinancialsService {
           ss.discount,
           ss.paid_amount,
           ss.due_amount,
-          GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS effective_total,
-          COALESCE(SUM(COALESCE(ssi.cp, 0) * ssi.qty), 0) AS sold_cost
+
+          COALESCE(
+            SUM(
+              COALESCE(ssi.sp, 0) *
+              COALESCE(ssi.qty, 0)
+            ),
+            0
+          ) AS gross_item_sales,
+
+          GREATEST(
+            ss.total_amount -
+            COALESCE(ss.discount, 0),
+            0
+          ) AS effective_total,
+
+          COALESCE(
+            SUM(
+              COALESCE(ssi.cp, 0) *
+              COALESCE(ssi.qty, 0)
+            ),
+            0
+          ) AS sold_cost
+
         FROM store_sales ss
-        LEFT JOIN store_sales_items ssi ON ssi.sales_id = ss.sales_id
+
+        LEFT JOIN store_sales_items ssi
+          ON ssi.sales_id = ss.sales_id
+
         WHERE ss.owner_id = ${owner_id}
           AND ss.created_at >= ${from}
           AND ss.created_at <= ${to}
-        GROUP BY ss.sales_id, ss.total_amount, ss.discount, ss.paid_amount, ss.due_amount
+
+        GROUP BY
+          ss.sales_id,
+          ss.total_amount,
+          ss.discount,
+          ss.paid_amount,
+          ss.due_amount
       ),
       returns AS (
         SELECT
@@ -68,6 +98,10 @@ class StoreFinancialsService {
       )
       SELECT
         COALESCE(COUNT(s.sales_id), 0)::int          AS order_count,
+        COALESCE(
+          SUM(s.gross_item_sales),
+          0
+        )::numeric AS gross_item_sales,
         COALESCE(SUM(s.total_amount), 0)::numeric     AS gross_revenue,
         COALESCE(SUM(s.discount), 0)::numeric         AS total_discount,
         COALESCE(SUM(s.effective_total), 0)::numeric  AS net_revenue,
@@ -95,6 +129,9 @@ class StoreFinancialsService {
 
     return {
       order_count: Number(r.order_count || 0),
+      gross_item_sales: Number(
+        r.gross_item_sales || 0,
+      ),
       gross_revenue: Number(r.gross_revenue || 0),
       total_discount: Number(r.total_discount || 0),
       net_revenue: netRevenue,
