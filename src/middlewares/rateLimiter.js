@@ -7,7 +7,7 @@ export const otpVerifyLimiter = rateLimit({
     success: false,
     error_code: "TOO_MANY_ATTEMPTS",
     message: "Too many verification attempts. Please try again after 15 minutes.",
-  },
+  },    
   standardHeaders: true,
   legacyHeaders: false,
 });

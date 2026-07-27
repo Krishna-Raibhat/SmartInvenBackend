@@ -328,12 +328,32 @@ class StoreSalesService {
       throw e;
     }
 
+    const MONEY_TOLERANCE = new Decimal("0.01");
+
     const effectiveTotal = totalAmount.sub(disc);
+    const remainingAmount = effectiveTotal.sub(paid);
+
+    // Reject actual overpayment greater than Rs. 0.01
+    if (paid.sub(effectiveTotal).gt(MONEY_TOLERANCE)) {
+      const e = new Error(
+        `Overpayment detected. Paid amount is ${paid.toFixed(
+          2,
+        )}, but the payable total is ${effectiveTotal.toFixed(
+          2,
+        )}. Correct the amount or adjust product selling prices.`,
+      );
+
+      e.status = 400;
+      e.code = "OVERPAYMENT_DETECTED";
+      throw e;
+    }
 
     let finalStatus;
-    if (effectiveTotal.lte(0)) {
-      finalStatus = "paid";
-    } else if (paid.gte(effectiveTotal)) {
+
+    if (
+      effectiveTotal.lte(0) ||
+      remainingAmount.lte(MONEY_TOLERANCE)
+    ) {
       finalStatus = "paid";
     } else if (paid.gt(0)) {
       finalStatus = "partial";
@@ -341,20 +361,78 @@ class StoreSalesService {
       finalStatus = "pending";
     }
 
-    if (payment_status === "paid" && paid.lt(effectiveTotal)) {
-      const e = new Error("Cannot mark as paid when paid_amount is less than total");
-      e.status = 400;
-      e.code = "VALIDATION_STATUS_INCONSISTENT";
-      throw e;
-    }
-    if (payment_status === "partial" && paid.lte(0)) {
-      const e = new Error("Cannot mark as partial when paid_amount is 0");
+    if (
+      payment_status === "paid" &&
+      remainingAmount.gt(MONEY_TOLERANCE)
+    ) {
+      const e = new Error(
+        "Cannot mark as paid when paid_amount is less than total",
+      );
+
       e.status = 400;
       e.code = "VALIDATION_STATUS_INCONSISTENT";
       throw e;
     }
 
-    const dueAmount = Decimal.max(new Decimal(0), effectiveTotal.sub(paid));
+    if (
+      payment_status === "partial" &&
+      paid.lte(0)
+    ) {
+      const e = new Error(
+        "Cannot mark as partial when paid_amount is 0",
+      );
+
+      e.status = 400;
+      e.code = "VALIDATION_STATUS_INCONSISTENT";
+      throw e;
+    }
+
+    const dueAmount = remainingAmount.lte(MONEY_TOLERANCE)
+      ? new Decimal(0)
+      : remainingAmount;
+    // const effectiveTotal = totalAmount.sub(disc);
+
+    // // The frontend must adjust product SP before submitting the sale.
+    // // After adjustment, paid amount and payable total must match.
+    // if (paid.gt(effectiveTotal)) {
+    //   const e = new Error(
+    //     `Overpayment detected. Paid amount is ${paid.toFixed(
+    //       2,
+    //     )}, but the payable total is ${effectiveTotal.toFixed(
+    //       2,
+    //     )}. Correct the amount or adjust product selling prices.`,
+    //     );
+
+    //     e.status = 400;
+    //     e.code = "OVERPAYMENT_DETECTED";
+    //     throw e;
+    //   }
+
+    //   let finalStatus;
+    // if (effectiveTotal.lte(0)) {
+    //   finalStatus = "paid";
+    // } else if (paid.gte(effectiveTotal)) {
+    //   finalStatus = "paid";
+    // } else if (paid.gt(0)) {
+    //   finalStatus = "partial";
+    // } else {
+    //   finalStatus = "pending";
+    // }
+
+    // if (payment_status === "paid" && paid.lt(effectiveTotal)) {
+    //   const e = new Error("Cannot mark as paid when paid_amount is less than total");
+    //   e.status = 400;
+    //   e.code = "VALIDATION_STATUS_INCONSISTENT";
+    //   throw e;
+    // }
+    // if (payment_status === "partial" && paid.lte(0)) {
+    //   const e = new Error("Cannot mark as partial when paid_amount is 0");
+    //   e.status = 400;
+    //   e.code = "VALIDATION_STATUS_INCONSISTENT";
+    //   throw e;
+    // }
+
+    // const dueAmount = Decimal.max(new Decimal(0), effectiveTotal.sub(paid));
 
     // --- TRANSACTION BATCH (Interactive Transaction for Single Bulk Updates) ---
     const createdHeader = await prisma.$transaction(async (tx) => {

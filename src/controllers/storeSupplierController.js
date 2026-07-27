@@ -2,9 +2,31 @@
 import storeSupplierService from "../services/storeSupplierService.js";
 import { validateSupplierPhone } from "../utils/phone.js";
 
-const isValidEmail = (email) =>
-  typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const ALLOWED_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "yahoo.com",
+  "company.com.np",
+  "business.org",
+]);
 
+const isValidEmail = (email) => {
+  if (typeof email !== "string") {
+    return false;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const emailRegex =
+    /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
+
+  if (!emailRegex.test(normalizedEmail)) {
+    return false;
+  }
+
+  const domain = normalizedEmail.split("@")[1];
+
+  return ALLOWED_EMAIL_DOMAINS.has(domain);
+};
 const storeSupplierController = {
   async create(req, res) {
     try {
@@ -33,7 +55,7 @@ const storeSupplierController = {
       phone = phoneCheck.formatted;
 
       if (email !== undefined && email !== null) {
-        email = String(email).trim();
+        email = String(email).trim().toLowerCase();
         if (email && !isValidEmail(email)) {
           return res.status(400).json({
             success: false,
@@ -160,7 +182,7 @@ const storeSupplierController = {
         if (email === null || String(email).trim() === "") {
           patch.email = null;
         } else {
-          email = String(email).trim();
+          email = String(email).trim().toLowerCase();
           if (!isValidEmail(email)) {
             return res.status(400).json({
               success: false,

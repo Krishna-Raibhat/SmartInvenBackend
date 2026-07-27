@@ -47,13 +47,18 @@ const storeSalesController = {
     try {
       const owner_id = req.owner.owner_id;
       const { id } = req.params;
-      const { amount } = req.body;
+      const { amount, payment_method } = req.body;
 
       if (amount === undefined || amount === null) {
         return fail(res, 400, "REQUIRED_FIELDS", "amount is required.");
       }
 
-      const data = await storeSalesService.addPayment(owner_id, id, amount);
+      const data = await storeSalesService.addPayment(
+        owner_id,
+        id,
+        amount,
+        payment_method,
+      );
       return res.json({ success: true, data });
     } catch (err) {
       if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
