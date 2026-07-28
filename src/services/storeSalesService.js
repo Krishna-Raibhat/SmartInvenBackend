@@ -336,11 +336,7 @@ class StoreSalesService {
     // Reject actual overpayment greater than Rs. 0.01
     if (paid.sub(effectiveTotal).gt(MONEY_TOLERANCE)) {
       const e = new Error(
-        `Overpayment detected. Paid amount is ${paid.toFixed(
-          2,
-        )}, but the payable total is ${effectiveTotal.toFixed(
-          2,
-        )}. Correct the amount or adjust product selling prices.`,
+        "Paid amount + discount cannot be greater than total amount.",
       );
 
       e.status = 400;
