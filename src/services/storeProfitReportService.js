@@ -1,685 +1,777 @@
 import { prisma } from "../prisma/client.js";
-import storeFinancialsService from "./storeFinancialsService.js";
-
-/**
- * Store Profit Report Service
- *
- * Provides comprehensive profit analysis including:
- * - Financial summary with growth metrics
- * - Top profitable items
- * - Expense breakdown
- * - Profit by category
- * - Monthly and daily P&L trends
- *
- * Core revenue/refund/COGS/expense math is delegated to storeFinancialsService,
- * the same helper used by the dashboard summary and the sales-summary report,
- * so all three stay in sync.
- */
+import storeFinancialsService from
+  "./storeFinancialsService.js";
 
 function startOfDay(dateLike) {
-  const d = new Date(dateLike);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  const date = new Date(dateLike);
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
 function endOfDay(dateLike) {
-  const d = new Date(dateLike);
-  d.setHours(23, 59, 59, 999);
-  return d;
+  const date = new Date(dateLike);
+  date.setHours(23, 59, 59, 999);
+  return date;
 }
+
+const defaultSections = [
+  "summary",
+  "top_items",
+  "expenses",
+  "categories",
+  "monthly",
+  "daily",
+];
 
 class StoreProfitReportService {
   /**
-   * Get comprehensive profit report for date range
+   * Generate the requested profit-report sections only.
    */
-  async getReport(owner_id, { from, to }) {
+  async getReport(
+    ownerId,
+    {
+      from,
+      to,
+      include = defaultSections,
+    },
+  ) {
+    const sections = new Set(include);
+
     const rangeStart = startOfDay(from);
     const rangeEnd = endOfDay(to);
 
-    // Get current period stats
-    const current = await storeFinancialsService.getCoreFinancials(owner_id, rangeStart, rangeEnd);
+    const needsSummary =
+      sections.has("summary");
 
-    // Get previous period stats for growth calculations
-    const days = this._daysBetween(from, to);
-    const prevTo = this._subtractDays(from, 1);
-    const prevFrom = this._subtractDays(prevTo, days);
-    const previous = await storeFinancialsService.getCoreFinancials(
-      owner_id,
-      startOfDay(prevFrom),
-      endOfDay(prevTo)
+    const needsExpenses =
+      sections.has("expenses");
+
+    const needsCurrentFinancials =
+      needsSummary || needsExpenses;
+
+    let currentFinancials = null;
+    let previousFinancials = null;
+    let summary = null;
+
+    /*
+     * Current financials are required by:
+     * - summary
+     * - expense percentage calculation
+     */
+    if (needsSummary) {
+      const periodDifference =
+        this._daysBetween(from, to);
+
+      const previousTo =
+        this._subtractDays(from, 1);
+
+      const previousFrom =
+        this._subtractDays(
+          previousTo,
+          periodDifference,
+        );
+
+      [
+        currentFinancials,
+        previousFinancials,
+      ] = await Promise.all([
+        storeFinancialsService
+          .getCoreFinancials(
+            ownerId,
+            rangeStart,
+            rangeEnd,
+          ),
+
+        storeFinancialsService
+          .getCoreFinancials(
+            ownerId,
+            startOfDay(previousFrom),
+            endOfDay(previousTo),
+          ),
+      ]);
+
+      summary = this._buildSummary(
+        currentFinancials,
+        previousFinancials,
+      );
+    } else if (needsExpenses) {
+      currentFinancials =
+        await storeFinancialsService
+          .getCoreFinancials(
+            ownerId,
+            rangeStart,
+            rangeEnd,
+          );
+    }
+
+    const tasks = [];
+    const taskNames = [];
+
+    if (sections.has("top_items")) {
+      tasks.push(
+        storeFinancialsService
+          .getProductBreakdown(
+            ownerId,
+            rangeStart,
+            rangeEnd,
+          ),
+      );
+
+      taskNames.push("products");
+    }
+
+    if (needsExpenses) {
+      tasks.push(
+        storeFinancialsService
+          .getExpenseBreakdown(
+            ownerId,
+            rangeStart,
+            rangeEnd,
+            Number(
+              currentFinancials
+                ?.total_expenses || 0,
+            ),
+          ),
+      );
+
+      taskNames.push("expenses");
+    }
+
+    if (sections.has("categories")) {
+      tasks.push(
+        storeFinancialsService
+          .getCategoryBreakdown(
+            ownerId,
+            rangeStart,
+            rangeEnd,
+          ),
+      );
+
+      taskNames.push("categories");
+    }
+
+    if (sections.has("monthly")) {
+      tasks.push(
+        this._getMonthlyTrend(ownerId),
+      );
+
+      taskNames.push("monthly");
+    }
+
+    if (sections.has("daily")) {
+      tasks.push(
+        storeFinancialsService
+          .getDailyTrend(
+            ownerId,
+            rangeStart,
+            rangeEnd,
+          ),
+      );
+
+      taskNames.push("daily");
+    }
+
+    /*
+     * Independent database operations execute
+     * concurrently.
+     */
+    const taskResults =
+      await Promise.all(tasks);
+
+    const resolved = {};
+
+    taskNames.forEach((name, index) => {
+      resolved[name] = taskResults[index];
+    });
+
+    const response = {};
+
+    if (needsSummary) {
+      response.summary = summary;
+    }
+
+    /*
+     * Flutter currently reads expenses from:
+     * summary['expense_breakdown']
+     */
+    if (needsExpenses) {
+      if (!summary) {
+        summary = {
+          total_expenses: Number(
+            currentFinancials
+              ?.total_expenses || 0,
+          ),
+        };
+      }
+
+      summary.expense_breakdown =
+        resolved.expenses ?? [];
+
+      response.summary = summary;
+    }
+
+    if (sections.has("top_items")) {
+      response.top_profitable_items =
+        this._formatTopItems(
+          resolved.products ?? [],
+        );
+    }
+
+    if (sections.has("categories")) {
+      response.profit_by_category =
+        this._formatCategories(
+          resolved.categories ?? [],
+        );
+    }
+
+    if (sections.has("monthly")) {
+      response.monthly =
+        resolved.monthly ?? [];
+    }
+
+    if (sections.has("daily")) {
+      response.daily =
+        this._formatDailyTrend(
+          resolved.daily ?? [],
+        );
+    }
+
+    return response;
+  }
+
+  /**
+   * Creates UI-compatible summary keys while preserving
+   * the shared financial-service fields.
+   *
+   * Required formulas:
+   *
+   * Actual Revenue =
+   * total amount - discount - refunds
+   *
+   * Net Cost =
+   * sold cost - returned cost
+   *
+   * Gross Profit =
+   * actual revenue - net cost
+   *
+   * Net Profit =
+   * gross profit - expenses
+   */
+  _buildSummary(current, previous) {
+    const actualRevenue = Number(
+      current?.actual_revenue || 0,
     );
 
-    // Calculate growth metrics
-    const summary = this._buildSummary(current, previous);
-
-    // Get expense breakdown
-    const expenseBreakdown = await storeFinancialsService.getExpenseBreakdown(
-      owner_id,
-      rangeStart,
-      rangeEnd,
-      current.total_expenses
+    const netCost = Number(
+      current?.net_cost || 0,
     );
-    summary.expense_breakdown = expenseBreakdown;
 
-    // Get detailed breakdowns
-    const [productBreakdown, categoryBreakdown, monthly, dailyTrend] = await Promise.all([
-      storeFinancialsService.getProductBreakdown(owner_id, rangeStart, rangeEnd),
-      storeFinancialsService.getCategoryBreakdown(owner_id, rangeStart, rangeEnd),
-      this._getMonthlyTrend(owner_id),
-      storeFinancialsService.getDailyTrend(owner_id, rangeStart, rangeEnd),
-    ]);
+    const grossProfit = Number(
+      current?.gross_profit || 0,
+    );
 
-    const topItems = productBreakdown
-      .filter((p) => p.profit > 0)
-      .sort((a, b) => b.profit - a.profit)
-      .slice(0, 5)
-      .map((p) => ({
-        name: p.product_name,
-        revenue: Number(p.revenue.toFixed(2)),
-        cogs: Number(p.cogs.toFixed(2)),
-        profit: Number(p.profit.toFixed(2)),
-        margin: Number(p.margin.toFixed(1)),
-        qty: p.qty,
-      }));
+    const netProfit = Number(
+      current?.net_profit || 0,
+    );
 
-    const categories = categoryBreakdown
-      .filter((c) => c.profit > 0)
-      .sort((a, b) => b.profit - a.profit)
-      .map((c) => ({
-        name: c.category_name,
-        revenue: Number(c.revenue.toFixed(2)),
-        profit: Number(c.profit.toFixed(2)),
-        margin: Number(c.margin.toFixed(1)),
-      }));
+    const totalExpenses = Number(
+      current?.total_expenses || 0,
+    );
 
-    const daily = dailyTrend.map((d) => ({
-      d: d.date.slice(8, 10),
-      revenue: d.revenue,
-      cogs: d.cogs,
-      net: Number((d.revenue - d.cogs).toFixed(2)),
-    }));
+    const totalRefund = Number(
+      current?.total_refund || 0,
+    );
+
+    const previousRevenue = Number(
+      previous?.actual_revenue || 0,
+    );
+
+    const previousProfit = Number(
+      previous?.net_profit || 0,
+    );
+
+    const previousExpenses = Number(
+      previous?.total_expenses || 0,
+    );
+
+    const netMargin =
+      actualRevenue > 0
+        ? (netProfit / actualRevenue) * 100
+        : 0;
+
+    const previousMargin =
+      previousRevenue > 0
+        ? (
+            previousProfit /
+            previousRevenue
+          ) * 100
+        : 0;
 
     return {
-      summary,
-      top_profitable_items: topItems,
-      profit_by_category: categories,
-      monthly,
-      daily,
+      ...current,
+
+      /*
+       * Aliases expected by the existing Flutter screen.
+       */
+      net_revenue: Number(
+        actualRevenue.toFixed(2),
+      ),
+
+      cogs: Number(
+        netCost.toFixed(2),
+      ),
+
+      refunds: Number(
+        totalRefund.toFixed(2),
+      ),
+
+      gross_margin: Number(
+        (
+          actualRevenue > 0
+            ? (
+                grossProfit /
+                actualRevenue
+              ) * 100
+            : 0
+        ).toFixed(2),
+      ),
+
+      net_margin: Number(
+        netMargin.toFixed(2),
+      ),
+
+      expense_ratio: Number(
+        (
+          actualRevenue > 0
+            ? (
+                totalExpenses /
+                actualRevenue
+              ) * 100
+            : 0
+        ).toFixed(2),
+      ),
+
+      cogs_ratio: Number(
+        (
+          actualRevenue > 0
+            ? (
+                netCost /
+                actualRevenue
+              ) * 100
+            : 0
+        ).toFixed(2),
+      ),
+
+      revenue_growth: Number(
+        this._calcGrowth(
+          actualRevenue,
+          previousRevenue,
+        ).toFixed(2),
+      ),
+
+      profit_growth: Number(
+        this._calcGrowth(
+          netProfit,
+          previousProfit,
+        ).toFixed(2),
+      ),
+
+      expense_growth: Number(
+        this._calcGrowth(
+          totalExpenses,
+          previousExpenses,
+        ).toFixed(2),
+      ),
+
+      margin_change: Number(
+        (
+          netMargin -
+          previousMargin
+        ).toFixed(2),
+      ),
     };
   }
 
-  /**
-   * Build summary with growth metrics
-   */
-  _buildSummary(current, previous) {
-    const summary = { ...current };
-    summary.refunds = current.total_refund;
+  _formatTopItems(products) {
+    return products
+      .filter(
+        (product) =>
+          Number(product.profit || 0) > 0,
+      )
+      .sort(
+        (a, b) =>
+          Number(b.profit || 0) -
+          Number(a.profit || 0),
+      )
+      .slice(0, 5)
+      .map((product) => {
+        const revenue = Number(
+          product.revenue || 0,
+        );
 
-    // Calculate margins and ratios (based on actual revenue/cost after returns)
-    summary.gross_margin = current.actual_revenue > 0
-      ? (current.gross_profit / current.actual_revenue * 100)
-      : 0;
-    summary.net_margin = current.actual_revenue > 0
-      ? (current.net_profit / current.actual_revenue * 100)
-      : 0;
-    summary.expense_ratio = current.actual_revenue > 0
-      ? (current.total_expenses / current.actual_revenue * 100)
-      : 0;
-    summary.cogs_ratio = current.actual_revenue > 0
-      ? (current.net_cost / current.actual_revenue * 100)
-      : 0;
+        const cogs = Number(
+          product.cogs || 0,
+        );
 
-    // Calculate growth vs previous period
-    summary.revenue_growth = this._calcGrowth(
-      current.actual_revenue,
-      previous.actual_revenue
-    );
-    summary.profit_growth = this._calcGrowth(
-      current.net_profit,
-      previous.net_profit
-    );
-    summary.expense_growth = this._calcGrowth(
-      current.total_expenses,
-      previous.total_expenses
-    );
+        const profit = Number(
+          product.profit || 0,
+        );
 
-    // Margin change in percentage points
-    const prevMargin = previous.actual_revenue > 0
-      ? (previous.net_profit / previous.actual_revenue * 100)
-      : 0;
-    summary.margin_change = summary.net_margin - prevMargin;
+        const margin =
+          product.margin != null
+            ? Number(product.margin)
+            : revenue > 0
+            ? (profit / revenue) * 100
+            : 0;
 
-    return summary;
+        return {
+          name:
+            product.product_name ??
+            product.name ??
+            "Unknown item",
+
+          revenue: Number(
+            revenue.toFixed(2),
+          ),
+
+          cogs: Number(
+            cogs.toFixed(2),
+          ),
+
+          profit: Number(
+            profit.toFixed(2),
+          ),
+
+          margin: Number(
+            margin.toFixed(1),
+          ),
+
+          qty: Number(
+            product.qty ||
+            product.qty_sold ||
+            0,
+          ),
+        };
+      });
   }
 
-  /**
-   * Get last 6 months P&L trend (not part of the shared period-financials
-   * helper since it buckets by calendar month rather than a from/to range).
-   */
-  async _getMonthlyTrend(owner_id) {
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    sixMonthsAgo.setDate(1); // Start from first day of the month
-    const fromDate = sixMonthsAgo.toISOString().split('T')[0];
+  _formatCategories(categories) {
+    return categories
+      .filter(
+        (category) =>
+          Number(category.profit || 0) > 0,
+      )
+      .sort(
+        (a, b) =>
+          Number(b.profit || 0) -
+          Number(a.profit || 0),
+      )
+      .map((category) => {
+        const revenue = Number(
+          category.revenue || 0,
+        );
 
-    const months = await prisma.$queryRaw`
-      SELECT
-        m,
-        y,
-        mon,
-        COALESCE(SUM(net_revenue), 0) AS revenue,
-        COALESCE(SUM(cogs), 0) AS cogs
-      FROM (
-        SELECT
-          ss.sales_id,
-          TO_CHAR(ss.created_at, 'Mon') AS m,
-          EXTRACT(YEAR FROM ss.created_at)::int AS y,
-          EXTRACT(MONTH FROM ss.created_at)::int AS mon,
-          GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS net_revenue,
-          COALESCE(SUM(ssi.cp * ssi.qty), 0) AS cogs
-        FROM store_sales ss
-        LEFT JOIN store_sales_items ssi ON ssi.sales_id = ss.sales_id
-        WHERE ss.owner_id = ${owner_id}
-          AND ss.created_at >= ${fromDate}::date
-        GROUP BY ss.sales_id, ss.created_at, ss.total_amount, ss.discount
-      ) AS aggregated_sales
-      GROUP BY y, mon, m
-      ORDER BY y, mon
-    `;
+        const profit = Number(
+          category.profit || 0,
+        );
 
-    // Get expenses per month
-    const expensesByMonth = await prisma.$queryRaw`
-      SELECT
-        EXTRACT(YEAR FROM se.created_at)::int AS y,
-        EXTRACT(MONTH FROM se.created_at)::int AS mon,
-        COALESCE(SUM(se.amount), 0) AS expenses
-      FROM store_expenses se
-      WHERE se.owner_id = ${owner_id}
-        AND se.created_at >= ${fromDate}::date
-      GROUP BY y, mon
-    `;
+        const margin =
+          category.margin != null
+            ? Number(category.margin)
+            : revenue > 0
+            ? (profit / revenue) * 100
+            : 0;
 
-    // Create expense lookup map
-    const expenseMap = new Map();
-    expensesByMonth.forEach(e => {
-      const key = `${e.y}-${e.mon}`;
-      expenseMap.set(key, Number(e.expenses) || 0);
-    });
+        return {
+          name:
+            category.category_name ??
+            category.name ??
+            "Uncategorized",
 
-    return months.map(month => {
-      const revenue = Number(month.revenue) || 0;
-      const cogs = Number(month.cogs) || 0;
-      const key = `${month.y}-${month.mon}`;
-      const expenses = expenseMap.get(key) || 0;
-      const gross = revenue - cogs;
-      const net = gross - expenses;
+          revenue: Number(
+            revenue.toFixed(2),
+          ),
+
+          profit: Number(
+            profit.toFixed(2),
+          ),
+
+          margin: Number(
+            margin.toFixed(1),
+          ),
+        };
+      });
+  }
+
+  _formatDailyTrend(rows) {
+    return rows.map((row) => {
+      const revenue = Number(
+        row.revenue || 0,
+      );
+
+      const cogs = Number(
+        row.cogs ||
+        row.net_cost ||
+        0,
+      );
+
+      const net =
+        row.net_profit != null
+          ? Number(row.net_profit)
+          : row.net != null
+          ? Number(row.net)
+          : revenue - cogs;
+
+      const rawDate =
+        row.date?.toString() ??
+        row.sale_date?.toString() ??
+        "";
+
+      let dayLabel =
+        row.d?.toString() ?? "";
+
+      if (
+        dayLabel.isEmpty &&
+        rawDate.length >= 10
+      ) {
+        dayLabel = rawDate.slice(8, 10);
+      }
 
       return {
-        m: month.m,
-        revenue,
-        cogs,
-        expenses,
-        gross,
-        net,
+        d: dayLabel,
+        revenue: Number(
+          revenue.toFixed(2),
+        ),
+        cogs: Number(
+          cogs.toFixed(2),
+        ),
+        net: Number(
+          net.toFixed(2),
+        ),
       };
     });
   }
 
   /**
-   * Calculate growth percentage
+   * Returns the last six months of profit data.
+   *
+   * This is only executed when the monthly section
+   * is requested.
    */
+  async _getMonthlyTrend(ownerId) {
+    const sixMonthsAgo = new Date();
+
+    sixMonthsAgo.setMonth(
+      sixMonthsAgo.getMonth() - 6,
+    );
+
+    sixMonthsAgo.setDate(1);
+    sixMonthsAgo.setHours(0, 0, 0, 0);
+
+    const fromDate =
+      sixMonthsAgo
+        .toISOString()
+        .split("T")[0];
+
+    const months = await prisma.$queryRaw`
+      SELECT
+        month_label,
+        year_number,
+        month_number,
+        COALESCE(SUM(revenue), 0) AS revenue,
+        COALESCE(SUM(cogs), 0) AS cogs
+      FROM (
+        SELECT
+          ss.sales_id,
+
+          TO_CHAR(
+            ss.created_at,
+            'Mon'
+          ) AS month_label,
+
+          EXTRACT(
+            YEAR FROM ss.created_at
+          )::int AS year_number,
+
+          EXTRACT(
+            MONTH FROM ss.created_at
+          )::int AS month_number,
+
+          GREATEST(
+            ss.total_amount -
+            COALESCE(ss.discount, 0),
+            0
+          ) AS revenue,
+
+          COALESCE(
+            SUM(ssi.cp * ssi.qty),
+            0
+          ) AS cogs
+
+        FROM store_sales ss
+
+        LEFT JOIN store_sales_items ssi
+          ON ssi.sales_id = ss.sales_id
+
+        WHERE ss.owner_id = ${ownerId}
+          AND ss.created_at >= ${fromDate}::date
+
+        GROUP BY
+          ss.sales_id,
+          ss.created_at,
+          ss.total_amount,
+          ss.discount
+      ) AS aggregated_sales
+
+      GROUP BY
+        year_number,
+        month_number,
+        month_label
+
+      ORDER BY
+        year_number,
+        month_number
+    `;
+
+    const expensesByMonth =
+      await prisma.$queryRaw`
+        SELECT
+          EXTRACT(
+            YEAR FROM se.created_at
+          )::int AS year_number,
+
+          EXTRACT(
+            MONTH FROM se.created_at
+          )::int AS month_number,
+
+          COALESCE(
+            SUM(se.amount),
+            0
+          ) AS expenses
+
+        FROM store_expenses se
+
+        WHERE se.owner_id = ${ownerId}
+          AND se.created_at >= ${fromDate}::date
+
+        GROUP BY
+          year_number,
+          month_number
+      `;
+
+    const expenseMap = new Map();
+
+    for (const expense of expensesByMonth) {
+      const key =
+        `${expense.year_number}-` +
+        `${expense.month_number}`;
+
+      expenseMap.set(
+        key,
+        Number(expense.expenses) || 0,
+      );
+    }
+
+    return months.map((month) => {
+      const revenue = Number(
+        month.revenue || 0,
+      );
+
+      const cogs = Number(
+        month.cogs || 0,
+      );
+
+      const key =
+        `${month.year_number}-` +
+        `${month.month_number}`;
+
+      const expenses =
+        expenseMap.get(key) || 0;
+
+      const gross = revenue - cogs;
+      const net = gross - expenses;
+
+      return {
+        m: month.month_label,
+        revenue: Number(
+          revenue.toFixed(2),
+        ),
+        cogs: Number(
+          cogs.toFixed(2),
+        ),
+        expenses: Number(
+          expenses.toFixed(2),
+        ),
+        gross: Number(
+          gross.toFixed(2),
+        ),
+        net: Number(
+          net.toFixed(2),
+        ),
+      };
+    });
+  }
+
   _calcGrowth(current, previous) {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return ((current - previous) / previous) * 100;
+    const currentValue =
+      Number(current || 0);
+
+    const previousValue =
+      Number(previous || 0);
+
+    if (previousValue === 0) {
+      return currentValue > 0 ? 100 : 0;
+    }
+
+    return (
+      (
+        currentValue -
+        previousValue
+      ) /
+      Math.abs(previousValue)
+    ) * 100;
   }
 
-  /**
-   * Calculate days between two dates
-   */
   _daysBetween(from, to) {
-    const d1 = new Date(from);
-    const d2 = new Date(to);
-    return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+    const firstDate =
+      new Date(`${from}T00:00:00`);
+
+    const secondDate =
+      new Date(`${to}T00:00:00`);
+
+    const millisecondsPerDay =
+      1000 * 60 * 60 * 24;
+
+    return Math.round(
+      (
+        secondDate -
+        firstDate
+      ) /
+      millisecondsPerDay,
+    );
   }
 
-  /**
-   * Subtract days from date
-   */
-  _subtractDays(dateStr, days) {
-    const d = new Date(dateStr);
-    d.setDate(d.getDate() - days);
-    return d.toISOString().split('T')[0];
+  _subtractDays(dateString, days) {
+    const date =
+      new Date(`${dateString}T00:00:00`);
+
+    date.setDate(
+      date.getDate() - days,
+    );
+
+    const year =
+      date.getFullYear();
+
+    const month = String(
+      date.getMonth() + 1,
+    ).padStart(2, "0");
+
+    const day = String(
+      date.getDate(),
+    ).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
   }
 }
 
 export default new StoreProfitReportService();
-// import { prisma } from "../prisma/client.js";
-
-// /**
-//  * Store Profit Report Service
-//  * 
-//  * Provides comprehensive profit analysis including:
-//  * - Financial summary with growth metrics
-//  * - Top profitable items
-//  * - Expense breakdown
-//  * - Profit by category
-//  * - Monthly and daily P&L trends
-//  */
-
-// class StoreProfitReportService {
-//   /**
-//    * Get comprehensive profit report for date range
-//    */
-//   async getReport(owner_id, { from, to }) {
-//     console.log('📊 Generating profit report for owner:', owner_id, 'from:', from, 'to:', to);
-
-//     // Get current period stats
-//     const current = await this._getPeriodStats(owner_id, from, to);
-
-//     // Get previous period stats for growth calculations
-//     const days = this._daysBetween(from, to);
-//     const prevTo = this._subtractDays(from, 1);
-//     const prevFrom = this._subtractDays(prevTo, days);
-//     const previous = await this._getPeriodStats(owner_id, prevFrom, prevTo);
-
-//     // Calculate growth metrics
-//     const summary = this._buildSummary(current, previous);
-
-//     // Get expense breakdown
-//     const expenseBreakdown = await this._getExpenseBreakdown(
-//       owner_id,
-//       from,
-//       to,
-//       current.total_expenses
-//     );
-//     summary.expense_breakdown = expenseBreakdown;
-
-//     // Get detailed breakdowns
-//     const [topItems, categories, monthly, daily] = await Promise.all([
-//       this._getTopProfitableItems(owner_id, from, to),
-//       this._getProfitByCategory(owner_id, from, to),
-//       this._getMonthlyTrend(owner_id),
-//       this._getDailyTrend(owner_id, from, to),
-//     ]);
-
-//     return {
-//       summary,
-//       top_profitable_items: topItems,
-//       profit_by_category: categories,
-//       monthly,
-//       daily,
-//     };
-//   }
-
-//   /**
-//    * Get financial stats for a period
-//    */
-//   async _getPeriodStats(owner_id, from, to) {
-//     const result = await prisma.$queryRaw`
-//       WITH sales_data AS (
-//         SELECT
-//           COALESCE(SUM(gross_revenue), 0) AS gross_revenue,
-//           COALESCE(SUM(total_discount), 0) AS total_discount,
-//           COALESCE(SUM(net_revenue), 0) AS net_revenue,
-//           COALESCE(SUM(cogs), 0) AS cogs
-//         FROM (
-//           SELECT
-//             ss.sales_id,
-//             ss.total_amount AS gross_revenue,
-//             ss.discount AS total_discount,
-//             GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS net_revenue,
-//             COALESCE(SUM(ssi.cp * ssi.qty), 0) AS cogs
-//           FROM store_sales ss
-//           LEFT JOIN store_sales_items ssi ON ssi.sales_id = ss.sales_id
-//           WHERE ss.owner_id = ${owner_id}
-//             AND DATE(ss.created_at) >= ${from}::date
-//             AND DATE(ss.created_at) <= ${to}::date
-//           GROUP BY ss.sales_id, ss.total_amount, ss.discount
-//         ) AS sales_aggregated
-//       ),
-//       returns_data AS (
-//         SELECT
-//           COALESCE(SUM(scr.refund_amount), 0) AS total_refunds
-//         FROM store_customer_returns scr
-//         WHERE scr.owner_id = ${owner_id}
-//           AND DATE(scr.created_at) >= ${from}::date
-//           AND DATE(scr.created_at) <= ${to}::date
-//       ),
-//       expense_data AS (
-//         SELECT
-//           COALESCE(SUM(se.amount), 0) AS total_expenses
-//         FROM store_expenses se
-//         WHERE se.owner_id = ${owner_id}
-//           AND DATE(se.created_at) >= ${from}::date
-//           AND DATE(se.created_at) <= ${to}::date
-//       )
-//       SELECT
-//         sd.gross_revenue,
-//         sd.total_discount,
-//         sd.net_revenue,
-//         sd.cogs,
-//         rd.total_refunds AS refunds,
-//         ed.total_expenses,
-//         (sd.net_revenue - sd.cogs) AS gross_profit,
-//         (sd.net_revenue - sd.cogs - ed.total_expenses) AS net_profit
-//       FROM sales_data sd, returns_data rd, expense_data ed
-//     `;
-
-//     const row = result[0] || {};
-//     return {
-//       gross_revenue: Number(row.gross_revenue) || 0,
-//       total_discount: Number(row.total_discount) || 0,
-//       net_revenue: Number(row.net_revenue) || 0,
-//       cogs: Number(row.cogs) || 0,
-//       refunds: Number(row.refunds) || 0,
-//       total_expenses: Number(row.total_expenses) || 0,
-//       gross_profit: Number(row.gross_profit) || 0,
-//       net_profit: Number(row.net_profit) || 0,
-//     };
-//   }
-
-//   /**
-//    * Build summary with growth metrics
-//    */
-//   _buildSummary(current, previous) {
-//     const summary = { ...current };
-
-//     // Calculate margins and ratios
-//     summary.gross_margin = current.net_revenue > 0
-//       ? (current.gross_profit / current.net_revenue * 100)
-//       : 0;
-//     summary.net_margin = current.net_revenue > 0
-//       ? (current.net_profit / current.net_revenue * 100)
-//       : 0;
-//     summary.expense_ratio = current.net_revenue > 0
-//       ? (current.total_expenses / current.net_revenue * 100)
-//       : 0;
-//     summary.cogs_ratio = current.net_revenue > 0
-//       ? (current.cogs / current.net_revenue * 100)
-//       : 0;
-
-//     // Calculate growth vs previous period
-//     summary.revenue_growth = this._calcGrowth(
-//       current.net_revenue,
-//       previous.net_revenue
-//     );
-//     summary.profit_growth = this._calcGrowth(
-//       current.net_profit,
-//       previous.net_profit
-//     );
-//     summary.expense_growth = this._calcGrowth(
-//       current.total_expenses,
-//       previous.total_expenses
-//     );
-
-//     // Margin change in percentage points
-//     const prevMargin = previous.net_revenue > 0
-//       ? (previous.net_profit / previous.net_revenue * 100)
-//       : 0;
-//     summary.margin_change = summary.net_margin - prevMargin;
-
-//     return summary;
-//   }
-
-//   /**
-//    * Get expense breakdown by title
-//    */
-//   async _getExpenseBreakdown(owner_id, from, to, total_expenses) {
-//     const expenses = await prisma.$queryRaw`
-//       SELECT
-//         t.title,
-//         SUM(se.amount) AS amount
-//       FROM store_expenses se
-//       JOIN store_expense_titles t ON t.title_id = se.title_id
-//       WHERE se.owner_id = ${owner_id}
-//         AND se.created_at >= ${from}
-//         AND se.created_at <= ${to}
-//       GROUP BY t.title_id, t.title
-//       ORDER BY amount DESC
-//     `;
-
-//     return expenses.map(e => ({
-//       title: e.title,
-//       amount: Number(e.amount),
-//       pct: total_expenses > 0 ? (Number(e.amount) / total_expenses * 100) : 0,
-//     }));
-//   }
-
-//   /**
-//    * Get top 5 most profitable items
-//    */
-//   async _getTopProfitableItems(owner_id, from, to) {
-//     const items = await prisma.$queryRaw`
-//       SELECT
-//         sp.product_name AS name,
-//         SUM(ssi.sp * ssi.qty) AS revenue,
-//         SUM(ssi.cp * ssi.qty) AS cogs,
-//         SUM(ssi.sp * ssi.qty) - SUM(ssi.cp * ssi.qty) AS profit,
-//         SUM(ssi.qty) AS qty
-//       FROM store_sales_items ssi
-//       INNER JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-//       INNER JOIN store_products sp ON sp.product_id = ssi.product_id
-//       WHERE ss.owner_id = ${owner_id}
-//         AND ss.created_at >= ${from}
-//         AND ss.created_at <= ${to}
-//       GROUP BY sp.product_id, sp.product_name
-//       HAVING SUM(ssi.sp * ssi.qty) - SUM(ssi.cp * ssi.qty) > 0
-//       ORDER BY profit DESC
-//       LIMIT 5
-//     `;
-
-//     return items.map(item => {
-//       const revenue = Number(item.revenue) || 0;
-//       const cogs = Number(item.cogs) || 0;
-//       const profit = Number(item.profit) || 0;
-//       return {
-//         name: item.name,
-//         revenue,
-//         cogs,
-//         profit,
-//         margin: revenue > 0 ? (profit / revenue * 100) : 0,
-//         qty: Number(item.qty) || 0,
-//       };
-//     });
-//   }
-
-//   /**
-//    * Get profit breakdown by category
-//    */
-//   async _getProfitByCategory(owner_id, from, to) {
-//     const categories = await prisma.$queryRaw`
-//       SELECT
-//         COALESCE(c.category_name, 'Uncategorized') AS name,
-//         SUM(ssi.sp * ssi.qty) AS revenue,
-//         SUM(ssi.sp * ssi.qty) - SUM(ssi.cp * ssi.qty) AS profit
-//       FROM store_sales_items ssi
-//       INNER JOIN store_sales ss ON ss.sales_id = ssi.sales_id
-//       INNER JOIN store_products sp ON sp.product_id = ssi.product_id
-//       LEFT JOIN store_categories c ON c.category_id = sp.category_id
-//       WHERE ss.owner_id = ${owner_id}
-//         AND ss.created_at >= ${from}
-//         AND ss.created_at <= ${to}
-//       GROUP BY c.category_id, c.category_name
-//       HAVING SUM(ssi.sp * ssi.qty) - SUM(ssi.cp * ssi.qty) > 0
-//       ORDER BY profit DESC
-//     `;
-
-//     return categories.map(cat => {
-//       const revenue = Number(cat.revenue) || 0;
-//       const profit = Number(cat.profit) || 0;
-//       return {
-//         name: cat.name,
-//         revenue,
-//         profit,
-//         margin: revenue > 0 ? (profit / revenue * 100) : 0,
-//       };
-//     });
-//   }
-
-//   /**
-//    * Get last 6 months P&L trend
-//    */
-//   async _getMonthlyTrend(owner_id) {
-//     const sixMonthsAgo = new Date();
-//     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-//     sixMonthsAgo.setDate(1); // Start from first day of the month
-//     const fromDate = sixMonthsAgo.toISOString().split('T')[0];
-
-//     const months = await prisma.$queryRaw`
-//       SELECT
-//         m,
-//         y,
-//         mon,
-//         COALESCE(SUM(net_revenue), 0) AS revenue,
-//         COALESCE(SUM(cogs), 0) AS cogs
-//       FROM (
-//         SELECT
-//           ss.sales_id,
-//           TO_CHAR(ss.created_at, 'Mon') AS m,
-//           EXTRACT(YEAR FROM ss.created_at)::int AS y,
-//           EXTRACT(MONTH FROM ss.created_at)::int AS mon,
-//           GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS net_revenue,
-//           COALESCE(SUM(ssi.cp * ssi.qty), 0) AS cogs
-//         FROM store_sales ss
-//         LEFT JOIN store_sales_items ssi ON ssi.sales_id = ss.sales_id
-//         WHERE ss.owner_id = ${owner_id}
-//           AND ss.created_at >= ${fromDate}::date
-//         GROUP BY ss.sales_id, ss.created_at, ss.total_amount, ss.discount
-//       ) AS aggregated_sales
-//       GROUP BY y, mon, m
-//       ORDER BY y, mon
-//     `;
-
-//     // Get expenses per month
-//     const expensesByMonth = await prisma.$queryRaw`
-//       SELECT
-//         EXTRACT(YEAR FROM se.created_at)::int AS y,
-//         EXTRACT(MONTH FROM se.created_at)::int AS mon,
-//         COALESCE(SUM(se.amount), 0) AS expenses
-//       FROM store_expenses se
-//       WHERE se.owner_id = ${owner_id}
-//         AND se.created_at >= ${fromDate}::date
-//       GROUP BY y, mon
-//     `;
-
-//     // Create expense lookup map
-//     const expenseMap = new Map();
-//     expensesByMonth.forEach(e => {
-//       const key = `${e.y}-${e.mon}`;
-//       expenseMap.set(key, Number(e.expenses) || 0);
-//     });
-
-//     return months.map(month => {
-//       const revenue = Number(month.revenue) || 0;
-//       const cogs = Number(month.cogs) || 0;
-//       const key = `${month.y}-${month.mon}`;
-//       const expenses = expenseMap.get(key) || 0;
-//       const gross = revenue - cogs;
-//       const net = gross - expenses;
-
-//       return {
-//         m: month.m,
-//         revenue,
-//         cogs,
-//         expenses,
-//         gross,
-//         net,
-//       };
-//     });
-//   }
-
-//   /**
-//    * Get daily trend for selected period
-//    */
-//   async _getDailyTrend(owner_id, from, to) {
-//     const daily = await prisma.$queryRaw`
-//       SELECT
-//         d,
-//         sale_date,
-//         COALESCE(SUM(net_revenue), 0) AS revenue,
-//         COALESCE(SUM(cogs), 0) AS cogs
-//       FROM (
-//         SELECT
-//           ss.sales_id,
-//           TO_CHAR(ss.created_at, 'DD') AS d,
-//           DATE(ss.created_at) AS sale_date,
-//           GREATEST(ss.total_amount - COALESCE(ss.discount, 0), 0) AS net_revenue,
-//           COALESCE(SUM(ssi.cp * ssi.qty), 0) AS cogs
-//         FROM store_sales ss
-//         LEFT JOIN store_sales_items ssi ON ssi.sales_id = ss.sales_id
-//         WHERE ss.owner_id = ${owner_id}
-//           AND DATE(ss.created_at) >= ${from}::date
-//           AND DATE(ss.created_at) <= ${to}::date
-//         GROUP BY ss.sales_id, ss.created_at, ss.total_amount, ss.discount
-//       ) AS aggregated_sales
-//       GROUP BY sale_date, d
-//       ORDER BY sale_date
-//     `;
-
-//     // Get expenses per day
-//     const expensesByDay = await prisma.$queryRaw`
-//       SELECT
-//         DATE(se.created_at) AS expense_date,
-//         COALESCE(SUM(se.amount), 0) AS expenses
-//       FROM store_expenses se
-//       WHERE se.owner_id = ${owner_id}
-//         AND DATE(se.created_at) >= ${from}::date
-//         AND DATE(se.created_at) <= ${to}::date
-//       GROUP BY DATE(se.created_at)
-//     `;
-
-//     // Create expense lookup map
-//     const expenseMap = new Map();
-//     expensesByDay.forEach(e => {
-//       const dateStr = e.expense_date instanceof Date 
-//         ? e.expense_date.toISOString().split('T')[0]
-//         : e.expense_date;
-//       expenseMap.set(dateStr, Number(e.expenses) || 0);
-//     });
-
-//     return daily.map(day => {
-//       const revenue = Number(day.revenue) || 0;
-//       const cogs = Number(day.cogs) || 0;
-//       const dateStr = day.sale_date instanceof Date
-//         ? day.sale_date.toISOString().split('T')[0]
-//         : day.sale_date;
-//       const expenses = expenseMap.get(dateStr) || 0;
-//       const net = revenue - cogs - expenses;
-
-//       return {
-//         d: day.d,
-//         revenue,
-//         cogs,
-//         net,
-//       };
-//     });
-//   }
-
-//   /**
-//    * Calculate growth percentage
-//    */
-//   _calcGrowth(current, previous) {
-//     if (previous === 0) return current > 0 ? 100 : 0;
-//     return ((current - previous) / previous) * 100;
-//   }
-
-//   /**
-//    * Calculate days between two dates
-//    */
-//   _daysBetween(from, to) {
-//     const d1 = new Date(from);
-//     const d2 = new Date(to);
-//     return Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
-//   }
-
-//   /**
-//    * Subtract days from date
-//    */
-//   _subtractDays(dateStr, days) {
-//     const d = new Date(dateStr);
-//     d.setDate(d.getDate() - days);
-//     return d.toISOString().split('T')[0];
-//   }
-// }
-
-// export default new StoreProfitReportService();

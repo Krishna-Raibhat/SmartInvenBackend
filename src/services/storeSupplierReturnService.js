@@ -42,8 +42,11 @@ class StoreSupplierReturnService {
     return prisma.$transaction(async (tx) => {
       let totalRefund = new Prisma.Decimal(0);
       const returnItems = [];
+      
+      // Track quantities by lot_id to handle duplicate lot entries
+      const lotQuantityMap = new Map();
 
-      // Validate and prepare all items first
+      // First pass: aggregate quantities for duplicate lots
       for (const item of items) {
         const lot_id = String(item.lot_id || "").trim();
         const qty = Number(item.qty);
@@ -64,26 +67,39 @@ class StoreSupplierReturnService {
           throw e;
         }
 
-        // Fetch lot with owner verification
-        const lot = await tx.storeStockLot.findFirst({
-          where: {
-            lot_id,
-            owner_id,
-          },
-          select: {
-            lot_id: true,
-            supplier_id: true,
-            qty_remaining: true,
-            cp: true,
-            product: {
-              select: {
-                product_id: true,
-                product_name: true,
-                type: true,
-              },
+        // Aggregate quantities for the same lot
+        const currentQty = lotQuantityMap.get(lot_id) || 0;
+        lotQuantityMap.set(lot_id, currentQty + qty);
+      }
+
+      // Fetch all unique lots and validate them
+      const uniqueLotIds = Array.from(lotQuantityMap.keys());
+      const lots = await tx.storeStockLot.findMany({
+        where: {
+          lot_id: { in: uniqueLotIds },
+          owner_id,
+        },
+        select: {
+          lot_id: true,
+          supplier_id: true,
+          qty_remaining: true,
+          cp: true,
+          product: {
+            select: {
+              product_id: true,
+              product_name: true,
+              type: true,
             },
           },
-        });
+        },
+      });
+
+      // Create a map of lots for quick lookup
+      const lotMap = new Map(lots.map((lot) => [lot.lot_id, lot]));
+
+      // Validate each unique lot
+      for (const [lot_id, totalQty] of lotQuantityMap.entries()) {
+        const lot = lotMap.get(lot_id);
 
         if (!lot) {
           const e = new Error(`Stock lot ${lot_id} not found`);
@@ -112,24 +128,32 @@ class StoreSupplierReturnService {
           throw e;
         }
 
-        // Check if sufficient quantity available
-        const qtyRemaining = lot.qty_remaining;
-        if (qtyRemaining < qty) {
+        // Check if lot has any stock at all
+        if (lot.qty_remaining === 0) {
           const e = new Error(
-            `Insufficient stock for lot ${lot_id}. Available: ${qtyRemaining}, Requested: ${qty}`,
+            `Cannot return from sold-out lot ${lot_id}. Product: ${lot.product.product_name}`
+          );
+          e.status = 400;
+          e.code = "LOT_SOLD_OUT";
+          throw e;
+        }
+
+        // CRITICAL: Check if total requested quantity exceeds available stock
+        if (totalQty > lot.qty_remaining) {
+          const e = new Error(
+            `Insufficient stock for lot ${lot_id} (${lot.product.product_name}). Available: ${lot.qty_remaining}, Requested: ${totalQty}. Please reduce the return quantity.`
           );
           e.status = 400;
           e.code = "INSUFFICIENT_STOCK";
           throw e;
         }
+      }
 
-        // Check if lot has any stock at all
-        if (qtyRemaining === 0) {
-          const e = new Error(`Cannot return from sold-out lot ${lot_id}`);
-          e.status = 400;
-          e.code = "LOT_SOLD_OUT";
-          throw e;
-        }
+      // Second pass: prepare return items
+      for (const item of items) {
+        const lot_id = String(item.lot_id || "").trim();
+        const qty = Number(item.qty);
+        const lot = lotMap.get(lot_id);
 
         // Calculate refund amount: qty × cp
         const refundAmount = new Prisma.Decimal(qty).mul(lot.cp);
