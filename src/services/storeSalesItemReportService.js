@@ -102,10 +102,20 @@ class StoreSalesItemReportService {
               0
             )::int AS total_units,
 
-            COALESCE(
-              SUM(COALESCE(ss.discount, 0)),
-              0
-            )::numeric AS total_discounts
+            (
+              SELECT COALESCE(SUM(discount), 0)::numeric
+              FROM (
+                SELECT DISTINCT ss2.sales_id, ss2.discount
+                FROM store_sales ss2
+                JOIN store_sales_items ssi2 ON ssi2.sales_id = ss2.sales_id
+                JOIN store_products p2 ON p2.product_id = ssi2.product_id
+                WHERE ss2.owner_id = ${owner_id}
+                  AND p2.owner_id = ${owner_id}
+                  AND p2.type = 'item'
+                  AND ss2.created_at >= ${startDate}
+                  AND ss2.created_at < ${endDate}
+              ) distinct_sales
+            ) AS total_discounts
 
           FROM store_sales_items ssi
 
@@ -199,20 +209,53 @@ class StoreSalesItemReportService {
               'Uncategorized'
             ) AS category_name,
 
-            COALESCE(
-              SUM(COALESCE(ssi.sp, 0) * COALESCE(ssi.qty, 0)),
-              0
-            )::numeric AS total_sales,
+            (
+              COALESCE(SUM(COALESCE(ssi.sp, 0) * COALESCE(ssi.qty, 0)), 0)::numeric -
+              COALESCE(
+                (
+                  SELECT SUM(COALESCE(scri.amount, 0))
+                  FROM store_customer_return_items scri
+                  JOIN store_customer_returns scr ON scr.return_id = scri.return_id
+                  JOIN store_sales_items ssi2 ON ssi2.sales_item_id = scri.sales_item_id
+                  WHERE ssi2.product_id = p.product_id
+                  AND scr.created_at >= ${startDate}
+                  AND scr.created_at < ${endDate}
+                ),
+                0
+              )::numeric
+            ) AS total_sales,
 
-            COALESCE(
-              SUM(COALESCE(ssi.qty, 0)),
-              0
-            )::int AS total_units,
+            (
+              COALESCE(SUM(COALESCE(ssi.qty, 0)), 0)::int -
+              COALESCE(
+                (
+                  SELECT SUM(COALESCE(scri.qty, 0))::int
+                  FROM store_customer_return_items scri
+                  JOIN store_customer_returns scr ON scr.return_id = scri.return_id
+                  JOIN store_sales_items ssi2 ON ssi2.sales_item_id = scri.sales_item_id
+                  WHERE ssi2.product_id = p.product_id
+                  AND scr.created_at >= ${startDate}
+                  AND scr.created_at < ${endDate}
+                ),
+                0
+              )::int
+            ) AS total_units,
 
-            COALESCE(
-              SUM(COALESCE(ssi.cp, 0) * COALESCE(ssi.qty, 0)),
-              0
-            )::numeric AS total_cogs
+            (
+              COALESCE(SUM(COALESCE(ssi.cp, 0) * COALESCE(ssi.qty, 0)), 0)::numeric -
+              COALESCE(
+                (
+                  SELECT SUM(COALESCE(ssi2.cp, 0) * COALESCE(scri.qty, 0))
+                  FROM store_customer_return_items scri
+                  JOIN store_customer_returns scr ON scr.return_id = scri.return_id
+                  JOIN store_sales_items ssi2 ON ssi2.sales_item_id = scri.sales_item_id
+                  WHERE ssi2.product_id = p.product_id
+                  AND scr.created_at >= ${startDate}
+                  AND scr.created_at < ${endDate}
+                ),
+                0
+              )::numeric
+            ) AS total_cogs
 
           FROM store_sales_items ssi
 
@@ -467,22 +510,6 @@ class StoreSalesItemReportService {
     const totalItemUnits = Number(summaryRow.total_units ?? 0);
     const totalDiscounts = Number(summaryRow.total_discounts ?? 0);
 
-    // Actual revenue after discount
-    const actualRevenue = totalItemSales - totalDiscounts;
-    
-    // Gross profit should be calculated from actual revenue, not original sales
-    const grossItemProfit = actualRevenue - totalItemCogs;
-
-    const marginPercent =
-      actualRevenue > 0
-        ? Number(
-            (
-              (grossItemProfit / actualRevenue) *
-              100
-            ).toFixed(1),
-          )
-        : 0;
-
     const returnedUnits = Number(
       returnRow.returned_units ?? 0,
     );
@@ -494,6 +521,25 @@ class StoreSalesItemReportService {
     const returnedCogs = Number(
       returnRow.returned_cogs ?? 0,
     );
+
+    // Actual revenue after discount and customer refunds (matching home screen)
+    const actualRevenue = totalItemSales - totalDiscounts - refundAmount;
+    
+    // Net COGS after subtracting returned items cost
+    const netCogs = totalItemCogs - returnedCogs;
+
+    // Gross profit calculated from actual net revenue and net COGS
+    const grossItemProfit = actualRevenue - netCogs;
+
+    const marginPercent =
+      actualRevenue > 0
+        ? Number(
+            (
+              (grossItemProfit / actualRevenue) *
+              100
+            ).toFixed(1),
+          )
+        : 0;
 
     const categories = categoryRows.map((category) => {
       const categorySales = Number(

@@ -144,7 +144,7 @@ class StoreCustomerReturnService {
     const dueAmount = Decimal.max(new Decimal(0), netTotal.sub(paidRaw));
 
     const paymentStatus =
-      paidRaw.gte(netTotal) && netTotal.gt(0) ? "paid" : paidRaw.gt(0) ? "partial" : "pending";
+      netTotal.lte(paidRaw) ? "paid" : paidRaw.gt(0) ? "partial" : "pending";
 
     // ── Transaction Batch ───────────────────────
     const return_id = uuidv4();

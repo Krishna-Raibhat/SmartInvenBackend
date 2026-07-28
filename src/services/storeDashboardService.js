@@ -656,9 +656,9 @@ class StoreDashboardService {
       const rows = await prisma.$queryRaw`
         (
           SELECT
-            'PRODUCT_CREATED' AS type,
-            p.created_at,
-            'Product added' AS title,
+            'PRODUCT' AS type,
+            COALESCE(p.updated_at, p.created_at) AS created_at,
+            CASE WHEN p.updated_at > p.created_at THEN 'Product updated' ELSE 'Product added' END AS title,
             p.product_name || ' (' || p.type::text || ')' || COALESCE(' • ' || c.category_name, '') AS message,
             p.product_id AS ref_product_id,
             NULL AS ref_lot_id,
@@ -667,15 +667,15 @@ class StoreDashboardService {
           FROM store_products p
           LEFT JOIN store_categories c ON c.category_id = p.category_id
           WHERE p.owner_id = ${owner_id}
-          ORDER BY p.created_at DESC
+          ORDER BY created_at DESC
           LIMIT ${per}
         )
         UNION ALL
         (
           SELECT
             'STOCK_IN' AS type,
-            l.created_at,
-            'Stock in' AS title,
+            COALESCE(l.updated_at, l.created_at) AS created_at,
+            CASE WHEN l.updated_at > l.created_at THEN 'Stock lot updated' ELSE 'Stock in' END AS title,
             COALESCE(p.product_name, 'Product') || ' • +' || l.qty_in || ' ' || COALESCE(u.unit_name, 'units') || COALESCE(' • ' || s.supplier_name, '') AS message,
             p.product_id AS ref_product_id,
             l.lot_id AS ref_lot_id,
@@ -686,7 +686,7 @@ class StoreDashboardService {
           LEFT JOIN store_units u ON u.unit_id = p.unit_id
           LEFT JOIN store_suppliers s ON s.supplier_id = l.supplier_id
           WHERE l.owner_id = ${owner_id}
-          ORDER BY l.created_at DESC
+          ORDER BY created_at DESC
           LIMIT ${per}
         )
         UNION ALL
@@ -722,6 +722,106 @@ class StoreDashboardService {
           LEFT JOIN customers c ON c.customer_id = ss.customer_id
           WHERE r.owner_id = ${owner_id}
           ORDER BY r.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'SUPPLIER_RETURN' AS type,
+            r.created_at,
+            'Supplier return' AS title,
+            COALESCE(s.supplier_name, 'Supplier') || ' • Refund Rs.' || COALESCE(r.total_refund, 0)::numeric AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            NULL AS ref_sales_id,
+            r.return_id AS ref_return_id
+          FROM store_supplier_returns r
+          LEFT JOIN store_suppliers s ON s.supplier_id = r.supplier_id
+          WHERE r.owner_id = ${owner_id}
+          ORDER BY r.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'CREDIT_PAYMENT' AS type,
+            s.updated_at AS created_at,
+            'Credit payment' AS title,
+            COALESCE(c.full_name, 'Walk-in') || ' • Paid Rs.' || s.paid_amount::numeric || ' • Due: Rs.' || s.due_amount::numeric AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            s.sales_id AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_sales s
+          LEFT JOIN customers c ON c.customer_id = s.customer_id
+          WHERE s.owner_id = ${owner_id} AND s.updated_at > s.created_at
+          ORDER BY s.updated_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'SUPPLIER_PAYMENT' AS type,
+            t.created_at,
+            'Supplier payment' AS title,
+            COALESCE(s.supplier_name, 'Supplier') || ' • Paid Rs.' || t.amount::numeric || COALESCE(' • ' || t.note, '') AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            NULL AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_supplier_payment_transactions t
+          LEFT JOIN store_suppliers s ON s.supplier_id = t.supplier_id
+          WHERE t.owner_id = ${owner_id}
+          ORDER BY t.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'EXPENSE' AS type,
+            COALESCE(e.updated_at, e.created_at) AS created_at,
+            CASE WHEN e.updated_at > e.created_at THEN 'Expense updated' ELSE 'Expense added' END AS title,
+            COALESCE(t.title, 'Expense') || ' • Rs.' || e.amount::numeric || COALESCE(' • ' || e.note, '') AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            NULL AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_expenses e
+          LEFT JOIN store_expense_titles t ON t.title_id = e.title_id
+          WHERE e.owner_id = ${owner_id}
+          ORDER BY e.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'UNIT' AS type,
+            COALESCE(u.updated_at, u.created_at) AS created_at,
+            CASE WHEN u.updated_at > u.created_at THEN 'Unit updated' ELSE 'Unit added' END AS title,
+            u.unit_name AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            NULL AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_units u
+          WHERE u.owner_id = ${owner_id}
+          ORDER BY u.created_at DESC
+          LIMIT ${per}
+        )
+        UNION ALL
+        (
+          SELECT
+            'SUPPLIER' AS type,
+            COALESCE(s.updated_at, s.created_at) AS created_at,
+            CASE WHEN s.updated_at > s.created_at THEN 'Supplier updated' ELSE 'Supplier added' END AS title,
+            s.supplier_name || ' • ' || s.phone AS message,
+            NULL AS ref_product_id,
+            NULL AS ref_lot_id,
+            NULL AS ref_sales_id,
+            NULL AS ref_return_id
+          FROM store_suppliers s
+          WHERE s.owner_id = ${owner_id}
+          ORDER BY s.created_at DESC
           LIMIT ${per}
         )
         ORDER BY created_at DESC
