@@ -143,10 +143,10 @@ class StoreSaleDaybookService {
     const total_credit = todayFinancials.net_revenue;
     const total_debit = todayFinancials.total_refund + todayFinancials.total_expenses;
 
-    const opening_balance =
-      historyFinancials.net_revenue -
-      historyFinancials.total_refund -
-      historyFinancials.total_expenses;
+    // Opening balance = Net revenue minus refunds and expenses from all previous days
+    // Using the same formula as profit report: (net_revenue - refunds) - expenses
+    const opening_balance = 
+      (historyFinancials.net_revenue - historyFinancials.total_refund) - historyFinancials.total_expenses;
     const closing_balance = opening_balance + total_credit - total_debit;
 
     // Running balance per entry, computed against this day's opening balance

@@ -95,6 +95,12 @@ const validatePhone = (phone) => {
   return null;
 };
 
+const validatePan = (pan) => {
+  if (typeof pan !== "string") return "PAN number must be a string.";
+  if (!/^\d{9}$/.test(pan)) return "PAN number must be exactly 9 digits.";
+  return null;
+};
+
 const packageNameMap = {
   hardware: "Hardware Store",
   clothing: "Clothing Store",
@@ -114,12 +120,14 @@ export async function register(req, res) {
       status,
       business_category,
       business_name,
+      pan_number,
     } = req.body;
 
     email = normalizeEmail(email);
     package_key = String(package_key || "")
       .trim()
       .toLowerCase();
+    pan_number = pan_number !== undefined && pan_number !== null ? String(pan_number).trim() : "";  
 
     if (
       !full_name ||
@@ -168,6 +176,11 @@ export async function register(req, res) {
     if (phoneError)
       return sendError(res, 400, "VALIDATION_PHONE_INVALID", phoneError);
 
+    const panError = pan_number ? validatePan(pan_number) : null;
+    if (panError)
+      return sendError(res, 400, "VALIDATION_PAN_INVALID", panError);
+
+
     if (password !== confirm_password) {
       return sendError(
         res,
@@ -204,6 +217,16 @@ export async function register(req, res) {
         409,
         "PHONE_ALREADY_EXISTS",
         "Phone number is already registered.",
+      );
+    const panExists = pan_number
+      ? await prisma.owner.findUnique({ where: { pan_number } })
+      : null;
+    if (panExists)
+      return sendError(
+        res,
+        409,
+        "PAN_ALREADY_EXISTS",
+        "PAN number is already registered.",
       );
 
     const hashedPassword = await hash(password, 10);
@@ -242,6 +265,7 @@ export async function register(req, res) {
         package_key,
         business_category: finalBusinessCategory,
         business_name,
+        pan_number: pan_number || null,
       },
     });
 
@@ -271,11 +295,11 @@ export async function register(req, res) {
 
 export async function checkRegistrationAvailability(req, res) {
   try {
-    let { email, phone } = req.body;
+    let { email, phone, pan_number } = req.body;
 
     email = normalizeEmail(email);
     phone = String(phone ?? "").trim();
-
+    pan_number = pan_number !== undefined ? String(pan_number).trim() : "";
     if (!email || !phone) {
       return sendError(
         res,
@@ -285,7 +309,7 @@ export async function checkRegistrationAvailability(req, res) {
       );
     }
 
-    const [existingEmail, existingPhone] = await Promise.all([
+    const [existingEmail, existingPhone,existingPan] = await Promise.all([
       prisma.owner.findUnique({
         where: { email },
         select: { owner_id: true },
@@ -295,15 +319,24 @@ export async function checkRegistrationAvailability(req, res) {
         where: { phone },
         select: { owner_id: true },
       }),
+      pan_number
+        ? prisma.owner.findUnique({
+            where: { pan_number },
+            select: { owner_id: true },
+          })
+        : Promise.resolve(null),
     ]);
+      
 
     const emailExists = Boolean(existingEmail);
     const phoneExists = Boolean(existingPhone);
+    const panExists = Boolean(existingPan);
 
     return sendSuccess(res, 200, {
-      available: !emailExists && !phoneExists,
+      available: !emailExists && !phoneExists && !(pan_number && panExists),
       email_exists: emailExists,
       phone_exists: phoneExists,
+      ...(pan_number ? { pan_exists: panExists } : {}),
     });
   } catch (err) {
     console.error("CHECK_REGISTRATION_AVAILABILITY_ERROR:", err);
@@ -822,6 +855,7 @@ export async function me(req, res) {
         package_id: true,
         business_category: true,
         business_name: true,
+        pan_number: true,
         subscription_expires_at: true,
         two_factor_enabled: true,
 
@@ -868,6 +902,7 @@ export async function me(req, res) {
         package_name: owner.package?.package_name ?? null,
         business_category: owner.business_category,
         business_name: owner.business_name,
+        pan_number: owner.pan_number,
         subscription_expires_at: owner.subscription_expires_at,
         two_factor_enabled: owner.two_factor_enabled,
 
@@ -894,12 +929,15 @@ export async function updateMe(req, res) {
     if (!ownerId)
       return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
 
-    const { full_name, phone, email ,business_name} = req.body;
+    const { full_name, phone, email ,business_name,pan_number} = req.body;
     const normalizedEmail = email ? normalizeEmail(email) : null;
     const trimmedBusinessName =
     business_name !== undefined ? String(business_name).trim() : undefined;
+    const trimmedPanNumber =
+      pan_number !== undefined ? String(pan_number).trim() : undefined;
 
-    if (!full_name && !phone && !email && !trimmedBusinessName) {
+
+    if (!full_name && !phone && !email && !trimmedBusinessName && !trimmedPanNumber) {
       return sendError(
         res,
         400,
@@ -915,11 +953,26 @@ export async function updateMe(req, res) {
         "Business name cannot be empty.",
       );
     }
+    if (trimmedPanNumber === "") {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_PAN_EMPTY",
+        "PAN number cannot be empty.",
+      );
+    }
     // Validate email format if provided
     if (normalizedEmail) {
       const emailError = validateEmail(normalizedEmail);
       if (emailError) {
         return sendError(res, 400, "VALIDATION_EMAIL_INVALID", emailError);
+      }
+    }
+    // Validate PAN format if provided
+    if (trimmedPanNumber) {
+      const panError = validatePan(trimmedPanNumber);
+      if (panError) {
+        return sendError(res, 400, "VALIDATION_PAN_INVALID", panError);
       }
     }
 
@@ -968,6 +1021,22 @@ export async function updateMe(req, res) {
         );
       }
     }
+     // PAN unique check (if changed)
+    if (trimmedPanNumber && trimmedPanNumber !== existingOwner.pan_number) {
+      const panExists = await prisma.owner.findFirst({
+        where: { pan_number: trimmedPanNumber, NOT: { owner_id: ownerId } },
+        select: { owner_id: true },
+      });
+
+      if (panExists) {
+        return sendError(
+          res,
+          409,
+          "PAN_ALREADY_IN_USE",
+          "PAN number already in use.",
+        );
+      }
+    }
 
     const updatedOwner = await prisma.owner.update({
       where: { owner_id: ownerId },
@@ -976,6 +1045,7 @@ export async function updateMe(req, res) {
         ...(normalizedEmail ? { email: normalizedEmail } : {}),
         ...(phone ? { phone } : {}),
         ...(trimmedBusinessName ? { business_name: trimmedBusinessName } : {}),
+        ...(trimmedPanNumber ? { pan_number: trimmedPanNumber } : {}),
       },
       select: {
         owner_id: true,
@@ -984,6 +1054,7 @@ export async function updateMe(req, res) {
         phone: true,
         package_id: true,
         business_name: true,
+        pan_number: true,
         two_factor_enabled: true,
       },
     });
@@ -1003,7 +1074,7 @@ export async function updateMe(req, res) {
         res,
         409,
         "DUPLICATE_VALUE",
-        "Email or phone already exists.",
+        "Email,Phone or PAN number already exists.",
       );
     }
 
@@ -1657,6 +1728,7 @@ export async function verifyRegistrationOtp(req, res) {
         package_id: pkg.package_id,
         business_category: record.business_category,
         business_name: record.business_name,
+        pan_number: record.pan_number,
         status: "trial", // default status
       },
       select: {
@@ -1667,6 +1739,7 @@ export async function verifyRegistrationOtp(req, res) {
         package_id: true,
         business_category: true,
         business_name: true,
+        pan_number: true,
         status: true,
         package: { select: { package_key: true, package_name: true } },
       },
@@ -2330,7 +2403,7 @@ const client = new OAuth2Client(
 
 export async function googleLogin(req, res) {
   try {
-    const { idToken, fcm_token, package_key, phone, business_name, business_category } = req.body;
+    const { idToken, fcm_token, package_key, phone, business_name, business_category, pan_number } = req.body;
 
     if (!idToken) {
       return sendError(
@@ -2660,6 +2733,13 @@ export async function googleLogin(req, res) {
         phoneError,
       );
     }
+// Validate PAN number format, only if provided (optional field)
+    const cleanedPanNumber =
+      pan_number !== undefined && pan_number !== null ? String(pan_number).trim() : "";
+    const panError = cleanedPanNumber ? validatePan(cleanedPanNumber) : null;
+    if (panError) {
+      return sendError(res, 400, "VALIDATION_PAN_INVALID", panError);
+    }
 
     // Check if phone number already exists
     const existingPhoneOwner = await prisma.owner.findUnique({
@@ -2671,6 +2751,19 @@ export async function googleLogin(req, res) {
         409,
         "PHONE_ALREADY_EXISTS",
         "Phone number is already registered.",
+      );
+    }
+
+    // Check if PAN number already exists, only if provided
+    const existingPanOwner = cleanedPanNumber
+      ? await prisma.owner.findUnique({ where: { pan_number: cleanedPanNumber } })
+      : null;
+    if (existingPanOwner) {
+      return sendError(
+        res,
+        409,
+        "PAN_ALREADY_EXISTS",
+        "PAN number is already registered.",
       );
     }
 
@@ -2708,6 +2801,7 @@ export async function googleLogin(req, res) {
         package_id: pkg.package_id,
         business_category: finalBusinessCategory,
         business_name: String(business_name).trim(),
+        pan_number: cleanedPanNumber || null,
         status: "trial",
         fcm_token: fcm_token || null,
       },
@@ -2719,6 +2813,7 @@ export async function googleLogin(req, res) {
         package_id: true,
         business_category: true,
         business_name: true,
+        pan_number: true,
         status: true,
         two_factor_enabled: true,
         package: { select: { package_key: true, package_name: true } },
@@ -2758,6 +2853,7 @@ export async function googleLogin(req, res) {
         package_id: newOwner.package_id,
         business_category: newOwner.business_category,
         business_name: newOwner.business_name,
+        pan_number: newOwner.pan_number,
         status: newOwner.status,
         package_key: newOwner.package?.package_key ?? null,
         package_name: newOwner.package?.package_name ?? null,

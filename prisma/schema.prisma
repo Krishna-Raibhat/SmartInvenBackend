@@ -33,6 +33,7 @@ model Owner {
   status                     OwnerStatus                   @default(trial)
   google_id                  String?                       @unique
   auth_provider              String                        @default("local")
+  pan_number                 String?                       @unique
   subscription_expires_at    DateTime?
   subscription_reminder_sent Boolean                       @default(false)
   two_factor_enabled         Boolean                       @default(false)
