@@ -386,6 +386,7 @@ export async function login(req, res) {
         status: true,
         created_at: true,
         subscription_expires_at: true,
+        trial_expires_at: true,
         two_factor_enabled: true,
         business_category: true,
         business_name: true,
@@ -568,17 +569,40 @@ export async function login(req, res) {
         );
       }
 
-      // No pending payment - check if trial has expired
-      const trialExpiry = new Date(
-        new Date(owner.created_at).getTime() + 7 * 24 * 60 * 60 * 1000,
-      );
-
-      if (new Date() > trialExpiry) {
+      // No pending payment - check if trial has expired (read directly from DB)
+      if (owner.trial_expires_at && new Date() > new Date(owner.trial_expires_at)) {
         return sendError(
           res,
           403,
           "TRIAL_EXPIRED",
-          "Your 7-day trial has expired. Please subscribe to continue.",
+          "Your 30-day trial has expired. Please subscribe to continue.",
+          {
+            owner: {
+              owner_id: owner.owner_id,
+              full_name: owner.full_name,
+              email: owner.email,
+              phone: owner.phone,
+              package_id: owner.package_id,
+              status: owner.status,
+              package_key: owner.package?.package_key ?? null,
+              package_name: owner.package?.package_name ?? null,
+            },
+          },
+        );
+      }
+    }
+
+    // Active subscription expiry check (was previously only checked under "inactive")
+    if (owner.status === "active") {
+      if (
+        owner.subscription_expires_at &&
+        new Date(owner.subscription_expires_at) < new Date()
+      ) {
+        return sendError(
+          res,
+          403,
+          "SUBSCRIPTION_EXPIRED",
+          "Your subscription has expired. Please renew to continue.",
           {
             owner: {
               owner_id: owner.owner_id,
@@ -1730,6 +1754,7 @@ export async function verifyRegistrationOtp(req, res) {
         business_name: record.business_name,
         pan_number: record.pan_number,
         status: "trial", // default status
+        trial_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30-day trial
       },
       select: {
         owner_id: true,
@@ -1741,6 +1766,7 @@ export async function verifyRegistrationOtp(req, res) {
         business_name: true,
         pan_number: true,
         status: true,
+        trial_expires_at: true,
         package: { select: { package_key: true, package_name: true } },
       },
     });
@@ -2459,6 +2485,7 @@ export async function googleLogin(req, res) {
         status: true,
         created_at: true,
         subscription_expires_at: true,
+        trial_expires_at: true,
         two_factor_enabled: true,
         package: { select: { package_key: true, package_name: true } },
       },
@@ -2548,17 +2575,43 @@ export async function googleLogin(req, res) {
           );
         }
 
-        // No pending payment - check if trial has expired
-        const trialExpiry = new Date(
-          new Date(existingGoogleOwner.created_at).getTime() + 7 * 24 * 60 * 60 * 1000,
-        );
-
-        if (new Date() > trialExpiry) {
+        // No pending payment - check if trial has expired (read directly from DB)
+        if (
+          existingGoogleOwner.trial_expires_at &&
+          new Date() > new Date(existingGoogleOwner.trial_expires_at)
+        ) {
           return sendError(
             res,
             403,
             "TRIAL_EXPIRED",
-            "Your 7-day trial has expired. Please subscribe to continue.",
+            "Your 30-day trial has expired. Please subscribe to continue.",
+            {
+              owner: {
+                owner_id: existingGoogleOwner.owner_id,
+                full_name: existingGoogleOwner.full_name,
+                email: existingGoogleOwner.email,
+                phone: existingGoogleOwner.phone,
+                package_id: existingGoogleOwner.package_id,
+                status: existingGoogleOwner.status,
+                package_key: existingGoogleOwner.package?.package_key ?? null,
+                package_name: existingGoogleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+      }
+
+      // Active subscription expiry check (was previously only checked under "inactive")
+      if (existingGoogleOwner.status === "active") {
+        if (
+          existingGoogleOwner.subscription_expires_at &&
+          new Date(existingGoogleOwner.subscription_expires_at) < new Date()
+        ) {
+          return sendError(
+            res,
+            403,
+            "SUBSCRIPTION_EXPIRED",
+            "Your subscription has expired. Please renew to continue.",
             {
               owner: {
                 owner_id: existingGoogleOwner.owner_id,
@@ -2733,7 +2786,8 @@ export async function googleLogin(req, res) {
         phoneError,
       );
     }
-// Validate PAN number format, only if provided (optional field)
+
+    // Validate PAN number format, only if provided (optional field)
     const cleanedPanNumber =
       pan_number !== undefined && pan_number !== null ? String(pan_number).trim() : "";
     const panError = cleanedPanNumber ? validatePan(cleanedPanNumber) : null;
@@ -2803,6 +2857,7 @@ export async function googleLogin(req, res) {
         business_name: String(business_name).trim(),
         pan_number: cleanedPanNumber || null,
         status: "trial",
+        trial_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30-day trial
         fcm_token: fcm_token || null,
       },
       select: {
@@ -2815,6 +2870,7 @@ export async function googleLogin(req, res) {
         business_name: true,
         pan_number: true,
         status: true,
+        trial_expires_at: true,
         two_factor_enabled: true,
         package: { select: { package_key: true, package_name: true } },
       },

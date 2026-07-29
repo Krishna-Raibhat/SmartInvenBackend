@@ -35,6 +35,7 @@ model Owner {
   auth_provider              String                        @default("local")
   pan_number                 String?                       @unique
   subscription_expires_at    DateTime?
+  trial_expires_at           DateTime?
   subscription_reminder_sent Boolean                       @default(false)
   two_factor_enabled         Boolean                       @default(false)
   failed_2fa_attempts        Int                           @default(0)
@@ -128,6 +129,7 @@ model RegistrationOtp {
   password_hash  String?
   package_key    String?
   business_category String?
+  pan_number     String?
 
   @@index([email])
   @@index([expires_at])

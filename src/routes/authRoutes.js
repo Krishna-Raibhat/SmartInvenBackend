@@ -26,6 +26,7 @@ import {
   checkRegistrationAvailability,
 } from "../controllers/authController.js";
 import authMiddleware from "../middlewares/authMiddleware.js";
+import requireSuperAdmin from "../middlewares/requireSuperAdmin.js";
 import {
   otpVerifyLimiter,
   deviceLoginLimiter,
@@ -63,7 +64,7 @@ router.post("/forgot-password/reset", forgotPasswordReset);
 
 router.post("/super-admin/login", superAdminLogin);
 
-router.get("/admin/owners", getAllOwners);
+router.get("/admin/owners", authMiddleware, requireSuperAdmin, getAllOwners);
 
 router.post("/2fa/setup", authMiddleware, setup2FA);
 router.post("/2fa/enable", authMiddleware, enable2FA);

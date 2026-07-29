@@ -27,11 +27,62 @@ export default async (req, res, next) => {
       return res.status(401).json({ success: false, error_code: "INVALID_TOKEN", message: "Invalid token payload." });
     }
 
+    // ✅ Re-check live account state on every request
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: decoded.owner_id },
+      select: {
+        owner_id: true,
+        status: true,
+        trial_expires_at: true,
+        subscription_expires_at: true,
+        package_id: true,
+        package: { select: { package_key: true } },
+      },
+    });
+
+    if (!owner) {
+      return res.status(401).json({ success: false, error_code: "OWNER_NOT_FOUND", message: "Account not found." });
+    }
+
+    // Trial expiry check
+    if (owner.status === "trial") {
+      if (owner.trial_expires_at && new Date() > new Date(owner.trial_expires_at)) {
+        return res.status(403).json({
+          success: false,
+          error_code: "TRIAL_EXPIRED",
+          message: "Your 30-day trial has expired. Please subscribe to continue.",
+        });
+      }
+    }
+
+    // Active subscription expiry check
+    if (owner.status === "active") {
+      if (
+        owner.subscription_expires_at &&
+        new Date(owner.subscription_expires_at) < new Date()
+      ) {
+        return res.status(403).json({
+          success: false,
+          error_code: "SUBSCRIPTION_EXPIRED",
+          message: "Your subscription has expired. Please renew to continue.",
+        });
+      }
+    }
+
+    // Inactive account check
+    if (owner.status === "inactive") {
+      return res.status(403).json({
+        success: false,
+        error_code: "ACCOUNT_INACTIVE",
+        message: "Your account is inactive. Please contact support or renew your subscription.",
+      });
+    }
+
     req.owner = {
-      owner_id: decoded.owner_id,
+      owner_id: owner.owner_id,
       email: decoded.email,
-      package_id: decoded.package_id,
-      package_key: decoded.package_key,
+      package_id: owner.package_id,
+      package_key: owner.package?.package_key ?? decoded.package_key,
     };
     next();
   } catch (err) {
