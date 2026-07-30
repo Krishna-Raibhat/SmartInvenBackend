@@ -1,5 +1,7 @@
 // src/services/storeProfitLossService.js
+// src/services/storeProfitLossService.js
 import { prisma } from "../prisma/client.js";
+import { startOfDayNPT, endOfDayNPT } from "../utils/nptTime.js";
 
 function parseDateOrNull(x) {
   if (!x) return null;
@@ -14,16 +16,37 @@ function normalizeGroup(group) {
 }
 
 function startOfDay(d) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
+  return startOfDayNPT(d);
 }
 
 function endOfDay(d) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
+  return endOfDayNPT(d);
 }
+// import { prisma } from "../prisma/client.js";
+
+// function parseDateOrNull(x) {
+//   if (!x) return null;
+//   const d = new Date(String(x));
+//   if (Number.isNaN(d.getTime())) return null;
+//   return d;
+// }
+
+// function normalizeGroup(group) {
+//   const g = String(group || "day").toLowerCase();
+//   return ["day", "week", "month", "year"].includes(g) ? g : "day";
+// }
+
+// function startOfDay(d) {
+//   const x = new Date(d);
+//   x.setHours(0, 0, 0, 0);
+//   return x;
+// }
+
+// function endOfDay(d) {
+//   const x = new Date(d);
+//   x.setHours(23, 59, 59, 999);
+//   return x;
+// }
 
 class StoreProfitLossService {
   /**

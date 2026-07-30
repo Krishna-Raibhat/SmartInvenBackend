@@ -17,6 +17,16 @@ class StoreNotificationPreferenceService {
     return pref?.is_enabled ?? true;
   }
 
+  // /**
+  //  * Upsert the preference — one row per owner+type, always up-to-date.
+  //  */
+  // async setPreference(owner_id, type, is_enabled) {
+  //   return prisma.storeNotificationPreference.upsert({
+  //     where: { owner_id_type: { owner_id, type } },
+  //     update: { is_enabled },
+  //     create: { owner_id, type, is_enabled },
+  //   });
+  // }
   /**
    * Upsert the preference — one row per owner+type, always up-to-date.
    */
@@ -25,6 +35,28 @@ class StoreNotificationPreferenceService {
       where: { owner_id_type: { owner_id, type } },
       update: { is_enabled },
       create: { owner_id, type, is_enabled },
+    });
+  }
+
+  /**
+   * Get the low-stock threshold for a given type. Defaults to 40 if unset.
+   */
+  async getThreshold(owner_id, type) {
+    const pref = await prisma.storeNotificationPreference.findUnique({
+      where: { owner_id_type: { owner_id, type } },
+      select: { threshold: true },
+    });
+    return pref?.threshold ?? 40;
+  }
+
+  /**
+   * Upsert just the threshold — one row per owner+type, always up-to-date.
+   */
+  async setThreshold(owner_id, type, threshold) {
+    return prisma.storeNotificationPreference.upsert({
+      where: { owner_id_type: { owner_id, type } },
+      update: { threshold },
+      create: { owner_id, type, threshold },
     });
   }
 

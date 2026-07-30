@@ -169,14 +169,6 @@ export const getLowStockItems = async (
   try {
     const owner_id = req.owner.owner_id;
 
-    const threshold = Math.max(
-      1,
-      Number.parseInt(
-        req.query.threshold,
-        10,
-      ) || 40,
-    );
-
     const limit = Math.min(
       100,
       Math.max(
@@ -189,7 +181,6 @@ export const getLowStockItems = async (
     const data =
       await storeDashboardService.getLowStockItems(
         owner_id,
-        threshold,
         limit,
       );
 

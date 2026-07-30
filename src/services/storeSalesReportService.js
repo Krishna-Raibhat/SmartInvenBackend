@@ -1,16 +1,26 @@
+// import { prisma } from "../prisma/client.js";
+
+// class StoreSalesReportService {
+//   async salesByService(owner_id, { from, to } = {}) {
+//     // Build date filter on StoreSales.created_at
+//     const dateFilter = {};
+//     if (from) dateFilter.gte = new Date(from);
+//     if (to) {
+//       const end = new Date(to);
+//       end.setHours(23, 59, 59, 999);
+//       dateFilter.lte = end;
+//     }
 import { prisma } from "../prisma/client.js";
+import { startOfDayNPT, endOfDayNPT } from "../utils/nptTime.js";
 
 class StoreSalesReportService {
   async salesByService(owner_id, { from, to } = {}) {
     // Build date filter on StoreSales.created_at
     const dateFilter = {};
-    if (from) dateFilter.gte = new Date(from);
+    if (from) dateFilter.gte = startOfDayNPT(new Date(from));
     if (to) {
-      const end = new Date(to);
-      end.setHours(23, 59, 59, 999);
-      dateFilter.lte = end;
+      dateFilter.lte = endOfDayNPT(new Date(to));
     }
-
     const salesWhere = {
       owner_id,
       ...(Object.keys(dateFilter).length && { created_at: dateFilter }),

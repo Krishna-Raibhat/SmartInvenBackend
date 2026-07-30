@@ -5,7 +5,7 @@ const storeProductController = {
   async create(req, res) {
     try {
       const owner_id = req.owner.owner_id;
-      const { category_id, unit_id, product_name, type, description, cp, sp } = req.body;
+      const { category_id, unit_id, product_name, type, description, cp, sp, low_stock_threshold } = req.body;
 
       if (!product_name) {
         return res.status(400).json({
@@ -31,6 +31,17 @@ const storeProductController = {
         });
       }
 
+      if (type === "item") {
+        const thresholdValue = Number(low_stock_threshold);
+        if (low_stock_threshold === undefined || low_stock_threshold === null || !Number.isInteger(thresholdValue) || thresholdValue <= 0) {
+          return res.status(400).json({
+            success: false,
+            error_code: "REQUIRED_FIELDS",
+            message: "low_stock_threshold is required and must be a positive integer for items.",
+          });
+        }
+      }
+
       const product = await storeProductService.create({
         owner_id,
         category_id,
@@ -40,6 +51,7 @@ const storeProductController = {
         description,
         cp,
         sp,
+        low_stock_threshold,
       });
 
       return res.status(201).json({ success: true, data: product });
@@ -91,7 +103,7 @@ const storeProductController = {
     try {
       const owner_id = req.owner.owner_id;
       const { id } = req.params;
-      const { category_id, unit_id, product_name, type, description, cp, sp } = req.body;
+      const { category_id, unit_id, product_name, type, description, cp, sp, low_stock_threshold } = req.body;
 
       if (type && !["item", "service"].includes(type)) {
         return res.status(400).json({
@@ -99,6 +111,17 @@ const storeProductController = {
           error_code: "INVALID_TYPE",
           message: "type must be either 'item' or 'service'.",
         });
+      }
+
+      if (low_stock_threshold !== undefined) {
+        const thresholdValue = Number(low_stock_threshold);
+        if (!Number.isInteger(thresholdValue) || thresholdValue <= 0) {
+          return res.status(400).json({
+            success: false,
+            error_code: "INVALID_VALUE",
+            message: "low_stock_threshold must be a positive integer.",
+          });
+        }
       }
 
       const product = await storeProductService.update(owner_id, id, {
@@ -109,6 +132,7 @@ const storeProductController = {
         description,
         cp,
         sp,
+        low_stock_threshold,
       });
 
       return res.status(200).json({ success: true, data: product });

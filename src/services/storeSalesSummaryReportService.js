@@ -295,6 +295,7 @@
 
 // src/services/storeSalesSummaryReportService.js
 import storeFinancialsService from "./storeFinancialsService.js";
+import { parseNPTDateStart, parseNPTDateEnd, startOfDayNPT, endOfDayNPT } from "../utils/nptTime.js";
 
 const RECENT_SALES_LIMIT = 8;
 const TOP_PRODUCTS_LIMIT = 5;
@@ -328,11 +329,11 @@ class StoreSalesSummaryReportService {
 
     const now = new Date();
 
-    const endFinal = end ? new Date(`${end}T23:59:59.999`) : now;
+    const endFinal = end ? parseNPTDateEnd(end) : endOfDayNPT(now);
 
     const startFinal = start
-      ? new Date(`${start}T00:00:00.000`)
-      : new Date(endFinal.getTime() - 6 * 24 * 60 * 60 * 1000);
+      ? parseNPTDateStart(start)
+      : startOfDayNPT(new Date(endFinal.getTime() - 6 * 24 * 60 * 60 * 1000));
 
     if (
       Number.isNaN(startFinal.getTime()) ||
@@ -340,9 +341,23 @@ class StoreSalesSummaryReportService {
     ) {
       throw new Error("Invalid report date range.");
     }
+    // const now = new Date();
 
-    startFinal.setHours(0, 0, 0, 0);
-    endFinal.setHours(23, 59, 59, 999);
+    // const endFinal = end ? new Date(`${end}T23:59:59.999`) : now;
+
+    // const startFinal = start
+    //   ? new Date(`${start}T00:00:00.000`)
+    //   : new Date(endFinal.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+    // if (
+    //   Number.isNaN(startFinal.getTime()) ||
+    //   Number.isNaN(endFinal.getTime())
+    // ) {
+    //   throw new Error("Invalid report date range.");
+    // }
+
+    // startFinal.setHours(0, 0, 0, 0);
+    // endFinal.setHours(23, 59, 59, 999);
 
     if (startFinal > endFinal) {
       throw new Error("Report start date cannot be after end date.");
@@ -598,6 +613,10 @@ class StoreSalesSummaryReportService {
         cash_revenue: roundMoney(payment.cashRevenue),
 
         online_revenue: roundMoney(payment.onlineRevenue),
+
+        cheque_revenue: roundMoney(payment.chequeRevenue),
+
+        credit_revenue: roundMoney(payment.creditRevenue),
       });
     }
 

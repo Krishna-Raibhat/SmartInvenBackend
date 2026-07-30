@@ -14,6 +14,8 @@ router.get("/type", auth, ctrl.getPreferenceByType);
 // Update preference for a specific notification type
 router.put("/", auth, ctrl.updatePreference);
 
+
+
 // Update multiple preferences at once
 router.put("/batch", auth, ctrl.updateMultiplePreferences);
 

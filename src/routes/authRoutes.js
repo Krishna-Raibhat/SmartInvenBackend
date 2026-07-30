@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import {
   register,
   login,
@@ -34,8 +35,19 @@ import {
 
 const router = Router();
 
+const uploadLogo = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed"));
+    }
+    cb(null, true);
+  },
+});
+
 // Registration with OTP (Step 1: Submit form, Step 2: Verify OTP & Create account)
-router.post("/register", register);
+router.post("/register", uploadLogo.single("business_logo"), register);
 router.post("/register/send-otp", sendRegistrationOtp);
 router.post("/register/verify-otp", verifyRegistrationOtp);
 router.post(
@@ -54,7 +66,12 @@ router.get("/device-verification/deny", denyDevice);
 router.get("/device-verification/status", getDeviceVerificationStatus);
 
 router.get("/me", authMiddleware, me);
-router.put("/me", authMiddleware, updateMe);
+router.put(
+  "/me",
+  authMiddleware,
+  uploadLogo.single("business_logo"),
+  updateMe,
+);
 
 router.put("/change-password", authMiddleware, changePassword);
 

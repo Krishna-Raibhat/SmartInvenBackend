@@ -19,9 +19,9 @@ class StoreSalesService {
       payment_method,
     } = payload;
 
-    const validMethods = ["cash", "online"];
+    const validMethods = ["cash", "online", "cheque", "credit"];
     if (payment_method && !validMethods.includes(payment_method)) {
-      const e = new Error("payment_method must be cash or online");
+      const e = new Error("payment_method must be cash, online, cheque or credit");
       e.status = 400;
       e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
       throw e;
@@ -784,9 +784,9 @@ class StoreSalesService {
 
  
   async addPayment(owner_id, sales_id, add_amount, payment_method) {
-    const validMethods = ["cash", "online"];
+    const validMethods = ["cash", "online", "cheque", "credit"];
     if (payment_method && !validMethods.includes(payment_method)) {
-      const e = new Error("payment_method must be cash or online");
+      const e = new Error("payment_method must be cash, online, cheque or credit");
       e.status = 400;
       e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
       throw e;

@@ -11,6 +11,7 @@ class StoreProductService {
     description,
     cp,
     sp,
+    low_stock_threshold,
   }) {
     product_name = String(product_name).trim();
 
@@ -39,6 +40,7 @@ class StoreProductService {
           description: description?.trim() || null,
           cp: cp ?? null,
           sp: sp ?? null,
+          low_stock_threshold: low_stock_threshold ?? 40,
           status: true,
         },
         include: { category: true, unit: true },
@@ -56,6 +58,7 @@ class StoreProductService {
           description: description?.trim() || null,
           cp: cp ?? null,
           sp: sp ?? null,
+          low_stock_threshold: low_stock_threshold ?? 40,
         },
         include: {
           category: true,
@@ -268,7 +271,7 @@ class StoreProductService {
   async update(
     owner_id,
     product_id,
-    { category_id, unit_id, product_name, type, description, cp, sp },
+    { category_id, unit_id, product_name, type, description, cp, sp, low_stock_threshold },
   ) {
     const existing = await prisma.storeProduct.findFirst({
       where: { owner_id, product_id },
@@ -306,6 +309,7 @@ class StoreProductService {
     if (unit_id !== undefined) data.unit_id = unit_id || null;
     if (cp !== undefined) data.cp = cp ?? null;
     if (sp !== undefined) data.sp = sp ?? null;
+    if (low_stock_threshold !== undefined) data.low_stock_threshold = low_stock_threshold;
 
     try {
       return await prisma.storeProduct.update({

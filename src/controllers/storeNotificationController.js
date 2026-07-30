@@ -121,3 +121,51 @@ export const updatePreference = async (req, res) => {
     fail(res, 500, "SERVER_ERROR", e.message);
   }
 };
+
+// Threshold handlers
+export const getThreshold = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const type = req.query.type || "low_stock";
+
+    const validTypes = ["low_stock"];
+    if (!validTypes.includes(type)) {
+      return fail(res, 400, "INVALID_TYPE", `type must be one of: ${validTypes.join(", ")}`);
+    }
+
+    const threshold = await storeNotificationPreferenceService.getThreshold(owner_id, type);
+    res.json({ success: true, data: { type, threshold } });
+  } catch (e) {
+    fail(res, 500, "SERVER_ERROR", e.message);
+  }
+};
+
+export const updateThreshold = async (req, res) => {
+  try {
+    const owner_id = req.owner.owner_id;
+    const { type = "low_stock", threshold } = req.body;
+
+    const validTypes = ["low_stock"];
+    if (!validTypes.includes(type)) {
+      return fail(res, 400, "INVALID_TYPE", `type must be one of: ${validTypes.join(", ")}`);
+    }
+
+    const value = Number(threshold);
+    if (!Number.isInteger(value) || value <= 0) {
+      return fail(res, 400, "INVALID_VALUE", "threshold must be a positive integer");
+    }
+
+    const result = await storeNotificationPreferenceService.setThreshold(owner_id, type, value);
+
+    if (type === "low_stock") {
+      await prisma.storeProduct.updateMany({
+        where: { owner_id, type: "item", last_low_stock_notified_at: { not: null } },
+        data: { last_low_stock_notified_at: null },
+      });
+    }
+
+    res.json({ success: true, data: { type: result.type, threshold: result.threshold } });
+  } catch (e) {
+    fail(res, 500, "SERVER_ERROR", e.message);
+  }
+};

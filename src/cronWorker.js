@@ -2,6 +2,7 @@ import "dotenv/config";
 import "./cron/lowStockCronAll.js";
 import "./cron/subscriptionReminderCron.js";
 import "./cron/subscriptionExpiryCron.js";
+import "./cron/trialReminderCron.js";
 import "./cron/groceryExpiryCron.js";
 import "./cron/storeCustomerReminderCron.js";
 

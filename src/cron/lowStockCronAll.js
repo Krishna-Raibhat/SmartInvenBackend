@@ -219,7 +219,7 @@ cron.schedule(
           _sum: { qty_remaining: true },
         });
 
-        if (storeSums.length) {
+       if (storeSums.length) {
           const stMap = new Map(
             storeSums.map(x => [x.product_id, Number(x._sum.qty_remaining || 0)])
           );
@@ -233,6 +233,7 @@ cron.schedule(
             select: {
               product_id: true,
               product_name: true,
+              low_stock_threshold: true,
               last_low_stock_notified_at: true,
               unit: { select: { unit_name: true } },
             },
@@ -240,8 +241,9 @@ cron.schedule(
 
           for (const p of stProducts) {
             const remaining = stMap.get(p.product_id) ?? 0;
+            const storeThreshold = p.low_stock_threshold ?? LOW_STOCK_THRESHOLD;
 
-            if (remaining >= LOW_STOCK_THRESHOLD && p.last_low_stock_notified_at) {
+            if (remaining >= storeThreshold && p.last_low_stock_notified_at) {
               await prisma.storeProduct.update({
                 where: { product_id: p.product_id },
                 data: { last_low_stock_notified_at: null },
@@ -249,7 +251,7 @@ cron.schedule(
               continue;
             }
 
-            if (remaining >= LOW_STOCK_THRESHOLD) continue;
+            if (remaining >= storeThreshold) continue;
 
             const last = p.last_low_stock_notified_at;
             const hours =

@@ -1,6 +1,8 @@
 // src/services/storeSaleDaybookService.js
 import { prisma } from "../prisma/client.js";
 import storeFinancialsService from "./storeFinancialsService.js";
+import { parseNPTDateStart, parseNPTDateEnd, todayStartUTC, NPT_OFFSET_MS } from "../utils/nptTime.js";
+
 
 const num = (v) => (v === null || v === undefined ? 0 : Number(v));
 
@@ -172,25 +174,26 @@ class StoreSaleDaybookService {
    * start/end-of-day range in server local time.
    */
   _resolveDayRange(dateStr) {
-    let base;
+    let start, end, label;
+
     if (dateStr) {
-      const parsed = new Date(`${dateStr}T00:00:00`);
-      if (isNaN(parsed.getTime())) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
         const e = new Error("Invalid date format. Use YYYY-MM-DD.");
         e.status = 400;
         e.code = "VALIDATION_DATE_INVALID";
         throw e;
       }
-      base = parsed;
+      start = parseNPTDateStart(dateStr);
+      end = parseNPTDateEnd(dateStr);
+      label = dateStr;
     } else {
-      base = new Date();
+      start = todayStartUTC();
+      end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+      const npt = new Date(start.getTime() + NPT_OFFSET_MS);
+      label = `${npt.getUTCFullYear()}-${String(npt.getUTCMonth() + 1).padStart(2, "0")}-${String(
+        npt.getUTCDate()
+      ).padStart(2, "0")}`;
     }
-
-    const start = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
-    const end = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 59, 999);
-    const label = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(
-      start.getDate()
-    ).padStart(2, "0")}`;
 
     return { start, end, label };
   }

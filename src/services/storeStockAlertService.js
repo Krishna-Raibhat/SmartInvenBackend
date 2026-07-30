@@ -2,7 +2,7 @@
 import { prisma } from "../prisma/client.js";
 
 class StoreStockAlertService {
-  async getStockAlerts(owner_id, { lowThreshold = 10, criticalThreshold = 5 }) {
+  async getStockAlerts(owner_id, { criticalThreshold = 5 } = {}) {
     const [lowStockProducts, outOfStockProducts, lowStockLots, outOfStockLots] = await Promise.all([
       // Low stock products (qty_remaining > 0 but <= lowThreshold)
       prisma.$queryRaw`
@@ -14,8 +14,9 @@ class StoreStockAlertService {
           COALESCE(SUM(sl.qty_remaining), 0)::int AS qty_remaining,
           COALESCE(SUM(sl.qty_in), 0)::int AS qty_in,
           COUNT(DISTINCT sl.lot_id)::int AS lots,
+          p.low_stock_threshold::int AS low_stock_threshold,
           -- Weighted average CP and SP
-          CASE 
+          CASE
             WHEN SUM(sl.qty_remaining) > 0 
             THEN (SUM(sl.cp * sl.qty_remaining) / SUM(sl.qty_remaining))::numeric
             ELSE 0
@@ -43,9 +44,8 @@ class StoreStockAlertService {
         LEFT JOIN store_units u ON u.unit_id = p.unit_id
         WHERE p.owner_id = ${owner_id}
           AND p.type = 'item'
-        GROUP BY p.product_id, p.product_name, c.category_name, u.unit_name
-        HAVING SUM(sl.qty_remaining) > 0 
-          AND SUM(sl.qty_remaining) <= ${lowThreshold}
+        GROUP BY p.product_id, p.product_name, c.category_name, u.unit_name, p.low_stock_threshold
+        HAVING SUM(sl.qty_remaining) > 0 AND SUM(sl.qty_remaining) <= p.low_stock_threshold
         ORDER BY qty_remaining ASC, p.product_name ASC
       `,
 
@@ -99,8 +99,8 @@ class StoreStockAlertService {
           FROM store_products p
           LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = ${owner_id}
           WHERE p.owner_id = ${owner_id} AND p.type = 'item'
-          GROUP BY p.product_id
-          HAVING SUM(sl.qty_remaining) > 0 AND SUM(sl.qty_remaining) <= ${lowThreshold}
+          GROUP BY p.product_id, p.low_stock_threshold
+          HAVING SUM(sl.qty_remaining) > 0 AND SUM(sl.qty_remaining) <= p.low_stock_threshold
         )
         SELECT
           sl.lot_id,
@@ -196,6 +196,7 @@ class StoreStockAlertService {
         unit: p.unit,
         qty_remaining: qtyRemaining,
         qty_in: qtyIn,
+        low_stock_threshold: Number(p.low_stock_threshold),
         lots: Number(p.lots),
         cp: Number(Number(p.cp).toFixed(2)),
         sp: Number(Number(p.sp).toFixed(2)),

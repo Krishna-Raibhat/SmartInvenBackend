@@ -7,18 +7,18 @@ cron.schedule("0 9 * * *", async () => {
   console.log("[CRON] Checking for expiring subscriptions...");
 
   try {
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+    const oneMonthFromNow = new Date();
+    oneMonthFromNow.setDate(oneMonthFromNow.getDate() + 30);
 
     const now = new Date();
 
-    // Find active owners whose subscription expires in 7 days and haven't been reminded
+    // Find active owners whose subscription expires in 30 days (1 month) and haven't been reminded
     const expiringOwners = await prisma.owner.findMany({
       where: {
         status: "active",
         subscription_expires_at: {
           gte: now,
-          lte: sevenDaysFromNow,
+          lte: oneMonthFromNow,
         },
         subscription_reminder_sent: false,
       },

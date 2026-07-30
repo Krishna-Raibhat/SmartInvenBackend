@@ -421,12 +421,16 @@ class StoreFinancialsService {
 
     let cashRevenue = 0;
     let onlineRevenue = 0;
+    let chequeRevenue = 0;
+    let creditRevenue = 0;
     for (const row of methodRows) {
       if (row.payment_method === "cash") cashRevenue = Number(row.amount);
       if (row.payment_method === "online") onlineRevenue = Number(row.amount);
+      if (row.payment_method === "cheque") chequeRevenue = Number(row.amount);
+      if (row.payment_method === "credit") creditRevenue = Number(row.amount);
     }
 
-    return { statusCounts, cashRevenue, onlineRevenue };
+    return { statusCounts, cashRevenue, onlineRevenue, chequeRevenue, creditRevenue };
   }
 
   /** Expense breakdown by title for the period. `totalExpenses` is used to compute each `pct`. */

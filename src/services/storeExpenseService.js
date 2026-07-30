@@ -1,6 +1,7 @@
 // src/services/storeExpenseService.js
 import { prisma } from "../prisma/client.js";
 import { Prisma } from "@prisma/client";
+import { startOfDayNPT, endOfDayNPT, monthStartUTC } from "../utils/nptTime.js";
 
 const Decimal = Prisma.Decimal;
 
@@ -371,17 +372,26 @@ class StoreExpenseService {
       total_amount: Number(r.total_amount),
       count: Number(r.count),
     }));
-  }
+  } 
 
     async getReport(owner_id, { start, end, group = "day" } = {}) {
         const now = new Date();
-        const endFinal = end ? new Date(end) : now;
-        endFinal.setHours(23, 59, 59, 999);
+        const endFinal = endOfDayNPT(end ? new Date(end) : now);
 
         const startFinal = start
-            ? new Date(start)
-            : new Date(now.getFullYear(), now.getMonth(), 1); // default: this month
-        startFinal.setHours(0, 0, 0, 0);
+            ? startOfDayNPT(new Date(start))
+            : monthStartUTC(); // default: this month (Nepal time)
+
+
+    // async getReport(owner_id, { start, end, group = "day" } = {}) {
+    //     const now = new Date();
+    //     const endFinal = end ? new Date(end) : now;
+    //     endFinal.setHours(23, 59, 59, 999);
+
+    //     const startFinal = start
+    //         ? new Date(start)
+    //         : new Date(now.getFullYear(), now.getMonth(), 1); // default: this month
+    //     startFinal.setHours(0, 0, 0, 0);
 
         // Previous period (same duration)
         const duration = endFinal - startFinal;
@@ -425,7 +435,7 @@ class StoreExpenseService {
           ),
           daily AS (
             SELECT
-              DATE(e.created_at) AS date_only,
+              DATE(e.created_at AT TIME ZONE 'Asia/Kathmandu') AS date_only,
               t.title,
               SUM(e.amount)::numeric AS amount
             FROM store_expenses e
@@ -433,8 +443,8 @@ class StoreExpenseService {
             WHERE e.owner_id = ${owner_id}
                 AND e.created_at >= ${startFinal}
                 AND e.created_at <= ${endFinal}
-            GROUP BY DATE(e.created_at), t.title
-            ORDER BY DATE(e.created_at) ASC
+            GROUP BY DATE(e.created_at AT TIME ZONE 'Asia/Kathmandu'), t.title
+            ORDER BY DATE(e.created_at AT TIME ZONE 'Asia/Kathmandu') ASC
           )
           SELECT
             (SELECT json_build_object('total_expenses', total_expenses, 'total_transactions', total_transactions, 'category_count', category_count) FROM summary) AS summary,

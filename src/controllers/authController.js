@@ -14,9 +14,20 @@ import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { generateSecret, verifySync, generateURI } from "otplib";
 import crypto from "crypto";
 import { hashOTP, verifyOTPHash } from "../utils/otp.js";
+import { uploadToS3, getS3Url } from "../utils/s3.js";
 
 const { sign, verify } = jwt;
 
+const EXT_BY_MIME = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+};
+
+const extFromMimetype = (mimetype) => EXT_BY_MIME[mimetype] || "png";
 /* =========================
 Helpers
 ========================= */
@@ -248,6 +259,23 @@ export async function register(req, res) {
       else if (package_key === "store") finalBusinessCategory = "Store";
     }
 
+    // If a business logo was uploaded, hold on to it (base64) until the
+    // owner account (and its owner_id) actually exists after OTP verification.
+    let businessLogoBase64 = null;
+    let businessLogoMimetype = null;
+    if (req.file) {
+      if (!req.file.mimetype?.startsWith("image/")) {
+        return sendError(
+          res,
+          400,
+          "VALIDATION_LOGO_INVALID",
+          "Business logo must be an image file.",
+        );
+      }
+      businessLogoBase64 = req.file.buffer.toString("base64");
+      businessLogoMimetype = req.file.mimetype;
+    }
+
     // Store OTP with registration data
     await prisma.registrationOtp.create({
       data: {
@@ -266,6 +294,8 @@ export async function register(req, res) {
         business_category: finalBusinessCategory,
         business_name,
         pan_number: pan_number || null,
+        business_logo_base64: businessLogoBase64,
+        business_logo_mimetype: businessLogoMimetype,
       },
     });
 
@@ -879,6 +909,7 @@ export async function me(req, res) {
         package_id: true,
         business_category: true,
         business_name: true,
+        business_logo: true,
         pan_number: true,
         subscription_expires_at: true,
         two_factor_enabled: true,
@@ -926,6 +957,8 @@ export async function me(req, res) {
         package_name: owner.package?.package_name ?? null,
         business_category: owner.business_category,
         business_name: owner.business_name,
+        business_logo: owner.business_logo,
+        business_logo_url: owner.business_logo ? gets3url(owner.business_logo) : null,
         pan_number: owner.pan_number,
         subscription_expires_at: owner.subscription_expires_at,
         two_factor_enabled: owner.two_factor_enabled,
@@ -961,12 +994,28 @@ export async function updateMe(req, res) {
       pan_number !== undefined ? String(pan_number).trim() : undefined;
 
 
-    if (!full_name && !phone && !email && !trimmedBusinessName && !trimmedPanNumber) {
+    if (
+      !full_name &&
+      !phone &&
+      !email &&
+      !trimmedBusinessName &&
+      !trimmedPanNumber &&
+      !req.file
+    ) {
       return sendError(
         res,
         400,
         "VALIDATION_NO_FIELDS",
         "At least one field is required.",
+      );
+    }
+
+    if (req.file && !req.file.mimetype?.startsWith("image/")) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_LOGO_INVALID",
+        "Business logo must be an image file.",
       );
     }
     if (trimmedBusinessName === "") {
@@ -1062,6 +1111,14 @@ export async function updateMe(req, res) {
       }
     }
 
+    let businessLogoKey;
+    if (req.file) {
+      const ext = extFromMimetype(req.file.mimetype);
+      // Same key every time -> re-uploading simply overwrites the old logo.
+      businessLogoKey = `businesslogo/${ownerId}/logo.${ext}`;
+      await uploadToS3(req.file.buffer, businessLogoKey, req.file.mimetype);
+    }
+
     const updatedOwner = await prisma.owner.update({
       where: { owner_id: ownerId },
       data: {
@@ -1070,6 +1127,7 @@ export async function updateMe(req, res) {
         ...(phone ? { phone } : {}),
         ...(trimmedBusinessName ? { business_name: trimmedBusinessName } : {}),
         ...(trimmedPanNumber ? { pan_number: trimmedPanNumber } : {}),
+        ...(businessLogoKey ? { business_logo: businessLogoKey } : {}),
       },
       select: {
         owner_id: true,
@@ -1078,6 +1136,7 @@ export async function updateMe(req, res) {
         phone: true,
         package_id: true,
         business_name: true,
+        business_logo: true,
         pan_number: true,
         two_factor_enabled: true,
       },
@@ -1088,7 +1147,12 @@ export async function updateMe(req, res) {
     return sendSuccess(res, 200, {
       message: "Profile updated.",
       token,
-      owner: updatedOwner,
+      owner: {
+        ...updatedOwner,
+        business_logo_url: updatedOwner.business_logo
+          ? getS3Url(updatedOwner.business_logo)
+          : null,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -1771,6 +1835,27 @@ export async function verifyRegistrationOtp(req, res) {
       },
     });
 
+    // ✅ Upload the business logo (if one was provided during registration)
+    // now that we have a real owner_id to namespace it under.
+    let businessLogoKey = null;
+    if (record.business_logo_base64) {
+      try {
+        const buffer = Buffer.from(record.business_logo_base64, "base64");
+        const ext = extFromMimetype(record.business_logo_mimetype);
+        const key = `businesslogo/${owner.owner_id}/logo.${ext}`;
+        await uploadToS3(buffer, key, record.business_logo_mimetype || "image/png");
+        businessLogoKey = key;
+        await prisma.owner.update({
+          where: { owner_id: owner.owner_id },
+          data: { business_logo: key },
+        });
+        owner.business_logo = key;
+      } catch (err) {
+        console.error("Failed to upload business logo:", err);
+        // Don't fail registration if logo upload fails
+      }
+    }
+
     // ✅ Seed "general" category for Store package owners
     if (record.package_key === "store") {
       try {
@@ -1798,7 +1883,10 @@ export async function verifyRegistrationOtp(req, res) {
       message: "OTP verified and account created successfully.",
       verified: true,
       token,
-      owner,
+      owner: {
+        ...owner,
+        business_logo_url: businessLogoKey ? getS3Url(businessLogoKey) : null,
+      },
     });
   } catch (error) {
     console.error("verifyRegistrationOtp error:", error);

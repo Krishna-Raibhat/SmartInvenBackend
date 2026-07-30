@@ -1,5 +1,7 @@
 // src/services/storeTopSellingService.js
+// src/services/storeTopSellingService.js
 import { prisma } from "../prisma/client.js";
+import { startOfDayNPT, endOfDayNPT } from "../utils/nptTime.js";
 
 const fmt = (iso) => {
   const d = new Date(iso);
@@ -44,15 +46,35 @@ class StoreTopSellingService {
       return cached.data;
     }
 
-    const startDate = from ? new Date(from) : null;
+    // const startDate = from ? new Date(from) : null;
 
-    const endDate = to
-      ? (() => {
-          const date = new Date(to);
-          date.setHours(23, 59, 59, 999);
-          return date;
-        })()
-      : null;
+    // const endDate = to
+    //   ? (() => {
+    //       const date = new Date(to);
+    //       date.setHours(23, 59, 59, 999);
+    //       return date;
+    //     })()
+    //   : null;
+
+    // // Previous period with the same number of days.
+    // let prevStart = null;
+    // let prevEnd = null;
+
+    // if (startDate && endDate) {
+    //   const dayMs = 24 * 60 * 60 * 1000;
+
+    //   const periodDays =
+    //     Math.floor((endDate.getTime() - startDate.getTime()) / dayMs) + 1;
+
+    //   prevEnd = new Date(startDate.getTime() - 1);
+
+    //   prevStart = new Date(prevEnd);
+    //   prevStart.setDate(prevStart.getDate() - (periodDays - 1));
+    //   prevStart.setHours(0, 0, 0, 0);
+    // }
+    const startDate = from ? startOfDayNPT(new Date(from)) : null;
+
+    const endDate = to ? endOfDayNPT(new Date(to)) : null;
 
     // Previous period with the same number of days.
     let prevStart = null;
@@ -65,12 +87,8 @@ class StoreTopSellingService {
         Math.floor((endDate.getTime() - startDate.getTime()) / dayMs) + 1;
 
       prevEnd = new Date(startDate.getTime() - 1);
-
-      prevStart = new Date(prevEnd);
-      prevStart.setDate(prevStart.getDate() - (periodDays - 1));
-      prevStart.setHours(0, 0, 0, 0);
+      prevStart = startOfDayNPT(new Date(prevEnd.getTime() - (periodDays - 1) * dayMs));
     }
-
     const [
       topRows,
       returnRows,

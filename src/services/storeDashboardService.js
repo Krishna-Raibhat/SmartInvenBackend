@@ -848,7 +848,7 @@ class StoreDashboardService {
     }
   }
 
-  async getLowStockItems(owner_id, threshold = 40, limit = 10) {
+  async getLowStockItems(owner_id, limit = 10) {
     try {
       const [countsResult, lowStockResult, outOfStockResult] = await Promise.all([
         // 1. Get summary counts in one round-trip
@@ -856,15 +856,16 @@ class StoreDashboardService {
           WITH product_stock AS (
             SELECT
               p.product_id,
+              p.low_stock_threshold,
               COALESCE(SUM(sl.qty_remaining), 0)::int AS qty_remaining
             FROM store_products p
             LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = ${owner_id}
             WHERE p.owner_id = ${owner_id} AND p.type = 'item'
-            GROUP BY p.product_id
+            GROUP BY p.product_id, p.low_stock_threshold
           )
           SELECT
             COUNT(*)::int AS total_products,
-            COUNT(CASE WHEN qty_remaining > 0 AND qty_remaining <= ${threshold} THEN 1 END)::int AS low_stock_count,
+            COUNT(CASE WHEN qty_remaining > 0 AND qty_remaining <= low_stock_threshold THEN 1 END)::int AS low_stock_count,
             COUNT(CASE WHEN qty_remaining = 0 THEN 1 END)::int AS out_of_stock_count
           FROM product_stock
         `,
@@ -876,14 +877,15 @@ class StoreDashboardService {
             p.product_name,
             COALESCE(u.unit_name, 'pcs') AS unit,
             COALESCE(c.category_name, 'Uncategorized') AS category,
+            p.low_stock_threshold,
             COALESCE(SUM(sl.qty_remaining), 0)::int AS qty_remaining
           FROM store_products p
           LEFT JOIN store_stock_lots sl ON sl.product_id = p.product_id AND sl.owner_id = ${owner_id}
           LEFT JOIN store_categories c ON c.category_id = p.category_id
           LEFT JOIN store_units u ON u.unit_id = p.unit_id
           WHERE p.owner_id = ${owner_id} AND p.type = 'item'
-          GROUP BY p.product_id, p.product_name, c.category_name, u.unit_name
-          HAVING COALESCE(SUM(sl.qty_remaining), 0) > 0 AND COALESCE(SUM(sl.qty_remaining), 0) <= ${threshold}
+          GROUP BY p.product_id, p.product_name, c.category_name, u.unit_name, p.low_stock_threshold
+          HAVING COALESCE(SUM(sl.qty_remaining), 0) > 0 AND COALESCE(SUM(sl.qty_remaining), 0) <= p.low_stock_threshold
           ORDER BY qty_remaining ASC, p.product_name ASC
           LIMIT ${limit}
         `,
@@ -920,6 +922,7 @@ class StoreDashboardService {
         unit: item.unit || 'units',
         category: item.category === 'Uncategorized' ? null : item.category,
         qty_remaining: Number(item.qty_remaining || 0),
+        low_stock_threshold: item.low_stock_threshold != null ? Number(item.low_stock_threshold) : undefined,
       });
 
       return {

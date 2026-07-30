@@ -7,5 +7,7 @@ const router = express.Router();
 
 router.get("/", auth, ctrl.getPreferences);
 router.put("/", auth, ctrl.updatePreference);
+router.get("/threshold", auth, ctrl.getThreshold);
+router.put("/threshold", auth, ctrl.updateThreshold);
 
 export default router;

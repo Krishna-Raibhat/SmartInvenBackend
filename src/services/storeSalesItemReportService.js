@@ -1,6 +1,7 @@
 // src/services/storeSalesItemReportService.js
 
 import { prisma } from "../prisma/client.js";
+import { monthStartUTC, parseNPTDateStart, todayStartUTC } from "../utils/nptTime.js";
 
 const DEFAULT_SECTIONS = [
   "summary",
@@ -26,34 +27,43 @@ class StoreSalesItemReportService {
         ? include
         : DEFAULT_SECTIONS,
     );
-
-    const now = new Date();
-
-    // Default start: first day of current month.
+    // Default start: first day of current month (Nepal time).
     const startDate = from
-      ? new Date(`${from}T00:00:00.000Z`)
-      : new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            1,
-          ),
-        );
+      ? parseNPTDateStart(from)
+      : monthStartUTC();
 
-    // Exclusive end: day after selected `to`.
+    // Exclusive end: start of the day after selected `to` (Nepal time).
     const endDate = to
-      ? (() => {
-          const date = new Date(`${to}T00:00:00.000Z`);
-          date.setUTCDate(date.getUTCDate() + 1);
-          return date;
-        })()
-      : new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            now.getUTCDate() + 1,
-          ),
-        );
+      ? new Date(parseNPTDateStart(to).getTime() + 24 * 60 * 60 * 1000)
+      : new Date(todayStartUTC().getTime() + 24 * 60 * 60 * 1000);
+
+    // const now = new Date();
+
+    // // Default start: first day of current month.
+    // const startDate = from
+    //   ? new Date(`${from}T00:00:00.000Z`)
+    //   : new Date(
+    //       Date.UTC(
+    //         now.getUTCFullYear(),
+    //         now.getUTCMonth(),
+    //         1,
+    //       ),
+    //     );
+
+    // // Exclusive end: day after selected `to`.
+    // const endDate = to
+    //   ? (() => {
+    //       const date = new Date(`${to}T00:00:00.000Z`);
+    //       date.setUTCDate(date.getUTCDate() + 1);
+    //       return date;
+    //     })()
+    //   : new Date(
+    //       Date.UTC(
+    //         now.getUTCFullYear(),
+    //         now.getUTCMonth(),
+    //         now.getUTCDate() + 1,
+    //       ),
+    //     );
 
     if (
       Number.isNaN(startDate.getTime()) ||

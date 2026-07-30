@@ -23,6 +23,7 @@ model Owner {
   full_name                  String
   business_name              String?
   email                      String                        @unique
+  business_logo            String?
   phone                      String                        @unique
   password                   String?                       @map("password_hash")
   fcm_token                  String?
@@ -37,6 +38,7 @@ model Owner {
   subscription_expires_at    DateTime?
   trial_expires_at           DateTime?
   subscription_reminder_sent Boolean                       @default(false)
+  trial_reminder_sent        Boolean                       @default(false)
   two_factor_enabled         Boolean                       @default(false)
   failed_2fa_attempts        Int                           @default(0)
   locked_until               DateTime?
@@ -130,6 +132,8 @@ model RegistrationOtp {
   package_key    String?
   business_category String?
   pan_number     String?
+  business_logo_base64   String?  @db.Text
+  business_logo_mimetype String?
 
   @@index([email])
   @@index([expires_at])
@@ -914,6 +918,7 @@ model StoreProduct {
   type                       StoreProductType    @default(item)
   status                     Boolean             @default(true)
   last_low_stock_notified_at DateTime?
+  low_stock_threshold        Int                 @default(40)
   storeNotifications         StoreNotification[]
   category                   StoreCategory?      @relation(fields: [category_id], references: [category_id])
   owner                      Owner               @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
@@ -1101,6 +1106,7 @@ model StoreNotificationPreference {
   id         String   @id @default(uuid())
   owner_id   String
   type       String
+  threshold  Int?
   is_enabled Boolean  @default(true)
   updated_at DateTime @updatedAt
   owner      Owner    @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
@@ -1174,6 +1180,8 @@ enum StoreSalesPaymentStatus {
 enum StorePaymentMethod {
   cash
   online
+  cheque
+  credit
 
   @@map("store_payment_method")
 }

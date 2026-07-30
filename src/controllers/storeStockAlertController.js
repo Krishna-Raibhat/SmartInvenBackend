@@ -4,13 +4,9 @@ import storeStockAlertService from "../services/storeStockAlertService.js";
 export async function getStockAlerts(req, res) {
   try {
     const owner_id = req.owner.owner_id;
-    const lowThreshold = parseInt(req.query.lowThreshold) || 10;
+    // after
     const criticalThreshold = parseInt(req.query.criticalThreshold) || 5;
-
-    const result = await storeStockAlertService.getStockAlerts(owner_id, {
-      lowThreshold,
-      criticalThreshold,
-    });
+    const result = await storeStockAlertService.getStockAlerts(owner_id, { criticalThreshold });
 
     return res.json(result);
   } catch (error) {
