@@ -10,6 +10,7 @@ const storeStockLotController = {
       const {
         supplier_id,
         bill_number,
+        lot_date,
         items,
 
         // Keep these temporarily for compatibility
@@ -47,6 +48,7 @@ const storeStockLotController = {
           owner_id,
           supplier_id,
           bill_number,
+          lot_date,
           items: normalizedItems,
         });
 
@@ -170,14 +172,15 @@ const storeStockLotController = {
     try {
       const owner_id = req.owner.owner_id;
       const { id } = req.params;
-      const { cp, sp, qty_in, qty_remaining, bill_number } = req.body;
+      const { cp, sp, qty_in, qty_remaining, bill_number, lot_date } = req.body;
 
       if (
         cp === undefined &&
         sp === undefined &&
         qty_in === undefined &&
         qty_remaining === undefined &&
-        bill_number === undefined
+        bill_number === undefined &&
+        lot_date === undefined
       ) {
         return res.status(400).json({
           success: false,
@@ -192,6 +195,7 @@ const storeStockLotController = {
         qty_in: qty_in !== undefined ? Number(qty_in) : undefined,
         qty_remaining: qty_remaining !== undefined ? Number(qty_remaining) : undefined,
         bill_number, // pass through as-is (string or null); service normalizes it
+        lot_date, // pass through as-is (string date); service parses and validates it
       });
 
       return res.status(200).json({ success: true, data: lot });

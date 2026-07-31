@@ -10,6 +10,7 @@ class StoreStockLotService {
     owner_id,
     supplier_id,
     bill_number,
+    lot_date,
     items,
   }) {
     if (!supplier_id) {
@@ -50,6 +51,28 @@ class StoreStockLotService {
         code: "VALIDATION_ERROR",
         message: "Bill number cannot exceed 100 characters.",
       };
+    }
+
+    // --- Lot date handling (backdating stock a supplier forgot to add on time) ---
+    let normalizedLotDate;
+    if (lot_date !== undefined && lot_date !== null && lot_date !== "") {
+      const parsedDate = new Date(lot_date);
+
+      if (isNaN(parsedDate.getTime())) {
+        throw {
+          code: "VALIDATION_ERROR",
+          message: "Invalid lot date.",
+        };
+      }
+
+      if (parsedDate.getTime() > Date.now()) {
+        throw {
+          code: "VALIDATION_ERROR",
+          message: "Lot date cannot be in the future.",
+        };
+      }
+
+      normalizedLotDate = parsedDate;
     }
 
     const normalizedItems = items.map((item, index) => {
@@ -249,6 +272,9 @@ class StoreStockLotService {
                 sp: item.sp,
                 bill_number:
                   normalizedBillNumber,
+                ...(normalizedLotDate && {
+                  created_at: normalizedLotDate,
+                }),
               },
               include: {
                 product: {
@@ -334,7 +360,7 @@ class StoreStockLotService {
     return lot;
   }
 
-  async update(owner_id, lot_id, { cp, sp, qty_in, qty_remaining, bill_number }) {
+  async update(owner_id, lot_id, { cp, sp, qty_in, qty_remaining, bill_number, lot_date }) {
     const existing = await prisma.storeStockLot.findFirst({
       where: { lot_id, owner_id },
       select: { lot_id: true, qty_in: true, qty_remaining: true },
@@ -400,12 +426,30 @@ class StoreStockLotService {
       // }
     }
 
+    // --- Lot date handling (backdating a lot a supplier forgot to add on time) ---
+    let normalizedLotDate;
+    const lotDateProvided = lot_date !== undefined && lot_date !== null && lot_date !== "";
+    if (lotDateProvided) {
+      const parsedDate = new Date(lot_date);
+
+      if (isNaN(parsedDate.getTime())) {
+        throw { code: "VALIDATION_ERROR", message: "Invalid lot date." };
+      }
+
+      if (parsedDate.getTime() > Date.now()) {
+        throw { code: "VALIDATION_ERROR", message: "Lot date cannot be in the future." };
+      }
+
+      normalizedLotDate = parsedDate;
+    }
+
     const data = {};
     if (cp !== undefined) data.cp = cp;
     if (sp !== undefined) data.sp = sp;
     if (qty_in !== undefined) data.qty_in = newQtyIn;
     if (qty_remaining !== undefined) data.qty_remaining = newQtyRemaining;
     if (bill_number !== undefined) data.bill_number = normalizedBillNumber;
+    if (lotDateProvided) data.created_at = normalizedLotDate;
 
     // Fix #2: include owner_id in where clause for explicit ownership
     return prisma.storeStockLot.update({
