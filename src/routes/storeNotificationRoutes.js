@@ -10,4 +10,6 @@ router.get("/", auth, ctrl.list);
 router.post("/read-all", auth, ctrl.markAllRead);  // ✅ must come first
 router.post("/:id/read", auth, ctrl.markRead);     // then the param route
 router.delete("/:id", auth, ctrl.deleteOne);
+router.get("/threshold", auth, ctrl.getThreshold);
+router.put("/threshold", auth, ctrl.updateThreshold);
 export default router;

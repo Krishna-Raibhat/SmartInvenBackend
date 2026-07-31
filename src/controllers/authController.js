@@ -138,7 +138,10 @@ export async function register(req, res) {
     package_key = String(package_key || "")
       .trim()
       .toLowerCase();
-    pan_number = pan_number !== undefined && pan_number !== null ? String(pan_number).trim() : "";  
+    pan_number =
+      pan_number !== undefined && pan_number !== null
+        ? String(pan_number).trim()
+        : "";
 
     if (
       !full_name ||
@@ -190,7 +193,6 @@ export async function register(req, res) {
     const panError = pan_number ? validatePan(pan_number) : null;
     if (panError)
       return sendError(res, 400, "VALIDATION_PAN_INVALID", panError);
-
 
     if (password !== confirm_password) {
       return sendError(
@@ -339,7 +341,7 @@ export async function checkRegistrationAvailability(req, res) {
       );
     }
 
-    const [existingEmail, existingPhone,existingPan] = await Promise.all([
+    const [existingEmail, existingPhone, existingPan] = await Promise.all([
       prisma.owner.findUnique({
         where: { email },
         select: { owner_id: true },
@@ -356,7 +358,6 @@ export async function checkRegistrationAvailability(req, res) {
           })
         : Promise.resolve(null),
     ]);
-      
 
     const emailExists = Boolean(existingEmail);
     const phoneExists = Boolean(existingPhone);
@@ -437,9 +438,12 @@ export async function login(req, res) {
     }
 
     // Check if account is locked due to too many failed login attempts
-    if (owner.login_locked_until && new Date() < new Date(owner.login_locked_until)) {
+    if (
+      owner.login_locked_until &&
+      new Date() < new Date(owner.login_locked_until)
+    ) {
       const remainingTime = Math.ceil(
-        (new Date(owner.login_locked_until).getTime() - Date.now()) / 60000
+        (new Date(owner.login_locked_until).getTime() - Date.now()) / 60000,
       );
       return sendError(
         res,
@@ -600,7 +604,10 @@ export async function login(req, res) {
       }
 
       // No pending payment - check if trial has expired (read directly from DB)
-      if (owner.trial_expires_at && new Date() > new Date(owner.trial_expires_at)) {
+      if (
+        owner.trial_expires_at &&
+        new Date() > new Date(owner.trial_expires_at)
+      ) {
         return sendError(
           res,
           403,
@@ -674,7 +681,9 @@ export async function login(req, res) {
           metadataMismatchDetected = true;
           // Revoke trust
           await prisma.userDevice.update({
-            where: { owner_id_device_id: { owner_id: owner.owner_id, device_id } },
+            where: {
+              owner_id_device_id: { owner_id: owner.owner_id, device_id },
+            },
             data: { is_trusted: false },
           });
           // Send warning email alert
@@ -696,7 +705,9 @@ export async function login(req, res) {
           isDeviceTrusted = true;
           // Update device details
           await prisma.userDevice.update({
-            where: { owner_id_device_id: { owner_id: owner.owner_id, device_id } },
+            where: {
+              owner_id_device_id: { owner_id: owner.owner_id, device_id },
+            },
             data: {
               ip_address:
                 req.ip ||
@@ -718,17 +729,24 @@ export async function login(req, res) {
 
       if (trustedDeviceCount === 0) {
         const newDeviceId = device_id || crypto.randomUUID();
-        const finalDeviceName = device_name || device_metadata?.model || device_metadata?.brand || "Unknown Device";
+        const finalDeviceName =
+          device_name ||
+          device_metadata?.model ||
+          device_metadata?.brand ||
+          "Unknown Device";
         await prisma.userDevice.create({
           data: {
             device_id: newDeviceId,
             owner_id: owner.owner_id,
             device_name: finalDeviceName,
             device_metadata: device_metadata || {},
-            ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+            ip_address:
+              req.ip ||
+              req.headers["x-forwarded-for"] ||
+              req.socket.remoteAddress,
             user_agent: req.headers["user-agent"] || null,
             is_trusted: true,
-          }
+          },
         });
         isDeviceTrusted = true;
         device_id = newDeviceId;
@@ -751,13 +769,18 @@ export async function login(req, res) {
         },
       });
 
-      const finalDeviceName = device_name || device_metadata?.model || device_metadata?.brand || "Unknown Device";
-      
+      const finalDeviceName =
+        device_name ||
+        device_metadata?.model ||
+        device_metadata?.brand ||
+        "Unknown Device";
+
       // Email links
-      const baseUrl = process.env.BACKEND_URL || `${req.protocol}://${req.get("host")}`;
+      const baseUrl =
+        process.env.BACKEND_URL || `${req.protocol}://${req.get("host")}`;
       const approveLink = `${baseUrl}/api/auth/device-verification/approve?token=${verificationToken}`;
       const denyLink = `${baseUrl}/api/auth/device-verification/deny?token=${verificationToken}`;
-      
+
       await sendDeviceVerificationLinksEmail({
         to: owner.email,
         device_name: finalDeviceName,
@@ -766,7 +789,7 @@ export async function login(req, res) {
         deny_link: denyLink,
       });
 
-      const reasonMessage = metadataMismatchDetected 
+      const reasonMessage = metadataMismatchDetected
         ? "Suspicious device activity. Trust has been revoked. Verification link sent to email."
         : "New device detected. Verification link sent to email.";
 
@@ -958,7 +981,9 @@ export async function me(req, res) {
         business_category: owner.business_category,
         business_name: owner.business_name,
         business_logo: owner.business_logo,
-        business_logo_url: owner.business_logo ? gets3url(owner.business_logo) : null,
+        business_logo_url: owner.business_logo
+          ? getS3Url(owner.business_logo)
+          : null,
         pan_number: owner.pan_number,
         subscription_expires_at: owner.subscription_expires_at,
         two_factor_enabled: owner.two_factor_enabled,
@@ -986,13 +1011,12 @@ export async function updateMe(req, res) {
     if (!ownerId)
       return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
 
-    const { full_name, phone, email ,business_name,pan_number} = req.body;
+    const { full_name, phone, email, business_name, pan_number } = req.body;
     const normalizedEmail = email ? normalizeEmail(email) : null;
     const trimmedBusinessName =
-    business_name !== undefined ? String(business_name).trim() : undefined;
+      business_name !== undefined ? String(business_name).trim() : undefined;
     const trimmedPanNumber =
       pan_number !== undefined ? String(pan_number).trim() : undefined;
-
 
     if (
       !full_name &&
@@ -1094,7 +1118,7 @@ export async function updateMe(req, res) {
         );
       }
     }
-     // PAN unique check (if changed)
+    // PAN unique check (if changed)
     if (trimmedPanNumber && trimmedPanNumber !== existingOwner.pan_number) {
       const panExists = await prisma.owner.findFirst({
         where: { pan_number: trimmedPanNumber, NOT: { owner_id: ownerId } },
@@ -1843,7 +1867,11 @@ export async function verifyRegistrationOtp(req, res) {
         const buffer = Buffer.from(record.business_logo_base64, "base64");
         const ext = extFromMimetype(record.business_logo_mimetype);
         const key = `businesslogo/${owner.owner_id}/logo.${ext}`;
-        await uploadToS3(buffer, key, record.business_logo_mimetype || "image/png");
+        await uploadToS3(
+          buffer,
+          key,
+          record.business_logo_mimetype || "image/png",
+        );
         businessLogoKey = key;
         await prisma.owner.update({
           where: { owner_id: owner.owner_id },
@@ -1894,8 +1922,6 @@ export async function verifyRegistrationOtp(req, res) {
   }
 }
 
-
-
 export async function approveDevice(req, res) {
   try {
     const { token } = req.query;
@@ -1904,11 +1930,13 @@ export async function approveDevice(req, res) {
     }
 
     const verification = await prisma.deviceVerification.findUnique({
-      where: { verification_token: token }
+      where: { verification_token: token },
     });
 
     if (!verification) {
-      return res.status(404).send("<h1>Invalid or expired verification session.</h1>");
+      return res
+        .status(404)
+        .send("<h1>Invalid or expired verification session.</h1>");
     }
 
     if (new Date() > verification.expires_at) {
@@ -1918,11 +1946,14 @@ export async function approveDevice(req, res) {
     // Flip status to approved
     await prisma.deviceVerification.update({
       where: { verification_token: token },
-      data: { status: "approved" }
+      data: { status: "approved" },
     });
 
     // Create trusted UserDevice
-    const deviceName = verification.device_metadata?.model || verification.device_metadata?.brand || "Unknown Device";
+    const deviceName =
+      verification.device_metadata?.model ||
+      verification.device_metadata?.brand ||
+      "Unknown Device";
     await prisma.userDevice.upsert({
       where: {
         owner_id_device_id: {
@@ -1934,7 +1965,8 @@ export async function approveDevice(req, res) {
         owner_id: verification.owner_id,
         device_name: deviceName,
         device_metadata: verification.device_metadata || {},
-        ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+        ip_address:
+          req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
         user_agent: req.headers["user-agent"] || null,
         is_trusted: true,
         last_used_at: new Date(),
@@ -1944,10 +1976,11 @@ export async function approveDevice(req, res) {
         owner_id: verification.owner_id,
         device_name: deviceName,
         device_metadata: verification.device_metadata || {},
-        ip_address: req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+        ip_address:
+          req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress,
         user_agent: req.headers["user-agent"] || null,
         is_trusted: true,
-      }
+      },
     });
 
     return res.status(200).send(`
@@ -1970,17 +2003,19 @@ export async function denyDevice(req, res) {
     }
 
     const verification = await prisma.deviceVerification.findUnique({
-      where: { verification_token: token }
+      where: { verification_token: token },
     });
 
     if (!verification) {
-      return res.status(404).send("<h1>Invalid or expired verification session.</h1>");
+      return res
+        .status(404)
+        .send("<h1>Invalid or expired verification session.</h1>");
     }
 
     // Flip status to denied
     await prisma.deviceVerification.update({
       where: { verification_token: token },
-      data: { status: "denied" }
+      data: { status: "denied" },
     });
 
     return res.status(200).send(`
@@ -1999,29 +2034,46 @@ export async function getDeviceVerificationStatus(req, res) {
   try {
     const { token } = req.query;
     if (!token) {
-      return sendError(res, 400, "VALIDATION_REQUIRED_FIELDS", "Verification token is required.");
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Verification token is required.",
+      );
     }
 
     const verification = await prisma.deviceVerification.findUnique({
-      where: { verification_token: token }
+      where: { verification_token: token },
     });
 
     if (!verification) {
-      return sendError(res, 404, "SESSION_NOT_FOUND", "Verification session not found or expired.");
+      return sendError(
+        res,
+        404,
+        "SESSION_NOT_FOUND",
+        "Verification session not found or expired.",
+      );
     }
 
     if (new Date() > verification.expires_at) {
       // Auto cleanup expired session
-      await prisma.deviceVerification.delete({
-        where: { verification_token: token }
-      }).catch(() => {});
-      return sendError(res, 410, "SESSION_EXPIRED", "Verification session has expired.");
+      await prisma.deviceVerification
+        .delete({
+          where: { verification_token: token },
+        })
+        .catch(() => {});
+      return sendError(
+        res,
+        410,
+        "SESSION_EXPIRED",
+        "Verification session has expired.",
+      );
     }
 
     if (verification.status === "approved") {
       // Cleanup verification session
       await prisma.deviceVerification.delete({
-        where: { verification_token: token }
+        where: { verification_token: token },
       });
 
       const owner = await prisma.owner.findUnique({
@@ -2069,9 +2121,9 @@ export async function getDeviceVerificationStatus(req, res) {
             purpose: "2fa_verification",
           },
           process.env.JWT_SECRET,
-          { expiresIn: "5m" } // 5 minutes matching OTP
+          { expiresIn: "5m" }, // 5 minutes matching OTP
         );
-        
+
         return sendSuccess(res, 200, {
           status: "approved",
           require_2fa: true,
@@ -2104,33 +2156,32 @@ export async function getDeviceVerificationStatus(req, res) {
           status: owner.status,
           package_key: owner.package?.package_key ?? null,
           package_name: owner.package?.package_name ?? null,
-        }
+        },
       });
     }
 
     if (verification.status === "denied") {
       // Cleanup verification session
       await prisma.deviceVerification.delete({
-        where: { verification_token: token }
+        where: { verification_token: token },
       });
 
       return sendSuccess(res, 200, {
         status: "denied",
-        message: "Device login request was denied."
+        message: "Device login request was denied.",
       });
     }
 
     // Still pending
     return sendSuccess(res, 200, {
       status: "pending",
-      message: "Device verification is still pending approval."
+      message: "Device verification is still pending approval.",
     });
   } catch (err) {
     console.error("getDeviceVerificationStatus error:", err);
     return sendError(res, 500, "SERVER_ERROR", "Failed to check status.");
   }
 }
-
 
 /* =========================
    VERIFY 2FA OTP
@@ -2209,7 +2260,12 @@ export async function verify2FA(req, res) {
     }
 
     if (new Date() > activeOtp.expires_at) {
-      return sendError(res, 401, "OTP_EXPIRED", "Verification code has expired.");
+      return sendError(
+        res,
+        401,
+        "OTP_EXPIRED",
+        "Verification code has expired.",
+      );
     }
 
     const isValid = await compare(code, activeOtp.otp_hash);
@@ -2363,7 +2419,12 @@ export async function enable2FA(req, res) {
     }
 
     if (new Date() > activeOtp.expires_at) {
-      return sendError(res, 401, "OTP_EXPIRED", "Verification code has expired.");
+      return sendError(
+        res,
+        401,
+        "OTP_EXPIRED",
+        "Verification code has expired.",
+      );
     }
 
     const isValid = await compare(code, activeOtp.otp_hash);
@@ -2441,7 +2502,12 @@ export async function sendDisable2FAOtp(req, res) {
     });
   } catch (err) {
     console.error("sendDisable2FAOtp error:", err);
-    return sendError(res, 500, "SERVER_ERROR", "Failed to send verification code.");
+    return sendError(
+      res,
+      500,
+      "SERVER_ERROR",
+      "Failed to send verification code.",
+    );
   }
 }
 
@@ -2482,7 +2548,12 @@ export async function disable2FA(req, res) {
     }
 
     if (new Date() > activeOtp.expires_at) {
-      return sendError(res, 401, "OTP_EXPIRED", "Verification code has expired.");
+      return sendError(
+        res,
+        401,
+        "OTP_EXPIRED",
+        "Verification code has expired.",
+      );
     }
 
     const isValid = await compare(code, activeOtp.otp_hash);
@@ -2517,7 +2588,15 @@ const client = new OAuth2Client(
 
 export async function googleLogin(req, res) {
   try {
-    const { idToken, fcm_token, package_key, phone, business_name, business_category, pan_number } = req.body;
+    const {
+      idToken,
+      fcm_token,
+      package_key,
+      phone,
+      business_name,
+      business_category,
+      pan_number,
+    } = req.body;
 
     if (!idToken) {
       return sendError(
@@ -2533,7 +2612,8 @@ export async function googleLogin(req, res) {
     try {
       ticket = await client.verifyIdToken({
         idToken,
-        audience: process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+        audience:
+          process.env.GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
       });
     } catch (err) {
       return sendError(
@@ -2541,7 +2621,7 @@ export async function googleLogin(req, res) {
         400,
         "INVALID_TOKEN",
         "Failed to verify Google token.",
-        { detail: err?.message }
+        { detail: err?.message },
       );
     }
 
@@ -2753,9 +2833,9 @@ export async function googleLogin(req, res) {
     // 2. Google ID not found. Check if email collision blocks register.
     const existingEmailOwner = await prisma.owner.findUnique({
       where: { email },
-      select: { 
+      select: {
         owner_id: true,
-        auth_provider: true, 
+        auth_provider: true,
         google_id: true,
         full_name: true,
         phone: true,
@@ -2772,7 +2852,7 @@ export async function googleLogin(req, res) {
 
     if (existingEmailOwner) {
       const isGoogleLinked = existingEmailOwner.auth_provider === "google";
-      
+
       if (isGoogleLinked) {
         // Check if it's the same Google account
         if (existingEmailOwner.google_id === googleId) {
@@ -2854,7 +2934,12 @@ export async function googleLogin(req, res) {
 
     // Validate package_key
     const cleanedPackageKey = String(package_key).trim().toLowerCase();
-    const allowedPackages = new Set(["hardware", "clothing", "grocery", "store"]);
+    const allowedPackages = new Set([
+      "hardware",
+      "clothing",
+      "grocery",
+      "store",
+    ]);
     if (!allowedPackages.has(cleanedPackageKey)) {
       return sendError(
         res,
@@ -2867,17 +2952,14 @@ export async function googleLogin(req, res) {
     // Validate phone number format (must be 10 digits)
     const phoneError = validatePhone(phone);
     if (phoneError) {
-      return sendError(
-        res,
-        400,
-        "VALIDATION_PHONE_INVALID",
-        phoneError,
-      );
+      return sendError(res, 400, "VALIDATION_PHONE_INVALID", phoneError);
     }
 
     // Validate PAN number format, only if provided (optional field)
     const cleanedPanNumber =
-      pan_number !== undefined && pan_number !== null ? String(pan_number).trim() : "";
+      pan_number !== undefined && pan_number !== null
+        ? String(pan_number).trim()
+        : "";
     const panError = cleanedPanNumber ? validatePan(cleanedPanNumber) : null;
     if (panError) {
       return sendError(res, 400, "VALIDATION_PAN_INVALID", panError);
@@ -2898,7 +2980,9 @@ export async function googleLogin(req, res) {
 
     // Check if PAN number already exists, only if provided
     const existingPanOwner = cleanedPanNumber
-      ? await prisma.owner.findUnique({ where: { pan_number: cleanedPanNumber } })
+      ? await prisma.owner.findUnique({
+          where: { pan_number: cleanedPanNumber },
+        })
       : null;
     if (existingPanOwner) {
       return sendError(
@@ -2923,11 +3007,16 @@ export async function googleLogin(req, res) {
     }
 
     // Business category defaults
-    let finalBusinessCategory = business_category ? String(business_category).trim() : null;
+    let finalBusinessCategory = business_category
+      ? String(business_category).trim()
+      : null;
     if (!finalBusinessCategory) {
-      if (cleanedPackageKey === "grocery") finalBusinessCategory = "Grocery Store";
-      else if (cleanedPackageKey === "clothing") finalBusinessCategory = "Clothing Store";
-      else if (cleanedPackageKey === "hardware") finalBusinessCategory = "Hardware Store";
+      if (cleanedPackageKey === "grocery")
+        finalBusinessCategory = "Grocery Store";
+      else if (cleanedPackageKey === "clothing")
+        finalBusinessCategory = "Clothing Store";
+      else if (cleanedPackageKey === "hardware")
+        finalBusinessCategory = "Hardware Store";
       else if (cleanedPackageKey === "store") finalBusinessCategory = "Store";
     }
 
