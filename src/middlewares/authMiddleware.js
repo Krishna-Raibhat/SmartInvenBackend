@@ -45,7 +45,21 @@ export default async (req, res, next) => {
     }
 
     // Trial expiry check
+    // Trial expiry / pending-payment check
     if (owner.status === "trial") {
+      const pendingPayment = await prisma.paymentProof.findFirst({
+        where: { owner_id: owner.owner_id, status: "pending" },
+        select: { id: true },
+      });
+
+      if (pendingPayment) {
+        return res.status(403).json({
+          success: false,
+          error_code: "PAYMENT_PENDING",
+          message: "Your payment proof is under review. Please wait for approval.",
+        });
+      }
+
       if (owner.trial_expires_at && new Date() > new Date(owner.trial_expires_at)) {
         return res.status(403).json({
           success: false,

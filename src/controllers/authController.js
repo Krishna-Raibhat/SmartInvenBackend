@@ -120,6 +120,7 @@ const packageNameMap = {
 };
 
 export async function register(req, res) {
+  console.time("register:total");
   try {
     let {
       full_name,
@@ -214,6 +215,7 @@ export async function register(req, res) {
       );
     }
 
+    console.time("register:db-uniqueness-checks");
     const emailExists = await prisma.owner.findUnique({ where: { email } });
     if (emailExists)
       return sendError(
@@ -241,12 +243,17 @@ export async function register(req, res) {
         "PAN_ALREADY_EXISTS",
         "PAN number is already registered.",
       );
+    console.timeEnd("register:db-uniqueness-checks");
 
+    console.time("register:bcrypt-password");
     const hashedPassword = await hash(password, 10);
+    console.timeEnd("register:bcrypt-password");
 
     // ✅ Validation passed - Generate and send OTP
     const otp = generateOtp();
+    console.time("register:bcrypt-otp");
     const otpHash = await hash(otp, 10);
+    console.timeEnd("register:bcrypt-otp");
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
     let finalBusinessCategory = business_category
@@ -279,6 +286,7 @@ export async function register(req, res) {
     }
 
     // Store OTP with registration data
+    console.time("register:db-create-otp-row");
     await prisma.registrationOtp.create({
       data: {
         email,
@@ -300,10 +308,12 @@ export async function register(req, res) {
         business_logo_mimetype: businessLogoMimetype,
       },
     });
+    console.timeEnd("register:db-create-otp-row");
 
     // Send OTP email
-    await sendRegistrationOtpEmail({ to: email, otp });
+    sendRegistrationOtpEmail({ to: email, otp }).catch(err => console.error("Failed to send registration OTP email:", err));
 
+    console.timeEnd("register:total");
     return sendSuccess(res, 200, {
       message: "Registration data validated. OTP sent to email.",
       requires_verification: true,
@@ -693,11 +703,11 @@ export async function login(req, res) {
             req.ip ||
             req.headers["x-forwarded-for"] ||
             req.socket.remoteAddress;
-          await sendSuspiciousLoginEmail({
+          sendSuspiciousLoginEmail({
             to: owner.email,
             device_name: deviceLabel,
             ip_address: currentIp,
-          });
+          }).catch(err => console.error("Failed to send suspicious login email:", err));
           console.warn(
             `[SECURITY] Metadata anomaly mismatch detected for device_id: ${device_id}. Trust revoked.`,
           );
@@ -781,13 +791,13 @@ export async function login(req, res) {
       const approveLink = `${baseUrl}/api/auth/device-verification/approve?token=${verificationToken}`;
       const denyLink = `${baseUrl}/api/auth/device-verification/deny?token=${verificationToken}`;
 
-      await sendDeviceVerificationLinksEmail({
+      sendDeviceVerificationLinksEmail({
         to: owner.email,
         device_name: finalDeviceName,
         ip_address: req.ip,
         approve_link: approveLink,
         deny_link: denyLink,
-      });
+      }).catch(err => console.error("Failed to send device verification email:", err));
 
       const reasonMessage = metadataMismatchDetected
         ? "Suspicious device activity. Trust has been revoked. Verification link sent to email."
@@ -822,10 +832,10 @@ export async function login(req, res) {
         },
       });
 
-      await send2FaOtpEmail({
+      send2FaOtpEmail({
         to: owner.email,
         otp,
-      });
+      }).catch(err => console.error("Failed to send 2FA OTP email:", err));
 
       const preAuthToken = sign(
         {
@@ -1370,7 +1380,7 @@ export async function forgotPasswordSendOtp(req, res) {
       },
     });
 
-    await sendOtpEmail({ to: owner.email, otp });
+    sendOtpEmail({ to: owner.email, otp }).catch(err => console.error("Failed to send password reset OTP email:", err));
 
     return res.status(200).json({ message: "OTP sent to email." });
   } catch (error) {
@@ -1691,7 +1701,7 @@ export async function sendRegistrationOtp(req, res) {
       });
     }
 
-    await sendRegistrationOtpEmail({ to: email, otp });
+    sendRegistrationOtpEmail({ to: email, otp }).catch(err => console.error("Failed to send registration OTP email:", err));
 
     return sendSuccess(res, 200, {
       message: "OTP sent to email.",
@@ -2113,10 +2123,10 @@ export async function getDeviceVerificationStatus(req, res) {
           },
         });
 
-        await send2FaOtpEmail({
+        send2FaOtpEmail({
           to: owner.email,
           otp,
-        });
+        }).catch(err => console.error("Failed to send 2FA OTP email:", err));
 
         const preAuthToken = sign(
           {
@@ -2370,10 +2380,10 @@ export async function setup2FA(req, res) {
       },
     });
 
-    await send2FaOtpEmail({
+    send2FaOtpEmail({
       to: owner.email,
       otp,
-    });
+    }).catch(err => console.error("Failed to send 2FA setup OTP email:", err));
 
     return sendSuccess(res, 200, {
       message: "Verification code sent to your email.",
@@ -2495,10 +2505,10 @@ export async function sendDisable2FAOtp(req, res) {
       },
     });
 
-    await send2FaOtpEmail({
+    send2FaOtpEmail({
       to: owner.email,
       otp,
-    });
+    }).catch(err => console.error("Failed to send 2FA disable OTP email:", err));
 
     return sendSuccess(res, 200, {
       message: "Verification code sent to your email.",
