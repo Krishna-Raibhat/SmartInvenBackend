@@ -102,20 +102,38 @@ export const approve = async (req, res) => {
     ]);
 
     // Send activation email (dynamic import for CommonJS module)
-    try {
-      const mailer = await import("../utils/mailer.js");
-      await mailer.sendAccountActivatedEmail({
-        to: proof.owner.email,
-        full_name: proof.owner.full_name,
-      });
-    } catch (emailErr) {
-      console.error("Failed to send activation email:", emailErr);
-      // Don't fail the request if email fails
+    // Send activation email
+    let emailSent = false;
+    let emailError = null;
+
+    if (!proof.owner?.email) {
+      console.error(
+        `⚠️ Cannot send activation email — owner ${proof.owner_id} has no email on file.`,
+      );
+      emailError = "OWNER_EMAIL_MISSING";
+    } else {
+      try {
+        const mailer = await import("../utils/mailer.js");
+        await mailer.sendAccountActivatedEmail({
+          to: proof.owner.email,
+          full_name: proof.owner.full_name,
+        });
+        emailSent = true;
+        console.log(`✅ Activation email sent to ${proof.owner.email}`);
+      } catch (err) {
+        console.error(
+          `❌ Failed to send activation email to ${proof.owner.email}:`,
+          err,
+        );
+        emailError = err.message;
+      }
     }
 
     return res.status(200).json({
       success: true,
       message: "Payment approved. Owner is now active with 1-year subscription.",
+      email_sent: emailSent,
+      ...(emailError ? { email_error: emailError } : {}),
     });
   } catch (err) {
     return fail(res, 500, "SERVER_ERROR", err.message);
