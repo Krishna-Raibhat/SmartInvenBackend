@@ -269,9 +269,19 @@ export const sendAccountActivatedEmail = async ({ to, full_name }) => {
           <!-- Success Icon -->
           <tr>
             <td align="center" style="padding:36px 48px 0;">
-              <div style="width:72px;height:72px;background:#e8f5e9;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin-bottom:4px;">
-                <div style="font-size:36px;line-height:72px;">✅</div>
-              </div>
+              <table cellpadding="0" cellspacing="0" style="width:72px;height:72px;">
+                <tr>
+                  <td align="center" valign="middle" style="width:72px;height:72px;background:#e8f5e9;border-radius:50%;">
+                    <table cellpadding="0" cellspacing="0" style="width:32px;height:32px;">
+                      <tr>
+                        <td align="center" valign="middle" style="width:32px;height:32px;border-radius:50%;background:#22c55e;">
+                          <span style="display:inline-block;color:#ffffff;font-size:18px;font-weight:700;line-height:1;font-family:Arial,sans-serif;">✓</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
