@@ -14,7 +14,7 @@ import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { generateSecret, verifySync, generateURI } from "otplib";
 import crypto from "crypto";
 import { hashOTP, verifyOTPHash } from "../utils/otp.js";
-import { uploadToS3, getS3Url } from "../utils/s3.js";
+import { uploadToS3, getSignedUrl } from "../utils/s3.js";
 
 const { sign, verify } = jwt;
 
@@ -966,6 +966,9 @@ export async function me(req, res) {
     }
 
     const pendingPayment = owner.paymentProofs[0] ?? null;
+    const businessLogoUrl = owner.business_logo
+      ? await getSignedUrl(owner.business_logo, 24 * 60 * 60)
+      : null;
 
     return sendSuccess(res, 200, {
       owner: {
@@ -981,9 +984,7 @@ export async function me(req, res) {
         business_category: owner.business_category,
         business_name: owner.business_name,
         business_logo: owner.business_logo,
-        business_logo_url: owner.business_logo
-          ? getS3Url(owner.business_logo)
-          : null,
+        business_logo_url: businessLogoUrl,
         pan_number: owner.pan_number,
         subscription_expires_at: owner.subscription_expires_at,
         two_factor_enabled: owner.two_factor_enabled,
@@ -1166,6 +1167,10 @@ export async function updateMe(req, res) {
       },
     });
 
+    const businessLogoUrl = updatedOwner.business_logo
+      ? await getSignedUrl(updatedOwner.business_logo, 24 * 60 * 60)
+      : null;
+
     const token = generateToken(updatedOwner);
 
     return sendSuccess(res, 200, {
@@ -1173,9 +1178,7 @@ export async function updateMe(req, res) {
       token,
       owner: {
         ...updatedOwner,
-        business_logo_url: updatedOwner.business_logo
-          ? getS3Url(updatedOwner.business_logo)
-          : null,
+        business_logo_url: businessLogoUrl,
       },
     });
   } catch (err) {

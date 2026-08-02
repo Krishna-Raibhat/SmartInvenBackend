@@ -97,7 +97,9 @@ class StoreBatchSyncService {
                 result.id_mapping[cat.local_id] = created.category_id;
               } catch (svcErr) {
                 if (svcErr.code === "DUPLICATE") {
-                  const category_name = String(cat.category_name).trim().toLowerCase();
+                  const category_name = String(cat.category_name)
+                    .trim()
+                    .toLowerCase();
                   const duplicate = await prisma.storeCategory.findFirst({
                     where: { owner_id, category_name },
                   });
@@ -143,9 +145,13 @@ class StoreBatchSyncService {
               }
             } else if (operation === "update") {
               const category_id = cat.category_id || cat.local_id;
-              const updated = await storeCategoryService.update(owner_id, category_id, {
-                category_name: cat.category_name,
-              });
+              const updated = await storeCategoryService.update(
+                owner_id,
+                category_id,
+                {
+                  category_name: cat.category_name,
+                },
+              );
 
               result.synced.categories.push({
                 local_id: cat.local_id,
@@ -348,12 +354,16 @@ class StoreBatchSyncService {
               }
             } else if (operation === "update") {
               const supplier_id = supplier.supplier_id || supplier.local_id;
-              const updated = await storeSupplierService.update(owner_id, supplier_id, {
-                supplier_name: supplier.supplier_name,
-                phone: supplier.phone,
-                email: supplier.email,
-                address: supplier.address,
-              });
+              const updated = await storeSupplierService.update(
+                owner_id,
+                supplier_id,
+                {
+                  supplier_name: supplier.supplier_name,
+                  phone: supplier.phone,
+                  email: supplier.email,
+                  address: supplier.address,
+                },
+              );
 
               result.synced.suppliers.push({
                 local_id: supplier.local_id,
@@ -476,15 +486,19 @@ class StoreBatchSyncService {
                 ? result.id_mapping[product.unit_id] || product.unit_id
                 : undefined;
 
-              const updated = await storeProductService.update(owner_id, product_id, {
-                category_id,
-                unit_id,
-                product_name: product.product_name,
-                type: product.type,
-                description: product.description,
-                cp: product.cp,
-                sp: product.sp,
-              });
+              const updated = await storeProductService.update(
+                owner_id,
+                product_id,
+                {
+                  category_id,
+                  unit_id,
+                  product_name: product.product_name,
+                  type: product.type,
+                  description: product.description,
+                  cp: product.cp,
+                  sp: product.sp,
+                },
+              );
 
               result.synced.products.push({
                 local_id: product.local_id,
@@ -513,9 +527,86 @@ class StoreBatchSyncService {
       }
 
       // 5. Sync Stock Lots (depends on: product_id, supplier_id) — CREATE ONLY
-      if (stock_lots && stock_lots.length > 0) {
+      // if (stock_lots && stock_lots.length > 0) {
+      //   for (const lot of stock_lots) {
+      //     try {
+      //       const existing = await this.findByIdempotencyKey(
+      //         owner_id,
+      //         "store_stock_lot",
+      //         lot.local_id,
+      //       );
+
+      //       if (existing) {
+      //         result.synced.stock_lots.push({
+      //           local_id: lot.local_id,
+      //           server_id: existing.lot_id,
+      //           status: "already_synced",
+      //         });
+      //         result.id_mapping[lot.local_id] = existing.lot_id;
+      //         continue;
+      //       }
+
+      //       const product_id = result.id_mapping[lot.product_id] || lot.product_id;
+      //       const supplier_id = result.id_mapping[lot.supplier_id] || lot.supplier_id;
+
+      //       const created = await storeStockLotService.create({
+      //         owner_id,
+      //         product_id,
+      //         supplier_id,
+      //         qty_in: lot.qty_in,
+      //         cp: lot.cp,
+      //         sp: lot.sp,
+      //       });
+
+      //       await this.saveIdempotencyKey(
+      //         owner_id,
+      //         "store_stock_lot",
+      //         lot.local_id,
+      //         created.lot_id,
+      //         "create",
+      //       );
+
+      //       result.synced.stock_lots.push({
+      //         local_id: lot.local_id,
+      //         server_id: created.lot_id,
+      //         status: "created",
+      //       });
+      //       result.id_mapping[lot.local_id] = created.lot_id;
+      //     } catch (err) {
+      //       result.failed.push({
+      //         type: "stock_lot",
+      //         local_id: lot.local_id,
+      //         operation: "create",
+      //         error: err.message,
+      //       });
+      //     }
+      //   }
+      // }
+
+      // 5. Sync Stock Lots (depends on: product_id, supplier_id) — CREATE ONLY
+      // storeStockLotService.create() accepts a stock-in batch with an items array.
+      if (Array.isArray(stock_lots) && stock_lots.length > 0) {
         for (const lot of stock_lots) {
+          const operation = lot.operation || "create";
+
           try {
+            if (operation !== "create") {
+              const error = new Error(
+                `Unsupported stock lot operation: ${operation}`,
+              );
+              error.code = "UNSUPPORTED_OPERATION";
+              throw error;
+            }
+
+            if (!lot.local_id) {
+              const error = new Error(
+                "local_id is required for stock lot synchronization.",
+              );
+              error.code = "REQUIRED_FIELDS";
+              throw error;
+            }
+
+            // Prevent creating the same local stock lot more than once.
             const existing = await this.findByIdempotencyKey(
               owner_id,
               "store_stock_lot",
@@ -523,47 +614,100 @@ class StoreBatchSyncService {
             );
 
             if (existing) {
+              const existingLotId =
+                existing.lot_id || existing.server_id || existing.id;
+
+              if (!existingLotId) {
+                const error = new Error(
+                  "The existing stock lot synchronization record has no server ID.",
+                );
+                error.code = "INVALID_IDEMPOTENCY_RECORD";
+                throw error;
+              }
+
               result.synced.stock_lots.push({
                 local_id: lot.local_id,
-                server_id: existing.lot_id,
+                server_id: existingLotId,
                 status: "already_synced",
               });
-              result.id_mapping[lot.local_id] = existing.lot_id;
+
+              result.id_mapping[lot.local_id] = existingLotId;
               continue;
             }
 
-            const product_id = result.id_mapping[lot.product_id] || lot.product_id;
-            const supplier_id = result.id_mapping[lot.supplier_id] || lot.supplier_id;
+            // Replace temporary product/supplier IDs with server IDs when they were
+            // created earlier in the same batch.
+            const product_id =
+              result.id_mapping[lot.product_id] || lot.product_id;
 
-            const created = await storeStockLotService.create({
+            const supplier_id =
+              result.id_mapping[lot.supplier_id] || lot.supplier_id;
+
+            if (!product_id) {
+              const error = new Error("product_id is required.");
+              error.code = "REQUIRED_FIELDS";
+              throw error;
+            }
+
+            if (!supplier_id) {
+              const error = new Error("supplier_id is required.");
+              error.code = "REQUIRED_FIELDS";
+              throw error;
+            }
+
+            // The current stock-lot service requires an items array.
+            // Each offline lot is submitted as a one-item stock-in batch.
+            const createdBatch = await storeStockLotService.create({
               owner_id,
-              product_id,
               supplier_id,
-              qty_in: lot.qty_in,
-              cp: lot.cp,
-              sp: lot.sp,
+              bill_number: lot.bill_number ?? null,
+              lot_date: lot.lot_date ?? null,
+              items: [
+                {
+                  product_id,
+                  qty_in: lot.qty_in,
+                  cp: lot.cp,
+                  sp: lot.sp,
+                },
+              ],
             });
+
+            // Support either response structure:
+            // { lot: {...} } or { lots: [{...}] }
+            const createdLot =
+              createdBatch?.lot ||
+              (Array.isArray(createdBatch?.lots) ? createdBatch.lots[0] : null);
+
+            if (!createdLot?.lot_id) {
+              const error = new Error(
+                "Stock lot was created but the server did not return a lot ID.",
+              );
+              error.code = "INVALID_STOCK_LOT_RESPONSE";
+              throw error;
+            }
 
             await this.saveIdempotencyKey(
               owner_id,
               "store_stock_lot",
               lot.local_id,
-              created.lot_id,
+              createdLot.lot_id,
               "create",
             );
 
             result.synced.stock_lots.push({
               local_id: lot.local_id,
-              server_id: created.lot_id,
+              server_id: createdLot.lot_id,
               status: "created",
             });
-            result.id_mapping[lot.local_id] = created.lot_id;
+
+            result.id_mapping[lot.local_id] = createdLot.lot_id;
           } catch (err) {
             result.failed.push({
               type: "stock_lot",
               local_id: lot.local_id,
-              operation: "create",
-              error: err.message,
+              operation,
+              error: err?.message || "Failed to synchronize stock lot.",
+              error_code: err?.code || "STOCK_LOT_SYNC_FAILED",
             });
           }
         }
@@ -661,7 +805,8 @@ class StoreBatchSyncService {
               continue;
             }
 
-            const sales_id = result.id_mapping[payment.sales_id] || payment.sales_id;
+            const sales_id =
+              result.id_mapping[payment.sales_id] || payment.sales_id;
 
             const updated = await storeSalesService.addPayment(
               owner_id,
@@ -727,11 +872,14 @@ class StoreBatchSyncService {
               note: item.note,
             }));
 
-            const created = await storeCustomerReturnService.createReturn(owner_id, {
-              sales_id,
-              note: ret.note,
-              items,
-            });
+            const created = await storeCustomerReturnService.createReturn(
+              owner_id,
+              {
+                sales_id,
+                note: ret.note,
+                items,
+              },
+            );
 
             const return_id = created.return.return_id;
 
@@ -792,11 +940,14 @@ class StoreBatchSyncService {
               note: item.note,
             }));
 
-            const created = await storeSupplierReturnService.createReturn(owner_id, {
-              supplier_id,
-              note: ret.note,
-              items,
-            });
+            const created = await storeSupplierReturnService.createReturn(
+              owner_id,
+              {
+                supplier_id,
+                note: ret.note,
+                items,
+              },
+            );
 
             await this.saveIdempotencyKey(
               owner_id,
@@ -894,9 +1045,13 @@ class StoreBatchSyncService {
               }
             } else if (operation === "update") {
               const title_id = title.title_id || title.local_id;
-              const updated = await expenseTitleService.update(owner_id, title_id, {
-                title: title.title,
-              });
+              const updated = await expenseTitleService.update(
+                owner_id,
+                title_id,
+                {
+                  title: title.title,
+                },
+              );
 
               result.synced.expense_titles.push({
                 local_id: title.local_id,
@@ -977,11 +1132,15 @@ class StoreBatchSyncService {
                 ? result.id_mapping[expense.title_id] || expense.title_id
                 : undefined;
 
-              const updated = await expenseService.update(owner_id, expense_id, {
-                title_id,
-                amount: expense.amount,
-                note: expense.note,
-              });
+              const updated = await expenseService.update(
+                owner_id,
+                expense_id,
+                {
+                  title_id,
+                  amount: expense.amount,
+                  note: expense.note,
+                },
+              );
 
               result.synced.expenses.push({
                 local_id: expense.local_id,
@@ -1011,7 +1170,10 @@ class StoreBatchSyncService {
 
       // Single, gated credit summary — computed once, only if relevant data was in this batch
       if (sales?.length || credit_payments?.length) {
-        const credit = await storeSalesService.listCredit(owner_id, { page: 1, limit: 100 });
+        const credit = await storeSalesService.listCredit(owner_id, {
+          page: 1,
+          limit: 100,
+        });
         result.credit_summary = credit.data;
       }
 
@@ -1033,7 +1195,13 @@ class StoreBatchSyncService {
     return { [entity_type.split("_").pop() + "_id"]: record.server_id };
   }
 
-  async saveIdempotencyKey(owner_id, entity_type, local_id, server_id, operation = "create") {
+  async saveIdempotencyKey(
+    owner_id,
+    entity_type,
+    local_id,
+    server_id,
+    operation = "create",
+  ) {
     return prisma.syncIdempotency.upsert({
       where: {
         owner_id_entity_type_local_id: { owner_id, entity_type, local_id },
