@@ -969,7 +969,7 @@ export async function login(req, res) {
     if (!isMatch) {
       // Increment failed login attempts
       const newAttempts = (owner.failed_login_attempts || 0) + 1;
-      const maxAttempts = 6;
+      const maxAttempts = 10;
 
       if (newAttempts >= maxAttempts) {
         // Lock account for 30 minutes
@@ -4144,5 +4144,31 @@ export async function deleteDevice(req, res) {
       "SERVER_ERROR",
       "Failed to revoke device access.",
     );
+  }
+}
+
+export async function logout(req, res) {
+  try {
+    const ownerId = req.owner?.owner_id;
+    const { fcm_token } = req.body;
+
+    if (!ownerId) {
+      return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+    }
+
+    // Only clear if it matches what's currently stored, so logging out
+    // on one device doesn't wipe another device's active token
+    await prisma.owner.updateMany({
+      where: {
+        owner_id: ownerId,
+        ...(fcm_token ? { fcm_token } : {}),
+      },
+      data: { fcm_token: null },
+    });
+
+    return sendSuccess(res, 200, { message: "Logged out successfully." });
+  } catch (err) {
+    console.error("logout error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Logout failed.");
   }
 }

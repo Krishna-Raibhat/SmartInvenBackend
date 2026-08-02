@@ -3,6 +3,7 @@ import multer from "multer";
 import {
   register,
   login,
+  logout,
   me,
   updateMe,
   changePassword,
@@ -59,6 +60,7 @@ router.post("/login", deviceLoginLimiter, login);
 router.post("/login/google", googleLogin);
 router.post("/google", googleLogin);
 router.post("/login/verify-2fa", otpVerifyLimiter, verify2FA);
+router.post("/logout", authMiddleware, logout);
 
 // Device verification via email links
 router.get("/device-verification/approve", approveDevice);
