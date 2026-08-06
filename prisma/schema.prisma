@@ -1005,6 +1005,7 @@ model StoreSales {
   total_amount    Decimal                 @db.Decimal(10, 2)
   discount        Decimal                 @default(0) @db.Decimal(10, 2)
   paid_amount     Decimal                 @default(0) @db.Decimal(10, 2)
+  discount_percentage Decimal             @default(0) @db.Decimal(5, 2)
   note            String?
   created_at      DateTime                @default(now())
   updated_at      DateTime                @updatedAt

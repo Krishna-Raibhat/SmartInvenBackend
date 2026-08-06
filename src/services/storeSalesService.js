@@ -15,6 +15,7 @@ class StoreSalesService {
       payment_status,
       note,
       discount,
+      discount_percentage,
       items,
       payment_method,
     } = payload;
@@ -43,13 +44,13 @@ class StoreSalesService {
       throw e;
     }
 
-    const disc = new Decimal(Number(discount ?? 0));
-    if (disc.lt(0)) {
-      const e = new Error("discount must be a valid number >= 0");
-      e.status = 400;
-      e.code = "VALIDATION_DISCOUNT_INVALID";
-      throw e;
-    }
+    // const disc = new Decimal(Number(discount ?? 0));
+    // if (disc.lt(0)) {
+    //   const e = new Error("discount must be a valid number >= 0");
+    //   e.status = 400;
+    //   e.code = "VALIDATION_DISCOUNT_INVALID";
+    //   throw e;
+    // }
 
     // Resolve customer
     let finalCustomerId = customer_id ?? null;
@@ -321,6 +322,37 @@ class StoreSalesService {
       }
     }
 
+    let disc;
+    let discPercentage;
+    if (discount !== undefined && discount !== null) {
+      disc = new Decimal(Number(discount));
+      if (disc.lt(0)) {
+        const e = new Error("discount must be a valid number >= 0");
+        e.status = 400;
+        e.code = "VALIDATION_DISCOUNT_INVALID";
+        throw e;
+      }
+      discPercentage =
+        discount_percentage !== undefined && discount_percentage !== null
+          ? new Decimal(Number(discount_percentage))
+          : totalAmount.gt(0)
+            ? disc.div(totalAmount).mul(100).toDecimalPlaces(2)
+            : new Decimal(0);
+    } else if (discount_percentage !== undefined && discount_percentage !== null) {
+      const pct = new Decimal(Number(discount_percentage));
+      if (pct.lt(0) || pct.gt(100)) {
+        const e = new Error("discount_percentage must be between 0 and 100");
+        e.status = 400;
+        e.code = "VALIDATION_DISCOUNT_PERCENTAGE_INVALID";
+        throw e;
+      }
+      disc = totalAmount.mul(pct).div(100).toDecimalPlaces(2);
+      discPercentage = pct;
+    } else {
+      disc = new Decimal(0);
+      discPercentage = new Decimal(0);
+    }
+
     if (disc.gt(totalAmount)) {
       const e = new Error("Discount cannot exceed total amount");
       e.status = 400;
@@ -439,6 +471,7 @@ class StoreSalesService {
           customer_id: finalCustomerId,
           total_amount: totalAmount,
           discount: disc,
+          discount_percentage: discPercentage,
           paid_amount: paid,
           due_amount: dueAmount,
           payment_status: finalStatus,
@@ -683,6 +716,7 @@ class StoreSalesService {
           s.payment_method,
           s.total_amount::numeric,
           s.discount::numeric,
+          s.discount_percentage::numeric,
           s.paid_amount::numeric,
           s.due_amount::numeric,
           s.note,
@@ -751,6 +785,7 @@ class StoreSalesService {
         customer_id: row.customer_id,
         total_amount: Number(row.total_amount || 0),
         discount: Number(row.discount || 0),
+        discount_percentage: Number(row.discount_percentage || 0),
         paid_amount: Number(row.paid_amount || 0),
         due_amount: Number(row.due_amount || 0),
         note: row.note,
