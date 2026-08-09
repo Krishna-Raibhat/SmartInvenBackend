@@ -119,6 +119,10 @@ const packageNameMap = {
   store: "Store",
 };
 
+const APP_STORE_REVIEW_EMAIL = normalizeEmail(
+  process.env.APP_STORE_REVIEW_EMAIL || "apple.review@elevatetech.com",
+);
+
 export async function register(req, res) {
   console.time("register:total");
   try {
@@ -1141,8 +1145,13 @@ export async function login(req, res) {
     // Check Device ID Verification
     let isDeviceTrusted = false;
     let metadataMismatchDetected = false;
+    const isAppStoreReviewAccount = owner.email === APP_STORE_REVIEW_EMAIL;
 
-    if (device_id) {
+    if (isAppStoreReviewAccount) {
+      // App Store reviewers use an unfamiliar device with no way to approve
+      // it via email — treat this one account as always trusted.
+      isDeviceTrusted = true;
+    } else if (device_id) {
       const dbDevice = await prisma.userDevice.findUnique({
         where: { owner_id_device_id: { owner_id: owner.owner_id, device_id } },
       });
@@ -1279,7 +1288,14 @@ export async function login(req, res) {
     }
 
     // Check 2FA Verification
-    if (owner.two_factor_enabled) {
+    // if (owner.two_factor_enabled) {
+    //   const otp = generateOtp();
+    //   const otpHash = await hash(otp, 10);
+    //   const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+    //   await prisma.twoFactorOtp.upsert({
+    // Check 2FA Verification
+    if (owner.two_factor_enabled && !isAppStoreReviewAccount) {
       const otp = generateOtp();
       const otpHash = await hash(otp, 10);
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
