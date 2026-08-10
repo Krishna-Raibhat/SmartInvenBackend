@@ -40,7 +40,7 @@ class StoreProductService {
           description: description?.trim() || null,
           cp: cp ?? null,
           sp: sp ?? null,
-          low_stock_threshold: low_stock_threshold ?? 40,
+          low_stock_threshold: low_stock_threshold ?? 5,
           status: true,
         },
         include: { category: true, unit: true },
@@ -58,7 +58,7 @@ class StoreProductService {
           description: description?.trim() || null,
           cp: cp ?? null,
           sp: sp ?? null,
-          low_stock_threshold: low_stock_threshold ?? 40,
+          low_stock_threshold: low_stock_threshold ?? 5,
         },
         include: {
           category: true,
@@ -170,7 +170,7 @@ class StoreProductService {
       return rows.map((p) => {
         const stock = Number(p.stock || 0);
 
-        const lowStockThreshold = Number(p.low_stock_threshold ?? 40);
+        const lowStockThreshold = Number(p.low_stock_threshold ?? 5);
 
         let stockStatus = "in_stock";
 
@@ -326,7 +326,7 @@ class StoreProductService {
         0,
       );
 
-      const lowStockThreshold = Number(p.low_stock_threshold ?? 40);
+      const lowStockThreshold = Number(p.low_stock_threshold ?? 5);
 
       let stockStatus = "in_stock";
 

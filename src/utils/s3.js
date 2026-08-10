@@ -66,4 +66,19 @@ export async function getSignedUrl(key, expiresIn = 3600) {
 }
 
 
+/**
+ * Delete an object from S3 by key.
+ * @param {string} key - e.g. "businesslogo/owner_abc/logo.png"
+ */
+export async function deleteFromS3(key) {
+  try {
+    await client.removeObject(BUCKET, key);
+    console.log(`[S3] Deleted object: ${key}`);
+  } catch (err) {
+    console.error(`[S3] Delete failed:`, err.message);
+    throw err;
+  }
+}
+
+
 

@@ -1049,3 +1049,300 @@ export const send2FaOtpEmail = async ({ to, otp }) => {
   });
 };
 
+
+// REGISTRATION SUCCESS / WELCOME EMAIL
+export const sendRegistrationSuccessEmail = async ({ to, full_name, business_name }) => {
+  const subject = "Welcome to SmartInven — Registration Successful!";
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Welcome to SmartInven</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:36px 40px 28px;">
+              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
+              <div style="font-size:13px;color:#a8c7fa;margin-top:4px;letter-spacing:0.5px;">Inventory Management System</div>
+            </td>
+          </tr>
+
+          <!-- Success Icon -->
+          <tr>
+            <td align="center" style="padding:36px 48px 0;">
+              <table cellpadding="0" cellspacing="0" style="width:72px;height:72px;">
+                <tr>
+                  <td align="center" valign="middle" style="width:72px;height:72px;background:#e8f5e9;border-radius:50%;">
+                    <table cellpadding="0" cellspacing="0" style="width:32px;height:32px;">
+                      <tr>
+                        <td align="center" valign="middle" style="width:32px;height:32px;border-radius:50%;background:#22c55e;">
+                          <span style="display:inline-block;color:#ffffff;font-size:18px;font-weight:700;line-height:1;font-family:Arial,sans-serif;">✓</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:24px 48px 32px;">
+              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;text-align:center;">Registration Successful!</p>
+              <p style="margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.7;text-align:center;">
+                Hello <strong>${full_name}</strong>, welcome to SmartInven!<br/>
+                Your account${business_name ? ` for <strong>${business_name}</strong>` : ""} has been created successfully and your 30-day free trial has started.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td style="background:#f0f5ff;border-radius:10px;padding:16px 20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr><td style="font-size:12px;color:#1a73e8;font-weight:600;padding-bottom:4px;">🎉 &nbsp;What's Next</td></tr>
+                      <tr><td style="font-size:14px;color:#1a1a2e;line-height:1.6;">Log in to your account and start setting up your inventory, products, and team.</td></tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;text-align:center;">
+                If you have any questions, our support team is here to help.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding:0 48px;">
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 48px 32px;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                © ${new Date().getFullYear()} SmartInven. All rights reserved.<br/>
+                This is an automated email — please do not reply.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `Hello ${full_name},\n\nWelcome to SmartInven! Your account${business_name ? ` for ${business_name}` : ""} has been created successfully and your 30-day free trial has started.\n\nLog in to get started.\n\nBest regards,\nSmartInven Team`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    text,
+  });
+};
+
+
+
+// PAYMENT RECEIVED / PENDING REVIEW EMAIL
+export const sendPaymentReceivedEmail = async ({ to, full_name }) => {
+  const subject = "Payment Received — Under Review — SmartInven";
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Payment Received</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:36px 40px 28px;">
+              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
+              <div style="font-size:13px;color:#a8c7fa;margin-top:4px;letter-spacing:0.5px;">Inventory Management System</div>
+            </td>
+          </tr>
+
+          <!-- Icon -->
+          <tr>
+            <td align="center" style="padding:36px 48px 0;">
+              <table cellpadding="0" cellspacing="0" style="width:72px;height:72px;">
+                <tr>
+                  <td align="center" valign="middle" style="width:72px;height:72px;background:#fff8e1;border-radius:50%;">
+                    <div style="font-size:32px;line-height:72px;">🧾</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:24px 48px 32px;">
+              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;text-align:center;">Payment Received</p>
+              <p style="margin:0 0 28px;font-size:14px;color:#6b7280;line-height:1.7;text-align:center;">
+                Hello <strong>${full_name}</strong>, we've received your payment proof.<br/>
+                Our team will review it and activate your subscription shortly.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td style="background:#f0f5ff;border-radius:10px;padding:16px 20px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr><td style="font-size:12px;color:#1a73e8;font-weight:600;padding-bottom:4px;">⏳ &nbsp;What's Next</td></tr>
+                      <tr><td style="font-size:14px;color:#1a1a2e;line-height:1.6;">Your payment is now under review. You'll receive a confirmation email once it's approved and your account is activated.</td></tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;text-align:center;">
+                This usually takes a short while. If you have any questions, our support team is here to help.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding:0 48px;">
+              <hr style="border:none;border-top:1px solid #e5e7eb;margin:0;" />
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 48px 32px;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                © ${new Date().getFullYear()} SmartInven. All rights reserved.<br/>
+                This is an automated email — please do not reply.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `Hello ${full_name},\n\nWe've received your payment proof. Our team will review it and activate your subscription shortly. You'll receive a confirmation email once approved.\n\nBest regards,\nSmartInven Team`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html,
+    text,
+  });
+};
+
+// ADMIN NOTIFICATION: NEW PAYMENT PROOF SUBMITTED
+export const sendAdminPaymentNotificationEmail = async ({ owner_full_name, owner_email, owner_phone, proof_id }) => {
+  const subject = `New Payment Proof Submitted — ${owner_full_name || "SmartInven Owner"}`;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>New Payment Proof</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:linear-gradient(135deg,#1a73e8,#0d47a1);padding:36px 40px 28px;">
+              <div style="font-size:26px;font-weight:700;color:#ffffff;letter-spacing:1px;">SmartInven</div>
+              <div style="font-size:13px;color:#a8c7fa;margin-top:4px;letter-spacing:0.5px;">Admin Notification</div>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px 48px 32px;">
+              <p style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1a2e;">New Payment Proof Submitted</p>
+              <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">
+                An owner has submitted a payment proof and is awaiting review.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:24px;">
+                <tr>
+                  <td style="font-size:13px;color:#64748b;padding-bottom:8px;font-weight:600;width:35%;">Owner Name</td>
+                  <td style="font-size:14px;color:#1e293b;padding-bottom:8px;font-weight:500;">${owner_full_name || "N/A"}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#64748b;padding-bottom:8px;font-weight:600;">Email</td>
+                  <td style="font-size:14px;color:#1e293b;padding-bottom:8px;font-weight:500;">${owner_email || "N/A"}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#64748b;padding-bottom:8px;font-weight:600;">Phone</td>
+                  <td style="font-size:14px;color:#1e293b;padding-bottom:8px;font-weight:500;">${owner_phone || "N/A"}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#64748b;font-weight:600;">Proof ID</td>
+                  <td style="font-size:14px;color:#1e293b;font-weight:500;">${proof_id}</td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
+                Please review and approve or reject this submission from the admin dashboard.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center" style="padding:24px 48px 32px;background-color:#fafafa;border-top:1px solid #eee;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                © ${new Date().getFullYear()} SmartInven. Internal notification.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  const text = `New payment proof submitted.\n\nOwner: ${owner_full_name || "N/A"}\nEmail: ${owner_email || "N/A"}\nPhone: ${owner_phone || "N/A"}\nProof ID: ${proof_id}\n\nPlease review from the admin dashboard.`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: process.env.SUPPORT_EMAIL,
+    subject,
+    html,
+    text,
+  });
+};

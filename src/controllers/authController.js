@@ -9,12 +9,13 @@ import {
   sendSuspiciousLoginEmail,
   sendDeviceVerificationLinksEmail,
   send2FaOtpEmail,
+  sendRegistrationSuccessEmail,
 } from "../utils/mailer.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { generateSecret, verifySync, generateURI } from "otplib";
 import crypto from "crypto";
 import { hashOTP, verifyOTPHash } from "../utils/otp.js";
-import { uploadToS3, getSignedUrl } from "../utils/s3.js";
+import { uploadToS3, getSignedUrl, deleteFromS3 } from "../utils/s3.js";
 
 const { sign, verify } = jwt;
 
@@ -2393,6 +2394,14 @@ export async function verifyRegistrationOtp(req, res) {
       }
     }
 
+    // ✅ Send welcome / registration-success email (fire and forget)
+    sendRegistrationSuccessEmail({
+      to: owner.email,
+      full_name: owner.full_name,
+      business_name: owner.business_name,
+    }).catch(err => console.error("Failed to send registration success email:", err));
+
+
     // Generate token
     const token = generateToken({
       owner_id: owner.owner_id,
@@ -4047,6 +4056,12 @@ export async function googleLogin(req, res) {
         console.error("Failed to create default store category:", err);
       }
     }
+    // ✅ Send welcome / registration-success email (fire and forget)
+    sendRegistrationSuccessEmail({
+      to: newOwner.email,
+      full_name: newOwner.full_name,
+      business_name: newOwner.business_name,
+    }).catch(err => console.error("Failed to send registration success email:", err));
 
     // Generate JWT token
     const token = generateToken({
@@ -4186,5 +4201,78 @@ export async function logout(req, res) {
   } catch (err) {
     console.error("logout error:", err);
     return sendError(res, 500, "SERVER_ERROR", "Logout failed.");
+  }
+}
+
+/* =========================
+   DELETE ACCOUNT
+========================= */
+export async function deleteAccount(req, res) {
+  try {
+    const ownerId = req.owner?.owner_id;
+    if (!ownerId)
+      return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
+
+    const { password, confirm } = req.body;
+
+    if (confirm !== "DELETE") {
+      return sendError(
+        res,
+        400,
+        "CONFIRMATION_REQUIRED",
+        'Send confirm: "DELETE" in the request body to permanently delete your account.',
+      );
+    }
+
+    const owner = await prisma.owner.findUnique({
+      where: { owner_id: ownerId },
+      select: {
+        owner_id: true,
+        password: true,
+        auth_provider: true,
+        business_logo: true,
+      },
+    });
+
+    if (!owner)
+      return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
+
+    if (owner.auth_provider !== "google" && owner.password) {
+      if (!password) {
+        return sendError(
+          res,
+          400,
+          "VALIDATION_REQUIRED_FIELDS",
+          "Password is required to delete your account.",
+        );
+      }
+      const isMatch = await compare(password, owner.password);
+      if (!isMatch) {
+        return sendError(
+          res,
+          401,
+          "INVALID_CREDENTIALS",
+          "Incorrect password.",
+        );
+      }
+    }
+
+    if (owner.business_logo) {
+      try {
+        await deleteFromS3(owner.business_logo);
+      } catch (err) {
+        console.error("Failed to delete business logo from S3:", err);
+      }
+    }
+
+    await prisma.owner.delete({ where: { owner_id: ownerId } });
+
+    return sendSuccess(res, 200, {
+      message:
+        "Your account and all associated data have been permanently deleted.",
+    });
+  } catch (err) {
+    console.error("deleteAccount error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Failed to delete account.");
   }
 }

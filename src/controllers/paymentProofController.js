@@ -16,11 +16,17 @@ export const upload = async (req, res) => {
     }
 
     // verify owner exists
+    // verify owner exists
     const owner = await prisma.owner.findUnique({
       where: { owner_id },
-      select: { owner_id: true },
+      select: { owner_id: true, full_name: true, email: true, phone: true },
     });
     if (!owner) return fail(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
+    // const owner = await prisma.owner.findUnique({
+    //   where: { owner_id },
+    //   select: { owner_id: true },
+    // });
+    // if (!owner) return fail(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
 
     if (!req.file) {
       return fail(res, 400, "FILE_REQUIRED", "Payment proof image is required.");
@@ -28,13 +34,46 @@ export const upload = async (req, res) => {
 
     const key = `payment-proofs/${owner_id}/${uuidv4()}.png`;
     const storedKey = await uploadToS3(req.file.buffer, key, req.file.mimetype);
-
     const proof = await prisma.paymentProof.create({
       data: { owner_id, image_url: storedKey },
       select: { id: true, owner_id: true, image_url: true, status: true, created_at: true },
     });
 
+    // ✅ Send "payment received / under review" email (fire and forget)
+    // ✅ Send emails (fire and forget) — one to owner, one to admin
+    const mailer = await import("../utils/mailer.js");
+
+    if (owner.email) {
+      mailer
+        .sendPaymentReceivedEmail({
+          to: owner.email,
+          full_name: owner.full_name,
+        })
+        .catch((err) =>
+          console.error("Failed to send payment received email:", err),
+        );
+    }
+
+   
+
+    mailer
+      .sendAdminPaymentNotificationEmail({
+        owner_full_name: owner.full_name,
+        owner_email: owner.email,
+        owner_phone: owner.phone,
+        proof_id: proof.id,
+      })
+      .catch((err) =>
+        console.error("Failed to send admin payment notification email:", err),
+      );
+
     return res.status(201).json({ success: true, data: proof });
+    // const proof = await prisma.paymentProof.create({
+    //   data: { owner_id, image_url: storedKey },
+    //   select: { id: true, owner_id: true, image_url: true, status: true, created_at: true },
+    // });
+
+    // return res.status(201).json({ success: true, data: proof });
   } catch (err) {
     return fail(res, 500, "SERVER_ERROR", err.message);
   }

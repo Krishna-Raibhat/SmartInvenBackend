@@ -39,14 +39,14 @@ class StoreNotificationPreferenceService {
   }
 
   /**
-   * Get the low-stock threshold for a given type. Defaults to 40 if unset.
+   * Get the low-stock threshold for a given type. Defaults to 5 if unset.
    */
   async getThreshold(owner_id, type) {
     const pref = await prisma.storeNotificationPreference.findUnique({
       where: { owner_id_type: { owner_id, type } },
       select: { threshold: true },
     });
-    return pref?.threshold ?? 40;
+    return pref?.threshold ?? 5;
   }
 
   /**

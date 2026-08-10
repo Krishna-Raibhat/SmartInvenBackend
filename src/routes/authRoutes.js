@@ -7,6 +7,7 @@ import {
   me,
   updateMe,
   changePassword,
+  deleteAccount,
   forgotPasswordSendOtp,
   forgotPasswordVerifyOtp,
   forgotPasswordReset,
@@ -76,6 +77,7 @@ router.put(
 );
 
 router.put("/change-password", authMiddleware, changePassword);
+router.delete("/me", authMiddleware, deleteAccount);
 
 router.post("/forgot-password", forgotPasswordSendOtp);
 router.post("/forgot-password/verify-otp", forgotPasswordVerifyOtp);
