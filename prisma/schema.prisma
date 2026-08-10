@@ -918,7 +918,7 @@ model StoreProduct {
   type                       StoreProductType    @default(item)
   status                     Boolean             @default(true)
   last_low_stock_notified_at DateTime?
-  low_stock_threshold        Int                 @default(40)
+  low_stock_threshold        Int                 @default(5)
   storeNotifications         StoreNotification[]
   category                   StoreCategory?      @relation(fields: [category_id], references: [category_id])
   owner                      Owner               @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
