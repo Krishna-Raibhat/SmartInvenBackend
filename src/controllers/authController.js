@@ -4213,7 +4213,7 @@ export async function deleteAccount(req, res) {
     if (!ownerId)
       return sendError(res, 401, "AUTH_UNAUTHORIZED", "Unauthorized.");
 
-    const { password, confirm } = req.body;
+    const { password, confirm, business_name } = req.body;
 
     if (confirm !== "DELETE") {
       return sendError(
@@ -4231,13 +4231,39 @@ export async function deleteAccount(req, res) {
         password: true,
         auth_provider: true,
         business_logo: true,
+        business_name: true,
       },
     });
 
     if (!owner)
       return sendError(res, 404, "OWNER_NOT_FOUND", "Owner not found.");
 
-    if (owner.auth_provider !== "google" && owner.password) {
+    if (owner.auth_provider === "google" || !owner.password) {
+      // Google-auth accounts have no password, so use business name as
+      // the confirmation step instead.
+      const typedBusinessName = String(business_name || "").trim();
+
+      if (!typedBusinessName) {
+        return sendError(
+          res,
+          400,
+          "VALIDATION_REQUIRED_FIELDS",
+          "business_name is required to delete your account.",
+        );
+      }
+
+      const actualBusinessName = String(owner.business_name || "").trim();
+
+      if (typedBusinessName.toLowerCase() !== actualBusinessName.toLowerCase()) {
+        return sendError(
+          res,
+          401,
+          "BUSINESS_NAME_MISMATCH",
+          "Your business name doesn't match.",
+        );
+      }
+    } else {
+      // Password-based accounts: verify password as before
       if (!password) {
         return sendError(
           res,

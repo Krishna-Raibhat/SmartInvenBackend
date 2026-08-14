@@ -795,7 +795,7 @@ Smart Inven
 
 // SUSPICIOUS LOGIN EMAIL
 export const sendSuspiciousLoginEmail = async ({ to, device_name, ip_address }) => {
-  const subject = "⚠️ Suspicious Login Attempt Detected — SmartInven";
+  const subject = "Suspicious Login Attempt Detected — SmartInven";
 
   const html = `
 <!DOCTYPE html>
@@ -855,7 +855,7 @@ export const sendSuspiciousLoginEmail = async ({ to, device_name, ip_address }) 
 
 // DEVICE VERIFICATION LINKS EMAIL
 export const sendDeviceVerificationLinksEmail = async ({ to, device_name, ip_address, approve_link, deny_link }) => {
-  const subject = "⚠️ Security Alert: New Sign-in Attempt — SmartInven";
+  const subject = "Security Alert: New Sign-in Attempt — SmartInven";
 
   const html = `
 <!DOCTYPE html>
@@ -948,7 +948,7 @@ export const sendDeviceVerificationLinksEmail = async ({ to, device_name, ip_add
 </html>
   `;
 
-  const text = `⚠️ Security Alert: New Sign-in Attempt\n\nWe detected a login attempt on a new or untrusted device for your SmartInven account.\n\nDevice: ${device_name || "Unknown Device"}\nIP Address: ${ip_address || "Unknown"}\nTime: ${new Date().toLocaleString()}\n\nWas this you?\n\nYes, it's me (Approve): ${approve_link}\nNo, it's not me (Deny): ${deny_link}\n\nIf you did not request this, please deny it immediately.`;
+  const text = ` Security Alert: New Sign-in Attempt\n\nWe detected a login attempt on a new or untrusted device for your SmartInven account.\n\nDevice: ${device_name || "Unknown Device"}\nIP Address: ${ip_address || "Unknown"}\nTime: ${new Date().toLocaleString()}\n\nWas this you?\n\nYes, it's me (Approve): ${approve_link}\nNo, it's not me (Deny): ${deny_link}\n\nIf you did not request this, please deny it immediately.`;
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
