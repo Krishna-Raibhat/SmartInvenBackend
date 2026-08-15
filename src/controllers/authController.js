@@ -316,7 +316,9 @@ export async function register(req, res) {
     console.timeEnd("register:db-create-otp-row");
 
     // Send OTP email
-    sendRegistrationOtpEmail({ to: email, otp }).catch(err => console.error("Failed to send registration OTP email:", err));
+    sendRegistrationOtpEmail({ to: email, otp }).catch((err) =>
+      console.error("Failed to send registration OTP email:", err),
+    );
 
     console.timeEnd("register:total");
     return sendSuccess(res, 200, {
@@ -1049,6 +1051,7 @@ export async function login(req, res) {
               email: owner.email,
               phone: owner.phone,
               package_id: owner.package_id,
+              auth_provider: owner.auth_provider,
               status: owner.status,
               package_key: owner.package?.package_key ?? null,
               package_name: owner.package?.package_name ?? null,
@@ -1182,7 +1185,9 @@ export async function login(req, res) {
             to: owner.email,
             device_name: deviceLabel,
             ip_address: currentIp,
-          }).catch(err => console.error("Failed to send suspicious login email:", err));
+          }).catch((err) =>
+            console.error("Failed to send suspicious login email:", err),
+          );
           console.warn(
             `[SECURITY] Metadata anomaly mismatch detected for device_id: ${device_id}. Trust revoked.`,
           );
@@ -1272,7 +1277,9 @@ export async function login(req, res) {
         ip_address: req.ip,
         approve_link: approveLink,
         deny_link: denyLink,
-      }).catch(err => console.error("Failed to send device verification email:", err));
+      }).catch((err) =>
+        console.error("Failed to send device verification email:", err),
+      );
 
       const reasonMessage = metadataMismatchDetected
         ? "Suspicious device activity. Trust has been revoked. Verification link sent to email."
@@ -1317,7 +1324,7 @@ export async function login(req, res) {
       send2FaOtpEmail({
         to: owner.email,
         otp,
-      }).catch(err => console.error("Failed to send 2FA OTP email:", err));
+      }).catch((err) => console.error("Failed to send 2FA OTP email:", err));
 
       const preAuthToken = sign(
         {
@@ -1420,6 +1427,7 @@ export async function me(req, res) {
         email: true,
         phone: true,
         status: true,
+        auth_provider: true,
         created_at: true,
         package_id: true,
         business_category: true,
@@ -1469,6 +1477,7 @@ export async function me(req, res) {
         email: owner.email,
         phone: owner.phone,
         status: owner.status,
+        auth_provider: owner.auth_provider,
         created_at: owner.created_at,
         package_id: owner.package_id,
         package_key: owner.package?.package_key ?? null,
@@ -1862,7 +1871,9 @@ export async function forgotPasswordSendOtp(req, res) {
       },
     });
 
-    sendOtpEmail({ to: owner.email, otp }).catch(err => console.error("Failed to send password reset OTP email:", err));
+    sendOtpEmail({ to: owner.email, otp }).catch((err) =>
+      console.error("Failed to send password reset OTP email:", err),
+    );
 
     return res.status(200).json({ message: "OTP sent to email." });
   } catch (error) {
@@ -2183,7 +2194,9 @@ export async function sendRegistrationOtp(req, res) {
       });
     }
 
-    sendRegistrationOtpEmail({ to: email, otp }).catch(err => console.error("Failed to send registration OTP email:", err));
+    sendRegistrationOtpEmail({ to: email, otp }).catch((err) =>
+      console.error("Failed to send registration OTP email:", err),
+    );
 
     return sendSuccess(res, 200, {
       message: "OTP sent to email.",
@@ -2399,8 +2412,9 @@ export async function verifyRegistrationOtp(req, res) {
       to: owner.email,
       full_name: owner.full_name,
       business_name: owner.business_name,
-    }).catch(err => console.error("Failed to send registration success email:", err));
-
+    }).catch((err) =>
+      console.error("Failed to send registration success email:", err),
+    );
 
     // Generate token
     const token = generateToken({
@@ -2616,7 +2630,7 @@ export async function getDeviceVerificationStatus(req, res) {
         send2FaOtpEmail({
           to: owner.email,
           otp,
-        }).catch(err => console.error("Failed to send 2FA OTP email:", err));
+        }).catch((err) => console.error("Failed to send 2FA OTP email:", err));
 
         const preAuthToken = sign(
           {
@@ -2873,7 +2887,9 @@ export async function setup2FA(req, res) {
     send2FaOtpEmail({
       to: owner.email,
       otp,
-    }).catch(err => console.error("Failed to send 2FA setup OTP email:", err));
+    }).catch((err) =>
+      console.error("Failed to send 2FA setup OTP email:", err),
+    );
 
     return sendSuccess(res, 200, {
       message: "Verification code sent to your email.",
@@ -2998,7 +3014,9 @@ export async function sendDisable2FAOtp(req, res) {
     send2FaOtpEmail({
       to: owner.email,
       otp,
-    }).catch(err => console.error("Failed to send 2FA disable OTP email:", err));
+    }).catch((err) =>
+      console.error("Failed to send 2FA disable OTP email:", err),
+    );
 
     return sendSuccess(res, 200, {
       message: "Verification code sent to your email.",
@@ -3668,6 +3686,7 @@ export async function googleLogin(req, res) {
         business_category: true,
         business_name: true,
         status: true,
+        auth_provider: true,
         created_at: true,
         subscription_expires_at: true,
         trial_expires_at: true,
@@ -3699,6 +3718,7 @@ export async function googleLogin(req, res) {
                 email: existingGoogleOwner.email,
                 phone: existingGoogleOwner.phone,
                 package_id: existingGoogleOwner.package_id,
+                auth_provider: existingGoogleOwner.auth_provider,
                 status: existingGoogleOwner.status,
                 package_key: existingGoogleOwner.package?.package_key ?? null,
                 package_name: existingGoogleOwner.package?.package_name ?? null,
@@ -3810,6 +3830,8 @@ export async function googleLogin(req, res) {
           email: existingGoogleOwner.email,
           phone: existingGoogleOwner.phone,
           package_id: existingGoogleOwner.package_id,
+          auth_provider: existingGoogleOwner.auth_provider,
+
           business_category: existingGoogleOwner.business_category,
           business_name: existingGoogleOwner.business_name,
           status: existingGoogleOwner.status,
@@ -3871,6 +3893,7 @@ export async function googleLogin(req, res) {
               email: existingEmailOwner.email,
               phone: existingEmailOwner.phone,
               package_id: existingEmailOwner.package_id,
+              auth_provider: existingEmailOwner.auth_provider,
               business_category: existingEmailOwner.business_category,
               business_name: existingEmailOwner.business_name,
               status: existingEmailOwner.status,
@@ -4033,6 +4056,7 @@ export async function googleLogin(req, res) {
         email: true,
         phone: true,
         package_id: true,
+        auth_provider: true,
         business_category: true,
         business_name: true,
         pan_number: true,
@@ -4061,7 +4085,9 @@ export async function googleLogin(req, res) {
       to: newOwner.email,
       full_name: newOwner.full_name,
       business_name: newOwner.business_name,
-    }).catch(err => console.error("Failed to send registration success email:", err));
+    }).catch((err) =>
+      console.error("Failed to send registration success email:", err),
+    );
 
     // Generate JWT token
     const token = generateToken({
@@ -4080,6 +4106,7 @@ export async function googleLogin(req, res) {
         email: newOwner.email,
         phone: newOwner.phone,
         package_id: newOwner.package_id,
+        auth_provider: newOwner.auth_provider,
         business_category: newOwner.business_category,
         business_name: newOwner.business_name,
         pan_number: newOwner.pan_number,
@@ -4254,7 +4281,9 @@ export async function deleteAccount(req, res) {
 
       const actualBusinessName = String(owner.business_name || "").trim();
 
-      if (typedBusinessName.toLowerCase() !== actualBusinessName.toLowerCase()) {
+      if (
+        typedBusinessName.toLowerCase() !== actualBusinessName.toLowerCase()
+      ) {
         return sendError(
           res,
           401,
