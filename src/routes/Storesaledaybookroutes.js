@@ -1,6 +1,6 @@
 // src/routes/storeSaleDaybookRoutes.js
 import { Router } from "express";
-import * as ctrl from "../controllers/storeSaleDaybookController.js";
+import * as ctrl from "../controllers/Storesaledaybookcontroller.js";
 import authMiddleware from "../middlewares/authMiddleware.js";
 
 const router = Router();

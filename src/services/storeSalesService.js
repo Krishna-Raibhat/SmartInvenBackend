@@ -527,6 +527,7 @@ class StoreSalesService {
           discount: disc,
           discount_percentage: discPercentage,
           paid_amount: paid,
+          initial_paid_amount: paid,
           due_amount: dueAmount,
           payment_status: finalStatus,
           payment_method: finalPaymentMethod,
@@ -1031,10 +1032,23 @@ class StoreSalesService {
       };
       if (payment_method) updateData.payment_method = payment_method;
 
-      return tx.storeSales.update({
+      const updated = await tx.storeSales.update({
         where: { sales_id },
         data: updateData,
       });
+
+      // Log this collection for the daybook (audit trail only — does not
+      // affect paid_amount/due_amount logic above).
+      await tx.storeDuePayment.create({
+        data: {
+          owner_id,
+          sales_id,
+          amount: add,
+          payment_method: payment_method ?? "cash",
+        },
+      });
+
+      return updated;
     });
   }
 }
