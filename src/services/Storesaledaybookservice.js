@@ -1,178 +1,212 @@
 // src/services/storeSaleDaybookService.js
 import { prisma } from "../prisma/client.js";
-import storeFinancialsService from "./storeFinancialsService.js";
 import { parseNPTDateStart, parseNPTDateEnd, todayStartUTC, NPT_OFFSET_MS } from "../utils/nptTime.js";
-
 
 const num = (v) => (v === null || v === undefined ? 0 : Number(v));
 
-// Earliest possible created_at — used as the lower bound when summing
-// "everything before today" for the opening balance.
-const EPOCH = new Date(0);
-
 class StoreSaleDaybookService {
   /**
-   * Build the day's sales daybook for a store owner: customer-side
-   * activity only, each with a net-revenue impact (credit or debit) —
-   *   - Stock Out  → StoreSales            (credit, net of discount)
-   *   - Return     → StoreCustomerReturn   (debit, refund paid to customer)
-   *   - Expense    → StoreExpense          (debit, money spent)
-   *
-   * Net revenue is computed via storeFinancialsService.getCoreFinancials —
-   * the same single source of truth used by the Store Reports screen
-   * (net of discount, customer refunds, expenses), so the daybook's
-   * numbers always agree with the reports.
-   *
-   * The daybook itself is a single day's history, but the balance carries
-   * over from previous days:
-   *   opening_balance = net revenue accumulated from all activity BEFORE this day
-   *   closing_balance  = opening_balance + today's credits - today's debits
-   * so tomorrow's opening_balance is simply today's closing_balance.
-   *
-   * @param {string} owner_id
-   * @param {string|undefined} dateStr - optional "YYYY-MM-DD", defaults to today (server local time)
+   * Cash-based Daily Salesbook (Daybook):
+   *   - Sale entries    → amount actually paid AT SALE TIME (initial_paid_amount)
+   *   - Credit Received → old dues collected TODAY (store_due_payments)
+   *   - Expense / Return → outflow
+   * "Credit" = today's still-unpaid portion of today's sales (not part of inflow).
+   * closing_balance = today's inflow - today's outflow.
    */
   async getDaybook(owner_id, dateStr) {
     const { start, end, label } = this._resolveDayRange(dateStr);
-    const range = { gte: start, lte: end };
 
-    const [sales, customerReturns, expenses, todayFinancials, historyFinancials] =
-      await Promise.all([
-        // Stock Out (sale)
-        prisma.storeSales.findMany({
-          where: { owner_id, created_at: range },
-          select: {
-            sales_id: true,
-            total_amount: true,
-            discount: true,
-            payment_status: true,
-            created_at: true,
-            customer: { select: { full_name: true, phone: true } },
-            items: { select: { sales_item_id: true } },
-          },
-          orderBy: { created_at: "asc" },
-        }),
+    // Today's sales/payments/expenses/returns, fetched in ONE round trip
+    // via json_agg subqueries, instead of 4 separate queries.
+    const [row] = await prisma.$queryRaw`
+      SELECT
+        (SELECT COALESCE(json_agg(row_to_json(s)), '[]'::json) FROM (
+          SELECT
+            ss.sales_id,
+            ss.total_amount,
+            ss.discount,
+            ss.initial_paid_amount,
+            ss.payment_method,
+            ss.payment_status,
+            ss.created_at,
+            c.full_name AS customer_name,
+            c.phone AS customer_phone,
+            (SELECT COUNT(*) FROM store_sales_items si WHERE si.sales_id = ss.sales_id)::int AS item_count
+          FROM store_sales ss
+          LEFT JOIN customers c ON c.customer_id = ss.customer_id
+          WHERE ss.owner_id = ${owner_id} AND ss.created_at >= ${start} AND ss.created_at <= ${end}
+          ORDER BY ss.created_at ASC
+        ) s) AS sales_rows,
 
-        // Return (customer return / refund paid out)
-        prisma.storeCustomerReturn.findMany({
-          where: { owner_id, created_at: range },
-          select: {
-            return_id: true,
-            refund_amount: true,
-            note: true,
-            created_at: true,
-            sales: {
-              select: {
-                sales_id: true,
-                customer: { select: { full_name: true } },
-              },
-            },
-          },
-          orderBy: { created_at: "asc" },
-        }),
+        (SELECT COALESCE(json_agg(row_to_json(p)), '[]'::json) FROM (
+          SELECT
+            dp.payment_id,
+            dp.sales_id,
+            dp.amount,
+            dp.payment_method,
+            dp.note,
+            dp.created_at,
+            c.full_name AS customer_name,
+            c.phone AS customer_phone
+          FROM store_due_payments dp
+          LEFT JOIN store_sales ss ON ss.sales_id = dp.sales_id
+          LEFT JOIN customers c ON c.customer_id = ss.customer_id
+          WHERE dp.owner_id = ${owner_id} AND dp.created_at >= ${start} AND dp.created_at <= ${end}
+          ORDER BY dp.created_at ASC
+        ) p) AS due_payment_rows,
 
-        // Expense (money spent)
-        prisma.storeExpense.findMany({
-          where: { owner_id, created_at: range },
-          select: {
-            expense_id: true,
-            amount: true,
-            note: true,
-            created_at: true,
-            title: { select: { title: true } },
-          },
-          orderBy: { created_at: "asc" },
-        }),
+        (SELECT COALESCE(json_agg(row_to_json(e)), '[]'::json) FROM (
+          SELECT
+            ex.expense_id,
+            ex.amount,
+            ex.note,
+            ex.created_at,
+            t.title AS title
+          FROM store_expenses ex
+          LEFT JOIN store_expense_titles t ON t.title_id = ex.title_id
+          WHERE ex.owner_id = ${owner_id} AND ex.created_at >= ${start} AND ex.created_at <= ${end}
+          ORDER BY ex.created_at ASC
+        ) e) AS expense_rows,
 
-        // Same net-revenue math the Store Reports screen uses, for today
-        storeFinancialsService.getCoreFinancials(owner_id, start, end),
+        (SELECT COALESCE(json_agg(row_to_json(r)), '[]'::json) FROM (
+          SELECT
+            cr.return_id,
+            cr.refund_amount,
+            cr.note,
+            cr.created_at,
+            cr.sales_id,
+            c.full_name AS customer_name
+          FROM store_customer_returns cr
+          LEFT JOIN store_sales ss ON ss.sales_id = cr.sales_id
+          LEFT JOIN customers c ON c.customer_id = ss.customer_id
+          WHERE cr.owner_id = ${owner_id} AND cr.created_at >= ${start} AND cr.created_at <= ${end}
+          ORDER BY cr.created_at ASC
+        ) r) AS return_rows
+    `;
 
-        // ...and for everything before today, to derive the opening balance
-        storeFinancialsService.getCoreFinancials(owner_id, EPOCH, new Date(start.getTime() - 1)),
-      ]);
+    const sales = row.sales_rows || [];
+    const duePayments = row.due_payment_rows || [];
+    const expenses = row.expense_rows || [];
+    const customerReturns = row.return_rows || [];
 
+    let salesTotal = 0;
+    let collectedFromTodaysSales = 0;
+    const byMethod = { cash: 0, online: 0, cheque: 0 };
     const entries = [];
 
     for (const s of sales) {
-      const customerLabel = s.customer?.full_name || s.customer?.phone || "Walk-in Customer";
-      const netAmount = Math.max(0, num(s.total_amount) - num(s.discount));
+      const effectiveTotal = Math.max(0, num(s.total_amount) - num(s.discount));
+      const receivedNow = num(s.initial_paid_amount);
+      salesTotal += effectiveTotal;
+      collectedFromTodaysSales += receivedNow;
+      if (byMethod[s.payment_method] !== undefined) {
+        byMethod[s.payment_method] += receivedNow;
+      }
+
+      if (receivedNow > 0) {
+        const customerLabel = s.customer_name || s.customer_phone || "Walk-in Customer";
+        const itemCount = num(s.item_count);
+        entries.push({
+          entry_id: s.sales_id,
+          type: "SALE",
+          title: `Sale · ${s.sales_id.slice(0, 8).toUpperCase()}`,
+          reference: `${customerLabel} · ${itemCount} item${itemCount === 1 ? "" : "s"}`,
+          time: s.created_at,
+          flow: "credit",
+          amount: receivedNow,
+          payment_method: s.payment_method,
+          meta: {
+            payment_status: s.payment_status,
+            gross_amount: num(s.total_amount),
+            discount: num(s.discount),
+            invoice_total: effectiveTotal,
+          },
+        });
+      }
+    }
+
+    const creditToday = Math.max(0, salesTotal - collectedFromTodaysSales);
+
+    let duePaymentsTotal = 0;
+    for (const p of duePayments) {
+      const amount = num(p.amount);
+      duePaymentsTotal += amount;
+      if (byMethod[p.payment_method] !== undefined) {
+        byMethod[p.payment_method] += amount;
+      }
+      const customerLabel = p.customer_name || p.customer_phone || "Customer";
       entries.push({
-        entry_id: s.sales_id,
-        type: "STOCK_OUT",
-        title: `Stock Out · ${s.sales_id.slice(0, 8).toUpperCase()}`,
-        reference: `${customerLabel} · ${s.items.length} item${s.items.length === 1 ? "" : "s"}`,
-        time: s.created_at,
+        entry_id: p.payment_id,
+        type: "CREDIT_RECEIVED",
+        title: "Credit Received",
+        reference: p.note || customerLabel,
+        time: p.created_at,
         flow: "credit",
-        amount: netAmount,
-        meta: {
-          payment_status: s.payment_status,
-          gross_amount: num(s.total_amount),
-          discount: num(s.discount),
-        },
+        amount,
+        payment_method: p.payment_method,
       });
     }
 
-    for (const r of customerReturns) {
-      const customerLabel = r.sales?.customer?.full_name || "Customer";
-      entries.push({
-        entry_id: r.return_id,
-        type: "RETURN",
-        title: `Return · ${r.sales?.sales_id?.slice(0, 8).toUpperCase() || ""}`,
-        reference: r.note || `${customerLabel} · items returned`,
-        time: r.created_at,
-        flow: "debit",
-        amount: num(r.refund_amount),
-      });
-    }
-
+    let expensesTotal = 0;
     for (const e of expenses) {
+      const amount = num(e.amount);
+      expensesTotal += amount;
       entries.push({
         entry_id: e.expense_id,
         type: "EXPENSE",
-        title: `Expense · ${e.title?.title || "General"}`,
+        title: `Expense · ${e.title || "General"}`,
         reference: e.note || "Store expense",
         time: e.created_at,
         flow: "debit",
-        amount: num(e.amount),
+        amount,
+      });
+    }
+
+    let returnsTotal = 0;
+    for (const r of customerReturns) {
+      const amount = num(r.refund_amount);
+      returnsTotal += amount;
+      const customerLabel = r.customer_name || "Customer";
+      entries.push({
+        entry_id: r.return_id,
+        type: "RETURN",
+        title: `Return · ${r.sales_id ? r.sales_id.slice(0, 8).toUpperCase() : ""}`,
+        reference: r.note || `${customerLabel} · items returned`,
+        time: r.created_at,
+        flow: "debit",
+        amount,
       });
     }
 
     entries.sort((a, b) => new Date(a.time) - new Date(b.time));
 
-    // Credit/debit totals derived from the same figures storeFinancialsService
-    // computes for the reports screen (net_revenue is already total_amount -
-    // discount, GREATEST-floored at 0).
-    const total_credit = todayFinancials.net_revenue;
-    const total_debit = todayFinancials.total_refund + todayFinancials.total_expenses;
+    const total_inflow = collectedFromTodaysSales + duePaymentsTotal;
+    const total_outflow = expensesTotal + returnsTotal;
 
-    // Opening balance = Net revenue minus refunds and expenses from all previous days
-    // Using the same formula as profit report: (net_revenue - refunds) - expenses
-    const opening_balance = 
-      (historyFinancials.net_revenue - historyFinancials.total_refund) - historyFinancials.total_expenses;
-    const closing_balance = opening_balance + total_credit - total_debit;
+    const closing_balance = total_inflow - total_outflow;
 
-    // Running balance per entry, computed against this day's opening balance
-    let running = opening_balance;
-    for (const e of entries) {
-      if (e.flow === "credit") running += e.amount;
-      if (e.flow === "debit") running -= e.amount;
-      e.balance = running;
+    const payment_breakdown = {
+      cash: byMethod.cash,
+      online: byMethod.online,
+      credit: creditToday,
+    };
+    if (byMethod.cheque > 0) {
+      payment_breakdown.cheque = byMethod.cheque;
     }
 
     return {
       date: label,
-      opening_balance,
+      sales: salesTotal,
+      received: total_inflow,
+      expenses: expensesTotal,
+      credit: creditToday,
+      total_outflow,
+      payment_breakdown,
       closing_balance,
-      total_credit,
-      total_debit,
       entries,
     };
   }
 
-  /**
-   * Resolves a "YYYY-MM-DD" date string (or defaults to today) into a
-   * start/end-of-day range in server local time.
-   */
   _resolveDayRange(dateStr) {
     let start, end, label;
 
