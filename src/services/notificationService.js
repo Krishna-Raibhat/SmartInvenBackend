@@ -21,7 +21,7 @@ export const sendLowStockNotification = async ({
     return null;
   }
 
-  const title = "Low Stock Alert 🚨";
+  const title = "Low Stock Alert";
   const messageText = `${productName} is low (${remainingQty} left)`;
 
   /* ===============================

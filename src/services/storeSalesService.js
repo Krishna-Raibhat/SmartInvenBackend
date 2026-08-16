@@ -9,6 +9,7 @@ const Decimal = Prisma.Decimal;
 class StoreSalesService {
   async createSale(owner_id, payload) {
     const {
+      local_id,
       customer_id,
       customer,
       paid_amount,
@@ -20,9 +21,41 @@ class StoreSalesService {
       payment_method,
     } = payload;
 
+    const cleanLocalId = local_id != null ? String(local_id).trim() : null;
+
+    // ─────────────────────────────────────────────
+    // IDEMPOTENCY CHECK
+    // Same Flutter sale must never be created twice.
+    // ─────────────────────────────────────────────
+    if (cleanLocalId) {
+      const existingSync = await prisma.syncIdempotency.findUnique({
+        where: {
+          owner_id_entity_type_local_id: {
+            owner_id,
+            entity_type: "store_sale",
+            local_id: cleanLocalId,
+          },
+        },
+      });
+
+      if (existingSync?.server_id) {
+        const existingSale = await this.getById(
+          owner_id,
+          existingSync.server_id,
+        );
+
+        return {
+          ...existingSale,
+          local_id: cleanLocalId,
+        };
+      }
+    }
+
     const validMethods = ["cash", "online", "cheque", "credit"];
     if (payment_method && !validMethods.includes(payment_method)) {
-      const e = new Error("payment_method must be cash, online, cheque or credit");
+      const e = new Error(
+        "payment_method must be cash, online, cheque or credit",
+      );
       e.status = 400;
       e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
       throw e;
@@ -57,8 +90,12 @@ class StoreSalesService {
     let customerPhone = null;
 
     // Prefetch all products, lots, and resolved customer in parallel to avoid sequential queries
-    const productIds = [...new Set(items.map(item => item.product_id).filter(Boolean))];
-    const lotIds = [...new Set(items.map(item => item.lot_id).filter(Boolean))];
+    const productIds = [
+      ...new Set(items.map((item) => item.product_id).filter(Boolean)),
+    ];
+    const lotIds = [
+      ...new Set(items.map((item) => item.lot_id).filter(Boolean)),
+    ];
 
     const promises = [
       prisma.storeProduct.findMany({
@@ -68,13 +105,29 @@ class StoreSalesService {
       lotIds.length > 0
         ? prisma.storeStockLot.findMany({
             where: { lot_id: { in: lotIds }, owner_id },
-            select: { lot_id: true, product_id: true, cp: true, sp: true, qty_remaining: true },
+            select: {
+              lot_id: true,
+              product_id: true,
+              cp: true,
+              sp: true,
+              qty_remaining: true,
+            },
           })
         : Promise.resolve([]),
       prisma.storeStockLot.findMany({
-        where: { product_id: { in: productIds }, owner_id, qty_remaining: { gt: 0 } },
+        where: {
+          product_id: { in: productIds },
+          owner_id,
+          qty_remaining: { gt: 0 },
+        },
         orderBy: { created_at: "asc" },
-        select: { lot_id: true, product_id: true, cp: true, sp: true, qty_remaining: true },
+        select: {
+          lot_id: true,
+          product_id: true,
+          cp: true,
+          sp: true,
+          qty_remaining: true,
+        },
       }),
     ];
 
@@ -83,7 +136,7 @@ class StoreSalesService {
         prisma.customer.findFirst({
           where: { customer_id: finalCustomerId, owner_id },
           select: { customer_id: true },
-        })
+        }),
       );
     } else if (customer?.phone) {
       customerPhone = normalizeNepalPhone(String(customer.phone).trim());
@@ -99,7 +152,7 @@ class StoreSalesService {
         prisma.customer.findFirst({
           where: { owner_id, phone: customerPhone },
           select: { customer_id: true },
-        })
+        }),
       );
     }
 
@@ -145,8 +198,10 @@ class StoreSalesService {
       finalCustomerId = created.customer_id;
     }
 
-    const productMap = new Map(prefetchedProducts.map(p => [p.product_id, p]));
-    const lotMap = new Map(prefetchedLots.map(l => [l.lot_id, l]));
+    const productMap = new Map(
+      prefetchedProducts.map((p) => [p.product_id, p]),
+    );
+    const lotMap = new Map(prefetchedLots.map((l) => [l.lot_id, l]));
 
     const autoLotsMap = new Map();
     for (const lot of autoSelectedLots) {
@@ -192,7 +247,9 @@ class StoreSalesService {
         if (lot_id) {
           const lot = lotMap.get(lot_id);
           if (!lot || lot.product_id !== product_id) {
-            const e = new Error(`Stock lot ${lot_id} not found for this product`);
+            const e = new Error(
+              `Stock lot ${lot_id} not found for this product`,
+            );
             e.status = 404;
             e.code = "LOT_NOT_FOUND";
             throw e;
@@ -237,7 +294,7 @@ class StoreSalesService {
           });
         } else {
           const lots = autoLotsMap.get(product_id) || [];
-          const availableLots = lots.filter(l => l.qty_remaining > 0);
+          const availableLots = lots.filter((l) => l.qty_remaining > 0);
 
           if (availableLots.length === 0) {
             const e = new Error(`No stock available for product ${product_id}`);
@@ -253,7 +310,10 @@ class StoreSalesService {
 
             const deduct = Math.min(remaining, lot.qty_remaining);
             lot.qty_remaining -= deduct;
-            lotUpdatesMap.set(lot.lot_id, (lotUpdatesMap.get(lot.lot_id) || 0) + deduct);
+            lotUpdatesMap.set(
+              lot.lot_id,
+              (lotUpdatesMap.get(lot.lot_id) || 0) + deduct,
+            );
 
             const sellingPrice = new Decimal(itemSp ?? lot.sp);
             if (sellingPrice.lt(0)) {
@@ -296,7 +356,9 @@ class StoreSalesService {
       } else {
         const sellingPrice = new Decimal(itemSp ?? product.sp ?? 0);
         if (sellingPrice.lte(0)) {
-          const e = new Error(`sp is required and must be > 0 for service product ${product_id}`);
+          const e = new Error(
+            `sp is required and must be > 0 for service product ${product_id}`,
+          );
           e.status = 400;
           e.code = "VALIDATION_SP_REQUIRED";
           throw e;
@@ -338,7 +400,10 @@ class StoreSalesService {
           : totalAmount.gt(0)
             ? disc.div(totalAmount).mul(100).toDecimalPlaces(2)
             : new Decimal(0);
-    } else if (discount_percentage !== undefined && discount_percentage !== null) {
+    } else if (
+      discount_percentage !== undefined &&
+      discount_percentage !== null
+    ) {
       const pct = new Decimal(Number(discount_percentage));
       if (pct.lt(0) || pct.gt(100)) {
         const e = new Error("discount_percentage must be between 0 and 100");
@@ -378,10 +443,7 @@ class StoreSalesService {
 
     let finalStatus;
 
-    if (
-      effectiveTotal.lte(0) ||
-      remainingAmount.lte(MONEY_TOLERANCE)
-    ) {
+    if (effectiveTotal.lte(0) || remainingAmount.lte(MONEY_TOLERANCE)) {
       finalStatus = "paid";
     } else if (paid.gt(0)) {
       finalStatus = "partial";
@@ -389,10 +451,7 @@ class StoreSalesService {
       finalStatus = "pending";
     }
 
-    if (
-      payment_status === "paid" &&
-      remainingAmount.gt(MONEY_TOLERANCE)
-    ) {
+    if (payment_status === "paid" && remainingAmount.gt(MONEY_TOLERANCE)) {
       const e = new Error(
         "Cannot mark as paid when paid_amount is less than total",
       );
@@ -402,13 +461,8 @@ class StoreSalesService {
       throw e;
     }
 
-    if (
-      payment_status === "partial" &&
-      paid.lte(0)
-    ) {
-      const e = new Error(
-        "Cannot mark as partial when paid_amount is 0",
-      );
+    if (payment_status === "partial" && paid.lte(0)) {
+      const e = new Error("Cannot mark as partial when paid_amount is 0");
 
       e.status = 400;
       e.code = "VALIDATION_STATUS_INCONSISTENT";
@@ -481,16 +535,20 @@ class StoreSalesService {
       });
 
       if (lotUpdatesMap.size > 0) {
-        const updatesList = Array.from(lotUpdatesMap.entries()).map(([lot_id, decrement]) => ({ lot_id, decrement }));
-        const valuesSql = updatesList.map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::integer)`).join(", ");
-        const valuesArgs = updatesList.flatMap(u => [u.lot_id, u.decrement]);
-        
+        const updatesList = Array.from(lotUpdatesMap.entries()).map(
+          ([lot_id, decrement]) => ({ lot_id, decrement }),
+        );
+        const valuesSql = updatesList
+          .map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::integer)`)
+          .join(", ");
+        const valuesArgs = updatesList.flatMap((u) => [u.lot_id, u.decrement]);
+
         await tx.$executeRawUnsafe(
           `UPDATE store_stock_lots AS sl
            SET qty_remaining = sl.qty_remaining - tmp.decrement_qty
            FROM (VALUES ${valuesSql}) AS tmp(lot_id, decrement_qty)
            WHERE sl.lot_id = tmp.lot_id`,
-          ...valuesArgs
+          ...valuesArgs,
         );
       }
 
@@ -499,7 +557,37 @@ class StoreSalesService {
       return salesHeader;
     });
 
-    return { ...createdHeader, items: itemsToCreate };
+    const createdSale = {
+      ...createdHeader,
+      local_id: cleanLocalId,
+      items: itemsToCreate,
+    };
+
+    if (cleanLocalId) {
+      await prisma.syncIdempotency.upsert({
+        where: {
+          owner_id_entity_type_local_id: {
+            owner_id,
+            entity_type: "store_sale",
+            local_id: cleanLocalId,
+          },
+        },
+        update: {
+          server_id: createdHeader.sales_id,
+          operation: "create",
+          last_synced_at: new Date(),
+        },
+        create: {
+          owner_id,
+          entity_type: "store_sale",
+          local_id: cleanLocalId,
+          server_id: createdHeader.sales_id,
+          operation: "create",
+        },
+      });
+    }
+
+    return createdSale;
   }
 
   async list(owner_id, { page = 1, limit = 50 } = {}) {
@@ -577,8 +665,34 @@ class StoreSalesService {
 
       const [total, rows] = await Promise.all([countPromise, rowsPromise]);
 
+      const saleIds = rows.map((row) => row.sales_id);
+
+      const idempotencyRows =
+        saleIds.length > 0
+          ? await prisma.syncIdempotency.findMany({
+              where: {
+                owner_id,
+                entity_type: "store_sale",
+                server_id: {
+                  in: saleIds,
+                },
+              },
+              select: {
+                local_id: true,
+                server_id: true,
+              },
+            })
+          : [];
+
+      const localIdBySalesId = new Map(
+        idempotencyRows.map((row) => [row.server_id, row.local_id]),
+      );
+
       const data = rows.map((row) => ({
         sales_id: row.sales_id,
+
+        local_id: localIdBySalesId.get(row.sales_id) ?? null,
+
         owner_id,
         customer_id: row.customer_id,
         total_amount: Number(row.total_amount || 0),
@@ -609,13 +723,19 @@ class StoreSalesService {
         })),
       }));
 
-      return { data, total, page: page_num, limit: limit_num, totalPages: Math.ceil(total / limit_num) };
+      return {
+        data,
+        total,
+        page: page_num,
+        limit: limit_num,
+        totalPages: Math.ceil(total / limit_num),
+      };
     } catch (err) {
       console.error("Error in optimized storeSalesService.list:", err);
       throw err;
     }
   }
-  
+
   async listCredit(owner_id, { page = 1, limit = 50 } = {}) {
     try {
       const page_num = Number(page);
@@ -682,25 +802,38 @@ class StoreSalesService {
         OFFSET ${skip};
       `;
 
-      const [countResult, rows] = await Promise.all([countPromise, rowsPromise]);
+      const [countResult, rows] = await Promise.all([
+        countPromise,
+        rowsPromise,
+      ]);
       const total = Number(countResult[0]?.count ?? 0);
 
       const data = rows.map((row) => ({
-        sales_id:       row.sales_id,
+        sales_id: row.sales_id,
         payment_status: row.payment_status,
         payment_method: row.payment_method,
-        total_amount:   Number(row.total_amount),
-        discount:       Number(row.discount),
-        created_at:     row.created_at,
+        total_amount: Number(row.total_amount),
+        discount: Number(row.discount),
+        created_at: row.created_at,
         customer: row.customer_id
-          ? { customer_id: row.customer_id, full_name: row.full_name, phone: row.phone }
+          ? {
+              customer_id: row.customer_id,
+              full_name: row.full_name,
+              phone: row.phone,
+            }
           : null,
-        paid_amount:    Number(row.net_paid),
-        due_amount:     Number(row.due_amount),
+        paid_amount: Number(row.net_paid),
+        due_amount: Number(row.due_amount),
         total_refunded: Number(row.total_refunded),
       }));
 
-      return { data, total, page: page_num, limit: limit_num, totalPages: Math.ceil(total / limit_num) };
+      return {
+        data,
+        total,
+        page: page_num,
+        limit: limit_num,
+        totalPages: Math.ceil(total / limit_num),
+      };
     } catch (err) {
       console.error("Error in optimized storeSalesService.listCredit:", err);
       throw err;
@@ -817,11 +950,12 @@ class StoreSalesService {
     }
   }
 
- 
   async addPayment(owner_id, sales_id, add_amount, payment_method) {
     const validMethods = ["cash", "online", "cheque", "credit"];
     if (payment_method && !validMethods.includes(payment_method)) {
-      const e = new Error("payment_method must be cash, online, cheque or credit");
+      const e = new Error(
+        "payment_method must be cash, online, cheque or credit",
+      );
       e.status = 400;
       e.code = "VALIDATION_PAYMENT_METHOD_INVALID";
       throw e;
@@ -869,7 +1003,7 @@ class StoreSalesService {
 
       if (add.gt(new Decimal(realDue).add(new Decimal("0.01")))) {
         const e = new Error(
-          `Payment exceeds remaining due of ${realDue.toFixed(2)}`
+          `Payment exceeds remaining due of ${realDue.toFixed(2)}`,
         );
         e.status = 400;
         e.code = "PAYMENT_EXCEEDS_TOTAL";
@@ -877,17 +1011,18 @@ class StoreSalesService {
       }
 
       const finalPaid = new Decimal(currentPaid).add(add);
-      const netTotal = new Decimal(effectiveTotal).sub(new Decimal(totalRefunded));
+      const netTotal = new Decimal(effectiveTotal).sub(
+        new Decimal(totalRefunded),
+      );
       const finalDue = Decimal.max(new Decimal(0), netTotal.sub(finalPaid));
 
-      const status =
-        netTotal.lte(0)
-          ? "paid"
-          : finalPaid.gte(netTotal)
+      const status = netTotal.lte(0)
+        ? "paid"
+        : finalPaid.gte(netTotal)
           ? "paid"
           : finalPaid.gt(0)
-          ? "partial"
-          : "pending";
+            ? "partial"
+            : "pending";
 
       const updateData = {
         paid_amount: finalPaid,
@@ -902,8 +1037,6 @@ class StoreSalesService {
       });
     });
   }
-
-  
 }
 
 export default new StoreSalesService();

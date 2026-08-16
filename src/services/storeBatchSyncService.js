@@ -748,13 +748,23 @@ class StoreBatchSyncService {
             }));
 
             const created = await storeSalesService.createSale(owner_id, {
+              local_id: sale.local_id,
+
               customer_id,
               customer: sale.customer,
+
               paid_amount: sale.paid_amount,
+
               payment_status: sale.payment_status,
+
               payment_method: sale.payment_method,
+
               discount: sale.discount,
+
+              discount_percentage: sale.discount_percentage,
+
               note: sale.note,
+
               items,
             });
 
