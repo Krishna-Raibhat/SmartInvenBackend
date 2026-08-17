@@ -6,12 +6,20 @@ export default async (req, res, next) => {
     const authHeader = req.headers["authorization"];
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ success: false, error_code: "NO_TOKEN", message: "No token provided." });
+      return res.status(401).json({
+        success: false,
+        error_code: "NO_TOKEN",
+        message: "No token provided.",
+      });
     }
 
     if (!process.env.JWT_SECRET) {
       console.error("JWT_SECRET is not set in environment");
-      return res.status(500).json({ success: false, error_code: "SERVER_CONFIG_ERROR", message: "Server config error." });
+      return res.status(500).json({
+        success: false,
+        error_code: "SERVER_CONFIG_ERROR",
+        message: "Server config error.",
+      });
     }
 
     const token = authHeader.split(" ")[1];
@@ -24,7 +32,11 @@ export default async (req, res, next) => {
     }
 
     if (!decoded?.owner_id) {
-      return res.status(401).json({ success: false, error_code: "INVALID_TOKEN", message: "Invalid token payload." });
+      return res.status(401).json({
+        success: false,
+        error_code: "INVALID_TOKEN",
+        message: "Invalid token payload.",
+      });
     }
 
     // ✅ Re-check live account state on every request
@@ -41,18 +53,26 @@ export default async (req, res, next) => {
     });
 
     if (!owner) {
-      return res.status(401).json({ success: false, error_code: "OWNER_NOT_FOUND", message: "Account not found." });
+      return res.status(401).json({
+        success: false,
+        error_code: "OWNER_NOT_FOUND",
+        message: "Account not found.",
+      });
     }
 
     // Trial expiry check
     // Trial expiry / pending-payment check
     // Trial expiry check
     if (owner.status === "trial") {
-      if (owner.trial_expires_at && new Date() > new Date(owner.trial_expires_at)) {
+      if (
+        owner.trial_expires_at &&
+        new Date() > new Date(owner.trial_expires_at)
+      ) {
         return res.status(403).json({
           success: false,
           error_code: "TRIAL_EXPIRED",
-          message: "Your 30-day trial has expired. Please subscribe to continue.",
+          message:
+            "Your 30-day trial has expired. Please subscribe to continue.",
         });
       }
     }
@@ -76,7 +96,8 @@ export default async (req, res, next) => {
       return res.status(403).json({
         success: false,
         error_code: "ACCOUNT_INACTIVE",
-        message: "Your account is inactive. Please contact support or renew your subscription.",
+        message:
+          "Your account is inactive. Please contact support or renew your subscription.",
       });
     }
 
@@ -90,8 +111,17 @@ export default async (req, res, next) => {
   } catch (err) {
     console.error("Auth middleware error:", err.name, err.message);
     if (err.name === "TokenExpiredError") {
-      return res.status(401).json({ success: false, error_code: "TOKEN_EXPIRED", message: "Token expired. Please login again." });
+      return res.status(401).json({
+        success: false,
+        error_code: "TOKEN_EXPIRED",
+        message: "You’ve been signed out. Please log in again to continue",
+      });
     }
-    return res.status(401).json({ success: false, error_code: "TOKEN_INVALID", message: "Invalid token." });
+    return res.status(401).json({
+      success: false,
+      error_code: "TOKEN_INVALID",
+      message:
+        "Your login session is no longer valid. Please log in again to continue.",
+    });
   }
 };
