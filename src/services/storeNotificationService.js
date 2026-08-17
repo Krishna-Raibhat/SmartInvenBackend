@@ -12,13 +12,16 @@ export const sendStoreLowStockNotification = async ({
   unitName,
 }) => {
   // Check if owner has low_stock notifications enabled
-  const shouldSend = await storeNotificationPreferenceService.shouldSendNotification(
-    owner_id,
-    "low_stock"
-  );
+  const shouldSend =
+    await storeNotificationPreferenceService.shouldSendNotification(
+      owner_id,
+      "low_stock",
+    );
 
   if (!shouldSend) {
-    console.log(`⏭️  Store low stock notification skipped for owner ${owner_id} (disabled)`);
+    console.log(
+      `⏭️  Store low stock notification skipped for owner ${owner_id} (disabled)`,
+    );
     return null;
   }
 
@@ -79,7 +82,7 @@ export const sendStoreCustomerReminderNotification = async ({
   itemName,
   notes,
 }) => {
-  const title = "Customer Reminder 🔔";
+  const title = "Customer Reminder";
   const messageText = `You noted: ${itemName}${notes ? ` (${notes})` : ""}`;
 
   // Save to DB under store_notifications

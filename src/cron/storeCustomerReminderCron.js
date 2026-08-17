@@ -21,27 +21,62 @@ cron.schedule(
 
       if (pendingReminders.length === 0) return;
 
-      console.log(`[CRON] Found ${pendingReminders.length} pending store customer reminders.`);
+      console.log(
+        `[CRON] Found ${pendingReminders.length} pending store customer reminders.`,
+      );
 
       for (const reminder of pendingReminders) {
         try {
-          // Send notification and save notification in DB
-          await sendStoreCustomerReminderNotification({
-            owner_id: reminder.owner_id,
-            fcmToken: reminder.owner.fcm_token,
-            itemName: reminder.item_name,
-            notes: reminder.notes,
+          // Atomically claim this reminder.
+          // Only ONE cron/process can change false -> true.
+          const claimed = await prisma.storeCustomerReminder.updateMany({
+            where: {
+              reminder_id: reminder.reminder_id,
+              is_notified: false,
+            },
+            data: {
+              is_notified: true,
+            },
           });
 
-          // Mark as notified
-          await prisma.storeCustomerReminder.update({
-            where: { reminder_id: reminder.reminder_id },
-            data: { is_notified: true },
-          });
+          // Another cron/process already claimed it.
+          if (claimed.count === 0) {
+            console.log(
+              `[CRON] Reminder ${reminder.reminder_id} already processed.`,
+            );
+            continue;
+          }
 
-          console.log(`[CRON] Notified customer reminder: ${reminder.item_name} for owner ${reminder.owner_id}`);
+          try {
+            await sendStoreCustomerReminderNotification({
+              owner_id: reminder.owner_id,
+              fcmToken: reminder.owner.fcm_token,
+              itemName: reminder.item_name,
+              notes: reminder.notes,
+            });
+
+            console.log(
+              `[CRON] Notified customer reminder: ${reminder.item_name} for owner ${reminder.owner_id}`,
+            );
+          } catch (sendError) {
+            // Allow retry next minute if sending itself failed.
+            await prisma.storeCustomerReminder.updateMany({
+              where: {
+                reminder_id: reminder.reminder_id,
+                is_notified: true,
+              },
+              data: {
+                is_notified: false,
+              },
+            });
+
+            throw sendError;
+          }
         } catch (err) {
-          console.error(`[CRON] Failed to notify reminder ${reminder.reminder_id}:`, err.message);
+          console.error(
+            `[CRON] Failed to notify reminder ${reminder.reminder_id}:`,
+            err.message,
+          );
         }
       }
     } catch (err) {
@@ -50,6 +85,6 @@ cron.schedule(
   },
   {
     timezone: "Asia/Kathmandu",
-  }
+  },
 );
 console.log("[CRON] Store customer reminder cron job scheduled (every minute)");
