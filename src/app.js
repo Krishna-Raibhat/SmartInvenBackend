@@ -91,6 +91,7 @@ import storeBatchSyncRoutes from "./routes/storeBatchSyncRoutes.js";
 import storeSalesSummaryReportRoutes from "./routes/storeSalesSummaryReportRoutes.js";
 import storeCustomerReminderRoutes from "./routes/storeCustomerReminderRoutes.js";
 import storeSaleDaybookRoutes from "./routes/storeSaleDaybookRoutes.js";
+import staffRoutes from "./routes/staffRoutes.js";
 
 const app = express();
 
@@ -219,6 +220,7 @@ app.use("/api/store/sync", storeBatchSyncRoutes);
 app.use("/api/store/sales-summary-reports", storeSalesSummaryReportRoutes);
 app.use("/api/store/customer-reminders", storeCustomerReminderRoutes);
 app.use("/api/store/daybook", storeSaleDaybookRoutes);
+app.use("/api/staff", staffRoutes);
 /* ==========================
    SERVER START
 ========================== */

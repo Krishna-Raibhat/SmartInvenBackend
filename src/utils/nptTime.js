@@ -57,3 +57,22 @@ export function parseNPTDateStart(dateStr) {
 export function parseNPTDateEnd(dateStr) {
   return new Date(parseNPTDateStart(dateStr).getTime() + 24 * 60 * 60 * 1000 - 1);
 }
+
+// Format any JS Date (or date-like value) as an ISO-8601 string reflecting
+// Nepal wall-clock time, with a "+05:45" offset instead of "Z". Use this
+// wherever a timestamp is being put into an API response, instead of
+// letting res.json() serialize the raw UTC Date via .toISOString().
+export function toNPTISOString(value) {
+  if (!value) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const npt = new Date(date.getTime() + NPT_OFFSET_MS);
+  const pad = (n, len = 2) => String(n).padStart(len, "0");
+
+  return (
+    `${npt.getUTCFullYear()}-${pad(npt.getUTCMonth() + 1)}-${pad(npt.getUTCDate())}` +
+    `T${pad(npt.getUTCHours())}:${pad(npt.getUTCMinutes())}:${pad(npt.getUTCSeconds())}` +
+    `.${pad(npt.getUTCMilliseconds(), 3)}+05:45`
+  );
+}

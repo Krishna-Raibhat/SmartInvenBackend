@@ -91,10 +91,51 @@ model Owner {
   storeCustomerReminders     StoreCustomerReminder[]
   storeSupplierPayments      StoreSupplierPaymentTransaction[]
   storeDuePayments           StoreDuePayment[]
-
+    staff                      Staff[]
   @@map("owners")
 }
 
+enum StaffStatus {
+  active
+  inactive
+}
+
+model Staff {
+  staff_id   String      @id @default(uuid())
+  owner_id   String
+  full_name  String
+  email      String?     @unique
+  phone      String?     @unique
+  password   String      @map("password_hash")
+  status     StaffStatus @default(active)
+  created_at DateTime    @default(now())
+  updated_at DateTime    @updatedAt
+  owner      Owner       @relation(fields: [owner_id], references: [owner_id], onDelete: Cascade)
+  passwordResetOtps StaffPasswordResetOtp[]
+
+  @@index([owner_id])
+  @@map("staff")
+}
+
+model StaffPasswordResetOtp {
+  id             String    @id @default(uuid())
+  staff_id       String
+  email          String
+  otp_hash       String
+  expires_at     DateTime
+  wrong_attempts Int       @default(0)
+  locked_until   DateTime?
+  last_sent_at   DateTime?
+  verified_at    DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+  staff          Staff     @relation(fields: [staff_id], references: [staff_id], onDelete: Cascade)
+
+  @@index([staff_id])
+  @@index([email])
+  @@index([expires_at])
+  @@map("staff_password_reset_otps")
+}
 model PasswordResetOtp {
   id             String    @id @default(uuid())
   owner_id       String

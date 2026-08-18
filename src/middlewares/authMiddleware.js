@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { prisma } from "../prisma/client.js";
+import { isRouteAllowedForStaff, hideCostPriceForStaff } from "./staffAccess.js";
 
 export default async (req, res, next) => {
   try {
@@ -31,12 +32,51 @@ export default async (req, res, next) => {
       return next();
     }
 
-    if (!decoded?.owner_id) {
+        if (!decoded?.owner_id) {
       return res.status(401).json({
         success: false,
         error_code: "INVALID_TOKEN",
         message: "Invalid token payload.",
       });
+    }
+
+    // ✅ Staff tokens carry staff_id — re-check the staff account is still active
+    if (decoded?.staff_id) {
+      const staff = await prisma.staff.findUnique({
+        where: { staff_id: decoded.staff_id },
+        select: { staff_id: true, owner_id: true, status: true, full_name: true },
+      });
+
+      if (!staff || staff.owner_id !== decoded.owner_id) {
+        return res.status(401).json({
+          success: false,
+          error_code: "STAFF_NOT_FOUND",
+          message: "Staff account not found.",
+        });
+      }
+
+      if (staff.status === "inactive") {
+        return res.status(403).json({
+          success: false,
+          error_code: "STAFF_INACTIVE",
+          message: "This staff account has been deactivated.",
+        });
+      }
+
+      req.staff = { staff_id: staff.staff_id, full_name: staff.full_name };
+
+      // ✅ Staff accounts are limited to a fixed allowlist of features
+      const pathOnly = req.originalUrl.split("?")[0];
+      if (!isRouteAllowedForStaff(req.method, pathOnly)) {
+        return res.status(403).json({
+          success: false,
+          error_code: "STAFF_FORBIDDEN",
+          message: "Your staff account does not have access to this feature.",
+        });
+      }
+
+      // ✅ Cost price is owner-only — strip it from every response this staff account gets
+      hideCostPriceForStaff(req, res, () => {});
     }
 
     // ✅ Re-check live account state on every request
