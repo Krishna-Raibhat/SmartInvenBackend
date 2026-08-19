@@ -27,7 +27,10 @@ const ALLOWED_STAFF_ROUTES = [
 
   // Stock lots via the sync API — same view-only access as above, just a
   // different controller/route surface for the same data.
-  { method: "GET", pattern: /^\/api\/store\/sync\/stock-lots\/product\/[^/]+$/ },
+  {
+    method: "GET",
+    pattern: /^\/api\/store\/sync\/stock-lots\/product\/[^/]+$/,
+  },
 
   // Sales — full create/list/pay flow; cp is stripped from the response
   { method: "POST", pattern: /^\/api\/store\/sales$/ },
@@ -36,9 +39,53 @@ const ALLOWED_STAFF_ROUTES = [
   { method: "GET", pattern: /^\/api\/store\/sales\/[^/]+$/ },
   { method: "PATCH", pattern: /^\/api\/store\/sales\/[^/]+\/pay$/ },
 
+  // ─────────────────────────────────────────────
+  // SYNC SALES ROUTES USED BY FLUTTER
+  // ─────────────────────────────────────────────
+
+  // List sales
+  {
+    method: "GET",
+    pattern: /^\/api\/store\/sync\/sales$/,
+  },
+
+  // Get sale detail
+  {
+    method: "GET",
+    pattern: /^\/api\/store\/sync\/sales\/[^/]+$/,
+  },
+
+  // Credit sales list
+  {
+    method: "GET",
+    pattern: /^\/api\/store\/sync\/credit$/,
+  },
+
   // Customer returns — same access as owner
   { method: "POST", pattern: /^\/api\/store\/returns\/customer$/ },
   { method: "GET", pattern: /^\/api\/store\/returns\/customer(\/[^/]+)?$/ },
+
+  // ─────────────────────────────────────────────
+  // CUSTOMER RETURNS
+  // ─────────────────────────────────────────────
+
+  // Create customer return
+  {
+    method: "POST",
+    pattern: /^\/api\/store\/returns\/customer$/,
+  },
+
+  // View individual customer return
+  {
+    method: "GET",
+    pattern: /^\/api\/store\/returns\/customer(\/[^/]+)?$/,
+  },
+
+  // List customer returns
+  {
+    method: "GET",
+    pattern: /^\/api\/store\/sync\/customer-returns$/,
+  },
 
   // Customer credit — same access as owner
   { method: "GET", pattern: /^\/api\/stock-out\/credit$/ },
@@ -55,6 +102,12 @@ const ALLOWED_STAFF_ROUTES = [
   { method: "DELETE", pattern: /^\/api\/store\/notifications\/[^/]+$/ },
   { method: "GET", pattern: /^\/api\/store\/notifications\/threshold$/ },
   { method: "PUT", pattern: /^\/api\/store\/notifications\/threshold$/ },
+
+  // Recent activities — staff may view business activity
+  {
+    method: "GET",
+    pattern: /^\/api\/store\/dashboard\/activities$/,
+  },
 
   // Low-stock alerts
   { method: "GET", pattern: /^\/api\/store\/reports\/stock-alerts$/ },
