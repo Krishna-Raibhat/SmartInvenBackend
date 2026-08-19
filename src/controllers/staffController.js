@@ -37,7 +37,11 @@ const staffController = {
 
       return res.status(201).json({ success: true, data: staff });
     } catch (error) {
-      if (["REQUIRED_FIELDS", "WEAK_PASSWORD", "PHONE_INVALID"].includes(error.code)) {
+      if (
+        ["REQUIRED_FIELDS", "WEAK_PASSWORD", "PHONE_INVALID"].includes(
+          error.code,
+        )
+      ) {
         return res.status(400).json({
           success: false,
           error_code: error.code,
@@ -131,7 +135,9 @@ const staffController = {
           message: error.message,
         });
       }
-      if (["WEAK_PASSWORD", "VALIDATION", "PHONE_INVALID"].includes(error.code)) {
+      if (
+        ["WEAK_PASSWORD", "VALIDATION", "PHONE_INVALID"].includes(error.code)
+      ) {
         return res.status(400).json({
           success: false,
           error_code: error.code,
@@ -154,7 +160,7 @@ const staffController = {
       const owner_id = req.owner.owner_id;
       const staff_id = req.staff.staff_id;
 
-      const staff = await staffService.getById(owner_id, staff_id);
+      const staff = await staffService.getOwnProfile(owner_id, staff_id);
       if (!staff) {
         return res.status(404).json({
           success: false,
@@ -252,13 +258,31 @@ const staffController = {
         });
       }
       if (error.code === "RATE_LIMITED") {
-        return res.status(429).json({ success: false, error_code: error.code, message: error.message });
+        return res
+          .status(429)
+          .json({
+            success: false,
+            error_code: error.code,
+            message: error.message,
+          });
       }
       if (error.code === "REQUIRED_FIELDS") {
-        return res.status(400).json({ success: false, error_code: error.code, message: error.message });
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error_code: error.code,
+            message: error.message,
+          });
       }
       console.error("Error sending staff forgot-password OTP:", error);
-      return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Server error." });
+      return res
+        .status(500)
+        .json({
+          success: false,
+          error_code: "SERVER_ERROR",
+          message: "Server error.",
+        });
     }
   },
 
@@ -277,31 +301,59 @@ const staffController = {
         });
       }
       if (error.code === "OTP_EXPIRED") {
-        return res.status(400).json({ success: false, error_code: error.code, message: error.message });
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error_code: error.code,
+            message: error.message,
+          });
       }
       if (error.code === "INVALID_OTP") {
         return res.status(401).json({
           success: false,
           error_code: error.code,
           message: error.message,
-          ...(error.remaining_attempts !== undefined ? { remaining_attempts: error.remaining_attempts } : {}),
+          ...(error.remaining_attempts !== undefined
+            ? { remaining_attempts: error.remaining_attempts }
+            : {}),
         });
       }
       if (error.code === "REQUIRED_FIELDS") {
-        return res.status(400).json({ success: false, error_code: error.code, message: error.message });
+        return res
+          .status(400)
+          .json({
+            success: false,
+            error_code: error.code,
+            message: error.message,
+          });
       }
       console.error("Error verifying staff forgot-password OTP:", error);
-      return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Server error." });
+      return res
+        .status(500)
+        .json({
+          success: false,
+          error_code: "SERVER_ERROR",
+          message: "Server error.",
+        });
     }
   },
 
   async forgotPasswordReset(req, res) {
     try {
       const { reset_token, new_password, confirm_password } = req.body;
-      const result = await staffService.forgotPasswordReset(reset_token, new_password, confirm_password);
+      const result = await staffService.forgotPasswordReset(
+        reset_token,
+        new_password,
+        confirm_password,
+      );
       return res.status(200).json({ success: true, ...result });
     } catch (error) {
-      if (["REQUIRED_FIELDS", "PASSWORD_MISMATCH", "WEAK_PASSWORD"].includes(error.code)) {
+      if (
+        ["REQUIRED_FIELDS", "PASSWORD_MISMATCH", "WEAK_PASSWORD"].includes(
+          error.code,
+        )
+      ) {
         return res.status(400).json({
           success: false,
           error_code: error.code,
@@ -310,13 +362,31 @@ const staffController = {
         });
       }
       if (error.code === "INVALID_TOKEN") {
-        return res.status(401).json({ success: false, error_code: error.code, message: error.message });
+        return res
+          .status(401)
+          .json({
+            success: false,
+            error_code: error.code,
+            message: error.message,
+          });
       }
       if (error.code === "NOT_FOUND") {
-        return res.status(404).json({ success: false, error_code: error.code, message: error.message });
+        return res
+          .status(404)
+          .json({
+            success: false,
+            error_code: error.code,
+            message: error.message,
+          });
       }
       console.error("Error resetting staff password:", error);
-      return res.status(500).json({ success: false, error_code: "SERVER_ERROR", message: "Server error." });
+      return res
+        .status(500)
+        .json({
+          success: false,
+          error_code: "SERVER_ERROR",
+          message: "Server error.",
+        });
     }
   },
 
@@ -340,7 +410,8 @@ const staffController = {
         return res.status(403).json({
           success: false,
           error_code: "OWNER_ACCOUNT_INACTIVE",
-          message: "This business account is inactive. Please contact the owner.",
+          message:
+            "This business account is inactive. Please contact the owner.",
         });
       }
 
@@ -358,6 +429,7 @@ const staffController = {
           phone: staff.phone,
           status: staff.status,
           business_name: staff.owner?.business_name ?? null,
+          business_category: staff.owner?.business_category ?? null,
           package_key: staff.owner?.package?.package_key ?? null,
         },
       });

@@ -97,7 +97,10 @@ class StaffService {
     } catch (err) {
       if (err.code === "P2002") {
         const field = err.meta?.target?.[0] || "email/phone";
-        throw { code: "DUPLICATE", message: `That ${field} is already in use.` };
+        throw {
+          code: "DUPLICATE",
+          message: `That ${field} is already in use.`,
+        };
       }
       throw err;
     }
@@ -112,6 +115,58 @@ class StaffService {
     return staff.map(withNPTTimestamps);
   }
 
+  async getOwnProfile(owner_id, staff_id) {
+    const staff = await prisma.staff.findFirst({
+      where: {
+        owner_id,
+        staff_id,
+      },
+      select: {
+        staff_id: true,
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        status: true,
+        created_at: true,
+        updated_at: true,
+
+        owner: {
+          select: {
+            business_name: true,
+            business_category: true,
+
+            package: {
+              select: {
+                package_key: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!staff) {
+      return null;
+    }
+
+    return {
+      staff_id: staff.staff_id,
+      owner_id: staff.owner_id,
+      full_name: staff.full_name,
+      email: staff.email,
+      phone: staff.phone,
+      status: staff.status,
+
+      business_name: staff.owner?.business_name ?? null,
+      business_category: staff.owner?.business_category ?? null,
+      package_key: staff.owner?.package?.package_key ?? null,
+
+      created_at: toNPTISOString(staff.created_at),
+      updated_at: toNPTISOString(staff.updated_at),
+    };
+  }
+
   async getById(owner_id, staff_id) {
     const staff = await prisma.staff.findFirst({
       where: { owner_id, staff_id },
@@ -120,13 +175,32 @@ class StaffService {
     return withNPTTimestamps(staff);
   }
 
-  async update(owner_id, staff_id, { full_name, email, phone, password, status }) {
-    const existing = await prisma.staff.findFirst({ where: { owner_id, staff_id } });
+  async update(
+    owner_id,
+    staff_id,
+    { full_name, email, phone, password, status },
+  ) {
+    const existing = await prisma.staff.findFirst({
+      where: { owner_id, staff_id },
+    });
     if (!existing) throw { code: "NOT_FOUND", message: "Staff not found." };
 
     const data = {};
-    if (full_name !== undefined) data.full_name = String(full_name).trim();
-    if (email !== undefined) data.email = email ? String(email).trim().toLowerCase() : null;
+    // if (full_name !== undefined) data.full_name = String(full_name).trim();\
+    if (full_name !== undefined) {
+      const cleanName = String(full_name).trim();
+
+      if (!cleanName) {
+        throw {
+          code: "VALIDATION",
+          message: "Full name is required.",
+        };
+      }
+
+      data.full_name = cleanName;
+    }
+    if (email !== undefined)
+      data.email = email ? String(email).trim().toLowerCase() : null;
     if (phone !== undefined) {
       const trimmedPhone = phone ? String(phone).trim() : null;
       if (trimmedPhone) {
@@ -137,9 +211,23 @@ class StaffService {
       }
       data.phone = trimmedPhone;
     }
+
+    const finalEmail = email !== undefined ? data.email : existing.email;
+
+    const finalPhone = phone !== undefined ? data.phone : existing.phone;
+
+    if (!finalEmail && !finalPhone) {
+      throw {
+        code: "VALIDATION",
+        message: "Either email or phone number is required.",
+      };
+    }
     if (status !== undefined) {
       if (!["active", "inactive"].includes(status)) {
-        throw { code: "VALIDATION", message: "status must be 'active' or 'inactive'." };
+        throw {
+          code: "VALIDATION",
+          message: "status must be 'active' or 'inactive'.",
+        };
       }
       data.status = status;
     }
@@ -165,14 +253,19 @@ class StaffService {
     } catch (err) {
       if (err.code === "P2002") {
         const field = err.meta?.target?.[0] || "email/phone";
-        throw { code: "DUPLICATE", message: `That ${field} is already in use.` };
+        throw {
+          code: "DUPLICATE",
+          message: `That ${field} is already in use.`,
+        };
       }
       throw err;
     }
   }
 
   async remove(owner_id, staff_id) {
-    const existing = await prisma.staff.findFirst({ where: { owner_id, staff_id } });
+    const existing = await prisma.staff.findFirst({
+      where: { owner_id, staff_id },
+    });
     if (!existing) throw { code: "NOT_FOUND", message: "Staff not found." };
 
     await prisma.staff.delete({ where: { staff_id } });
@@ -184,7 +277,9 @@ class StaffService {
   // staff_id via the staff_password_reset_otps table.
 
   async forgotPasswordSendOtp(email) {
-    email = String(email || "").trim().toLowerCase();
+    email = String(email || "")
+      .trim()
+      .toLowerCase();
     if (!email) {
       throw { code: "REQUIRED_FIELDS", message: "Email is required." };
     }
@@ -214,7 +309,8 @@ class StaffService {
     if (activeRecord?.locked_until && activeRecord.locked_until > now) {
       throw {
         code: "LOCKED",
-        message: "Account is locked due to too many wrong OTP attempts. Try later.",
+        message:
+          "Account is locked due to too many wrong OTP attempts. Try later.",
         locked_until: activeRecord.locked_until,
       };
     }
@@ -222,7 +318,10 @@ class StaffService {
     if (activeRecord?.last_sent_at) {
       const seconds = (now - new Date(activeRecord.last_sent_at)) / 1000;
       if (seconds < 30) {
-        throw { code: "RATE_LIMITED", message: "Please wait before requesting another OTP." };
+        throw {
+          code: "RATE_LIMITED",
+          message: "Please wait before requesting another OTP.",
+        };
       }
     }
 
@@ -247,11 +346,13 @@ class StaffService {
       console.error("Failed to send staff password reset OTP email:", err),
     );
 
-    return { message: "OTP sent to email." };
+    return { message: "If the email exists, an OTP has been sent." };
   }
 
   async forgotPasswordVerifyOtp(email, otp) {
-    email = String(email || "").trim().toLowerCase();
+    email = String(email || "")
+      .trim()
+      .toLowerCase();
     if (!email || !otp) {
       throw { code: "REQUIRED_FIELDS", message: "Email and OTP are required." };
     }
@@ -281,7 +382,10 @@ class StaffService {
     }
 
     if (record.expires_at <= now) {
-      throw { code: "OTP_EXPIRED", message: "OTP expired. Please request a new OTP." };
+      throw {
+        code: "OTP_EXPIRED",
+        message: "OTP expired. Please request a new OTP.",
+      };
     }
 
     const isMatch = await compare(String(otp), record.otp_hash);
@@ -357,7 +461,10 @@ class StaffService {
     try {
       decoded = verify(reset_token, process.env.JWT_SECRET);
     } catch {
-      throw { code: "INVALID_TOKEN", message: "Invalid or expired reset token." };
+      throw {
+        code: "INVALID_TOKEN",
+        message: "Invalid or expired reset token.",
+      };
     }
 
     if (decoded.purpose !== "staff_reset_password") {
@@ -382,7 +489,9 @@ class StaffService {
   }
 
   async verifyLogin({ identifier, password }) {
-    identifier = String(identifier || "").trim().toLowerCase();
+    identifier = String(identifier || "")
+      .trim()
+      .toLowerCase();
 
     const staff = await prisma.staff.findFirst({
       where: {
@@ -393,25 +502,105 @@ class StaffService {
           select: {
             owner_id: true,
             business_name: true,
+            business_category: true,
             package_id: true,
             status: true,
+            trial_expires_at: true,
+            subscription_expires_at: true,
             package: { select: { package_key: true } },
           },
         },
       },
     });
 
+    // if (!staff) {
+    //   throw { code: "INVALID_CREDENTIALS", message: "Invalid credentials." };
+    // }
+
+    // if (staff.status === "inactive") {
+    //   throw {
+    //     code: "STAFF_INACTIVE",
+    //     message: "This staff account has been deactivated.",
+    //   };
+    // }
+
+    // const isMatch = await compare(password, staff.password);
+    // if (!isMatch) {
+    //   throw { code: "INVALID_CREDENTIALS", message: "Invalid credentials." };
+    // }
+
+    // return staff;
+
     if (!staff) {
-      throw { code: "INVALID_CREDENTIALS", message: "Invalid credentials." };
+      throw {
+        code: "INVALID_CREDENTIALS",
+        message: "Invalid credentials.",
+      };
     }
 
-    if (staff.status === "inactive") {
-      throw { code: "STAFF_INACTIVE", message: "This staff account has been deactivated." };
-    }
-
+    // Check password first
     const isMatch = await compare(password, staff.password);
+
     if (!isMatch) {
-      throw { code: "INVALID_CREDENTIALS", message: "Invalid credentials." };
+      throw {
+        code: "INVALID_CREDENTIALS",
+        message: "Invalid credentials.",
+      };
+    }
+
+    // Check staff status
+    if (staff.status === "inactive") {
+      throw {
+        code: "STAFF_INACTIVE",
+        message:
+          "This staff account has been deactivated. Please contact the business owner.",
+      };
+    }
+
+    // Check owner/business
+    const owner = staff.owner;
+
+    if (!owner) {
+      throw {
+        code: "BUSINESS_NOT_FOUND",
+        message: "Business account not found.",
+      };
+    }
+
+    if (owner.status === "inactive") {
+      throw {
+        code: "BUSINESS_INACTIVE",
+        message:
+          "This business account is currently inactive. Please contact the account owner.",
+      };
+    }
+
+    const now = new Date();
+
+    // Check trial expiry
+    if (
+      owner.status === "trial" &&
+      owner.trial_expires_at &&
+      now > new Date(owner.trial_expires_at)
+    ) {
+      throw {
+        code: "TRIAL_EXPIRED",
+        message:
+          "The business trial has expired. Please contact the account owner.",
+      };
+    }
+
+    // Check subscription expiry
+    if (
+      owner.status === "active" &&
+      owner.subscription_expires_at &&
+      now > new Date(owner.subscription_expires_at)
+    ) {
+      throw {
+        code: "SUBSCRIPTION_EXPIRED",
+        message:
+          "The business subscription has expired. Please contact the account owner.",
+      };
     }
 
     return staff;

@@ -10,7 +10,10 @@ router.post("/login", staffController.login);
 
 // Staff forgot-password — public, OTP sent to the email on file
 router.post("/forgot-password", staffController.forgotPasswordSendOtp);
-router.post("/forgot-password/verify-otp", staffController.forgotPasswordVerifyOtp);
+router.post(
+  "/forgot-password/verify-otp",
+  staffController.forgotPasswordVerifyOtp,
+);
 router.post("/forgot-password/reset", staffController.forgotPasswordReset);
 
 // Only the owner (not a staff account) may manage staff
