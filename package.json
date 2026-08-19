@@ -32,6 +32,7 @@
     "express-rate-limit": "^8.5.2",
     "express-validator": "^7.3.1",
     "firebase-admin": "^13.6.0",
+    "apple-signin-auth": "^2.0.0",
     "google-auth-library": "^10.9.0",
     "jsonwebtoken": "^9.0.3",
     "libphonenumber-js": "^1.13.9",

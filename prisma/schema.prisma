@@ -33,6 +33,7 @@ model Owner {
   updated_at                 DateTime                      @updatedAt
   status                     OwnerStatus                   @default(trial)
   google_id                  String?                       @unique
+  apple_id                   String?                       @unique
   auth_provider              String                        @default("local")
   pan_number                 String?                       @unique
   subscription_expires_at    DateTime?

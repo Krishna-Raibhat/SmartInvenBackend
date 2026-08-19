@@ -42,7 +42,11 @@ class StoreCustomerReturnService {
       }
     }
 
-    // ── Pre-validation OUTSIDE the transaction ───────────────────────
+    // ── Structural pre-checks OUTSIDE the transaction ─────────────────
+    // Safe to read these once: whether a sale/item exists, its type, and
+    // its lot don't change concurrently. What DOES change concurrently is
+    // returned_qty — that gets a fresh, guarded check inside the
+    // transaction below, not trusted from this early read.
     const salesItemIds = items.map((it) => String(it.sales_item_id || "").trim());
 
     if (salesItemIds.some((id) => !id)) {
@@ -52,14 +56,10 @@ class StoreCustomerReturnService {
       throw e;
     }
 
-    const [sale, refundAgg, salesItems] = await Promise.all([
+    const [sale, salesItems] = await Promise.all([
       prisma.storeSales.findFirst({
         where: { sales_id, owner_id },
-        select: { sales_id: true, total_amount: true, discount: true, paid_amount: true },
-      }),
-      prisma.storeCustomerReturn.aggregate({
-        where: { sales_id },
-        _sum: { refund_amount: true },
+        select: { sales_id: true },
       }),
       prisma.storeSalesItem.findMany({
         where: { sales_item_id: { in: salesItemIds }, sales_id },
@@ -67,8 +67,6 @@ class StoreCustomerReturnService {
           sales_item_id: true,
           lot_id: true,
           qty: true,
-          returned_qty: true,
-          sp: true,
           product: { select: { type: true, product_name: true } },
         },
       }),
@@ -83,11 +81,17 @@ class StoreCustomerReturnService {
 
     const salesItemMap = new Map(salesItems.map((si) => [si.sales_item_id, si]));
 
-    // Validate each item against the loaded sales items
     const validatedItems = [];
     for (const it of items) {
       const sales_item_id = String(it.sales_item_id).trim();
       const qty = Number(it.qty);
+
+      if (!Number.isInteger(qty) || qty <= 0) {
+        const e = new Error("qty must be a positive integer for each return item");
+        e.status = 400;
+        e.code = "VALIDATION_QTY_INVALID";
+        throw e;
+      }
 
       const salesItem = salesItemMap.get(sales_item_id);
       if (!salesItem) {
@@ -113,16 +117,6 @@ class StoreCustomerReturnService {
         throw e;
       }
 
-      const availableToReturn = salesItem.qty - (salesItem.returned_qty ?? 0);
-      if (qty > availableToReturn) {
-        const e = new Error(
-          `Return qty (${qty}) exceeds available qty to return (${availableToReturn})`,
-        );
-        e.status = 400;
-        e.code = "RETURN_EXCEEDS_SOLD";
-        throw e;
-      }
-
       validatedItems.push({
         sales_item_id,
         lot_id: salesItem.lot_id,
@@ -133,39 +127,97 @@ class StoreCustomerReturnService {
     }
 
     const totalRefund = validatedItems.reduce((sum, it) => sum + it.amount, 0);
-
-    // Recompute due_amount / payment_status on the sale in memory
-    const previousRefunded = Number(refundAgg._sum.refund_amount || 0);
-    const totalRefunded = new Decimal(previousRefunded).add(new Decimal(totalRefund));
-
-    const effectiveTotal = new Decimal(sale.total_amount).sub(new Decimal(sale.discount ?? 0));
-    const netTotal = effectiveTotal.sub(totalRefunded);
-    const paidRaw = new Decimal(sale.paid_amount);
-    const dueAmount = Decimal.max(new Decimal(0), netTotal.sub(paidRaw));
-
-    const paymentStatus =
-      netTotal.lte(paidRaw) ? "paid" : paidRaw.gt(0) ? "partial" : "pending";
-
-    // ── Transaction Batch ───────────────────────
     const return_id = uuidv4();
     const now = new Date();
 
-    const returnHeaderPromise = prisma.storeCustomerReturn.create({
-      data: {
-        return_id,
-        owner_id,
-        sales_id,
-        refund_amount: totalRefund,
-        note: note ?? null,
-        created_at: now,
-      },
-    });
+    // ── Authoritative, race-safe transaction ──────────────────────────
+    // Everything that depends on concurrently-changing state (returned_qty,
+    // refund totals, due_amount) is re-read and written atomically here,
+    // not trusted from the pre-check above.
+    const txResult = await prisma.$transaction(async (tx) => {
+      const updatesList = validatedItems.map((it) => ({
+        sales_item_id: it.sales_item_id,
+        qty: it.qty,
+      }));
+      const valuesSql = updatesList
+        .map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::integer)`)
+        .join(", ");
+      const valuesArgs = updatesList.flatMap((u) => [u.sales_item_id, u.qty]);
 
-    const itemsToCreate = [];
-    const returnItemsPromises = validatedItems.map((it) => {
-      const return_item_id = uuidv4();
-      itemsToCreate.push({
-        return_item_id,
+      // Guard against concurrent returns over-crediting the same item:
+      // only bump returned_qty if enough "unreturned" qty is still there
+      // at write time. Without the (qty - returned_qty) >= tmp.return_qty
+      // condition, two simultaneous returns can both pass an earlier
+      // in-memory check and both apply their increment, letting
+      // returned_qty exceed the qty actually sold.
+      const affectedRows = await tx.$executeRawUnsafe(
+        `UPDATE store_sales_items AS si
+         SET returned_qty = si.returned_qty + tmp.return_qty
+         FROM (VALUES ${valuesSql}) AS tmp(sales_item_id, return_qty)
+         WHERE si.sales_item_id = tmp.sales_item_id
+           AND (si.qty - si.returned_qty) >= tmp.return_qty`,
+        ...valuesArgs,
+      );
+
+      if (affectedRows !== updatesList.length) {
+        const e = new Error(
+          "One or more items were already returned or changed. Please refresh and try again.",
+        );
+        e.status = 409;
+        e.code = "RETURN_CONFLICT";
+        throw e;
+      }
+
+      // Restocking is a plain increment — always safe, can't go negative.
+      for (const it of validatedItems) {
+        await tx.storeStockLot.update({
+          where: { lot_id: it.lot_id },
+          data: { qty_remaining: { increment: it.qty } },
+        });
+      }
+
+      // Fresh read of sale + refund total, inside the transaction, so
+      // due_amount reflects reality even if another return landed for
+      // this same sale a moment ago.
+      const [freshSale, refundAgg] = await Promise.all([
+        tx.storeSales.findUnique({
+          where: { sales_id },
+          select: { total_amount: true, discount: true, paid_amount: true },
+        }),
+        tx.storeCustomerReturn.aggregate({
+          where: { sales_id },
+          _sum: { refund_amount: true },
+        }),
+      ]);
+
+      const previousRefunded = Number(refundAgg._sum.refund_amount || 0);
+      const totalRefunded = new Decimal(previousRefunded).add(new Decimal(totalRefund));
+      const effectiveTotal = new Decimal(freshSale.total_amount).sub(
+        new Decimal(freshSale.discount ?? 0),
+      );
+      const netTotal = effectiveTotal.sub(totalRefunded);
+      const paidRaw = new Decimal(freshSale.paid_amount);
+      const dueAmount = Decimal.max(new Decimal(0), netTotal.sub(paidRaw));
+      const paymentStatus = netTotal.lte(paidRaw)
+        ? "paid"
+        : paidRaw.gt(0)
+          ? "partial"
+          : "pending";
+
+      await tx.storeCustomerReturn.create({
+        data: {
+          return_id,
+          owner_id,
+          sales_id,
+          refund_amount: totalRefund,
+          note: note ?? null,
+          created_at: now,
+        },
+      });
+
+      const itemsToCreate = validatedItems.map((it) => ({
+        return_item_id: uuidv4(),
+        owner_id,
         return_id,
         sales_item_id: it.sales_item_id,
         lot_id: it.lot_id,
@@ -173,48 +225,17 @@ class StoreCustomerReturnService {
         amount: it.amount,
         note: it.note,
         created_at: now,
+      }));
+
+      await tx.storeCustomerReturnItem.createMany({ data: itemsToCreate });
+
+      await tx.storeSales.update({
+        where: { sales_id },
+        data: { due_amount: dueAmount, payment_status: paymentStatus },
       });
-      return prisma.storeCustomerReturnItem.create({
-        data: {
-          return_item_id,
-          owner_id,
-          return_id,
-          sales_item_id: it.sales_item_id,
-          lot_id: it.lot_id,
-          qty: it.qty,
-          amount: it.amount,
-          note: it.note,
-          created_at: now,
-        },
-      });
+
+      return { itemsToCreate, totalRefunded, dueAmount, paymentStatus, freshSale };
     });
-
-    const salesItemsUpdates = validatedItems.map((it) =>
-      prisma.storeSalesItem.update({
-        where: { sales_item_id: it.sales_item_id },
-        data: { returned_qty: { increment: it.qty } },
-      })
-    );
-
-    const lotUpdates = validatedItems.map((it) =>
-      prisma.storeStockLot.update({
-        where: { lot_id: it.lot_id },
-        data: { qty_remaining: { increment: it.qty } },
-      })
-    );
-
-    const salesHeaderUpdate = prisma.storeSales.update({
-      where: { sales_id },
-      data: { due_amount: dueAmount, payment_status: paymentStatus },
-    });
-
-    await prisma.$transaction([
-      returnHeaderPromise,
-      ...returnItemsPromises,
-      ...salesItemsUpdates,
-      ...lotUpdates,
-      salesHeaderUpdate,
-    ]);
 
     return {
       return: {
@@ -223,16 +244,16 @@ class StoreCustomerReturnService {
         refund_amount: totalRefund,
         note: note ?? null,
         created_at: now,
-        items: itemsToCreate,
+        items: txResult.itemsToCreate,
       },
       sale_info: {
         sales_id,
-        original_total: Number(sale.total_amount),
-        original_paid: Number(sale.paid_amount),
+        original_total: Number(txResult.freshSale.total_amount),
+        original_paid: Number(txResult.freshSale.paid_amount),
         refund_amount: totalRefund,
-        total_refunded: totalRefunded.toNumber(),
-        due_amount: Number(dueAmount),
-        payment_status: paymentStatus,
+        total_refunded: txResult.totalRefunded.toNumber(),
+        due_amount: Number(txResult.dueAmount),
+        payment_status: txResult.paymentStatus,
       },
     };
   }

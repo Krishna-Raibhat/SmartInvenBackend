@@ -21,6 +21,7 @@ import {
   disable2FA,
   sendDisable2FAOtp,
   googleLogin,
+  appleLogin,
   getDevices,
   deleteDevice,
   approveDevice,
@@ -60,6 +61,8 @@ router.post(
 router.post("/login", deviceLoginLimiter, login);
 router.post("/login/google", googleLogin);
 router.post("/google", googleLogin);
+router.post("/login/apple", appleLogin);
+router.post("/apple", appleLogin);
 router.post("/login/verify-2fa", otpVerifyLimiter, verify2FA);
 router.post("/logout", authMiddleware, logout);
 

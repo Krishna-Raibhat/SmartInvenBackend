@@ -1,6 +1,7 @@
 import { hash, compare } from "bcrypt";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
+import appleSigninAuth from "apple-signin-auth";
 import { prisma } from "../prisma/client.js";
 import {
   sendOtpEmail,
@@ -4119,6 +4120,501 @@ export async function googleLogin(req, res) {
   } catch (err) {
     console.error("Google Sign-In Error:", err);
     return sendError(res, 500, "SERVER_ERROR", "Google login failed.", {
+      detail: err?.message ?? "An unexpected error occurred.",
+    });
+  }
+}
+
+// Apple ID tokens don't carry the user's name (Apple only sends it once, in
+// the client SDK's response, on the very first authorization) — so unlike
+// Google, `full_name` must be passed in from the frontend on first sign-in.
+export async function appleLogin(req, res) {
+  try {
+    const {
+      idToken,
+      full_name,
+      fcm_token,
+      package_key,
+      phone,
+      business_name,
+      business_category,
+      pan_number,
+    } = req.body;
+
+    if (!idToken) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "Apple ID token is required.",
+      );
+    }
+
+        // Flutter's sign_in_with_apple sends a different audience depending on
+    // platform: iOS uses the app's Bundle ID natively, Android/Web use the
+    // Services ID configured in WebAuthenticationOptions. Accept either.
+    const appleAudiences = String(process.env.APPLE_CLIENT_ID || "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    // Verify Apple ID Token
+    let payload;
+    try {
+      payload = await appleSigninAuth.verifyIdToken(idToken, {
+        audience: appleAudiences.length > 1 ? appleAudiences : appleAudiences[0],
+        ignoreExpiration: false,
+      });
+    } catch (err) {
+      return sendError(
+        res,
+        400,
+        "INVALID_TOKEN",
+        "Failed to verify Apple token.",
+        { detail: err?.message },
+      );
+    }
+
+    if (!payload || !payload.email) {
+      return sendError(
+        res,
+        400,
+        "INVALID_TOKEN",
+        "Failed to retrieve email from Apple token.",
+      );
+    }
+
+    const appleId = payload.sub;
+    const email = normalizeEmail(payload.email);
+    const fullName = full_name ? String(full_name).trim() : "";
+
+    // 1. Check if owner exists by apple_id
+    const existingAppleOwner = await prisma.owner.findUnique({
+      where: { apple_id: appleId },
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        package_id: true,
+        business_category: true,
+        business_name: true,
+        status: true,
+        auth_provider: true,
+        created_at: true,
+        subscription_expires_at: true,
+        trial_expires_at: true,
+        two_factor_enabled: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
+    });
+
+    if (existingAppleOwner) {
+      // Check account status before allowing login
+      if (existingAppleOwner.status === "inactive") {
+        const pendingPayment = await prisma.paymentProof.findFirst({
+          where: {
+            owner_id: existingAppleOwner.owner_id,
+            status: "pending",
+          },
+        });
+
+        if (pendingPayment) {
+          return sendError(
+            res,
+            403,
+            "PAYMENT_PENDING",
+            "Your payment proof is under review. Please wait for approval.",
+            {
+              owner: {
+                owner_id: existingAppleOwner.owner_id,
+                full_name: existingAppleOwner.full_name,
+                email: existingAppleOwner.email,
+                phone: existingAppleOwner.phone,
+                package_id: existingAppleOwner.package_id,
+                auth_provider: existingAppleOwner.auth_provider,
+                status: existingAppleOwner.status,
+                package_key: existingAppleOwner.package?.package_key ?? null,
+                package_name: existingAppleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+
+        if (
+          existingAppleOwner.subscription_expires_at &&
+          new Date(existingAppleOwner.subscription_expires_at) < new Date()
+        ) {
+          return sendError(
+            res,
+            403,
+            "SUBSCRIPTION_EXPIRED",
+            "Your subscription has expired. Please renew to continue.",
+            {
+              owner: {
+                owner_id: existingAppleOwner.owner_id,
+                full_name: existingAppleOwner.full_name,
+                email: existingAppleOwner.email,
+                phone: existingAppleOwner.phone,
+                package_id: existingAppleOwner.package_id,
+                status: existingAppleOwner.status,
+                package_key: existingAppleOwner.package?.package_key ?? null,
+                package_name: existingAppleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+      }
+
+      if (existingAppleOwner.status === "trial") {
+        if (
+          existingAppleOwner.trial_expires_at &&
+          new Date() > new Date(existingAppleOwner.trial_expires_at)
+        ) {
+          return sendError(
+            res,
+            403,
+            "TRIAL_EXPIRED",
+            "Your 30-day trial has expired. Please subscribe to continue.",
+            {
+              owner: {
+                owner_id: existingAppleOwner.owner_id,
+                full_name: existingAppleOwner.full_name,
+                email: existingAppleOwner.email,
+                phone: existingAppleOwner.phone,
+                package_id: existingAppleOwner.package_id,
+                status: existingAppleOwner.status,
+                package_key: existingAppleOwner.package?.package_key ?? null,
+                package_name: existingAppleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+      }
+
+      if (existingAppleOwner.status === "active") {
+        if (
+          existingAppleOwner.subscription_expires_at &&
+          new Date(existingAppleOwner.subscription_expires_at) < new Date()
+        ) {
+          return sendError(
+            res,
+            403,
+            "SUBSCRIPTION_EXPIRED",
+            "Your subscription has expired. Please renew to continue.",
+            {
+              owner: {
+                owner_id: existingAppleOwner.owner_id,
+                full_name: existingAppleOwner.full_name,
+                email: existingAppleOwner.email,
+                phone: existingAppleOwner.phone,
+                package_id: existingAppleOwner.package_id,
+                status: existingAppleOwner.status,
+                package_key: existingAppleOwner.package?.package_key ?? null,
+                package_name: existingAppleOwner.package?.package_name ?? null,
+              },
+            },
+          );
+        }
+      }
+
+      // Pure login: Update fcm_token if provided
+      if (fcm_token) {
+        await prisma.owner.update({
+          where: { owner_id: existingAppleOwner.owner_id },
+          data: { fcm_token },
+        });
+      }
+
+      const token = generateToken({
+        owner_id: existingAppleOwner.owner_id,
+        email: existingAppleOwner.email,
+        package_id: existingAppleOwner.package_id,
+        package_key: existingAppleOwner.package?.package_key ?? null,
+      });
+
+      return sendSuccess(res, 200, {
+        message: "Login successful.",
+        token,
+        owner: {
+          owner_id: existingAppleOwner.owner_id,
+          full_name: existingAppleOwner.full_name,
+          email: existingAppleOwner.email,
+          phone: existingAppleOwner.phone,
+          package_id: existingAppleOwner.package_id,
+          auth_provider: existingAppleOwner.auth_provider,
+          business_category: existingAppleOwner.business_category,
+          business_name: existingAppleOwner.business_name,
+          status: existingAppleOwner.status,
+          package_key: existingAppleOwner.package?.package_key ?? null,
+          package_name: existingAppleOwner.package?.package_name ?? null,
+          two_factor_enabled: existingAppleOwner.two_factor_enabled,
+        },
+      });
+    }
+
+    // 2. Apple ID not found. Check if email collision blocks register.
+    const existingEmailOwner = await prisma.owner.findUnique({
+      where: { email },
+      select: {
+        owner_id: true,
+        auth_provider: true,
+        apple_id: true,
+        full_name: true,
+        phone: true,
+        package_id: true,
+        business_category: true,
+        business_name: true,
+        status: true,
+        created_at: true,
+        subscription_expires_at: true,
+        two_factor_enabled: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
+    });
+
+    if (existingEmailOwner) {
+      const isAppleLinked = existingEmailOwner.auth_provider === "apple";
+
+      if (isAppleLinked) {
+        if (existingEmailOwner.apple_id === appleId) {
+          if (fcm_token) {
+            await prisma.owner.update({
+              where: { owner_id: existingEmailOwner.owner_id },
+              data: { fcm_token },
+            });
+          }
+
+          const token = generateToken({
+            owner_id: existingEmailOwner.owner_id,
+            email: existingEmailOwner.email,
+            package_id: existingEmailOwner.package_id,
+            package_key: existingEmailOwner.package?.package_key ?? null,
+          });
+
+          return sendSuccess(res, 200, {
+            message: "Login successful.",
+            token,
+            owner: {
+              owner_id: existingEmailOwner.owner_id,
+              full_name: existingEmailOwner.full_name,
+              email: existingEmailOwner.email,
+              phone: existingEmailOwner.phone,
+              package_id: existingEmailOwner.package_id,
+              auth_provider: existingEmailOwner.auth_provider,
+              business_category: existingEmailOwner.business_category,
+              business_name: existingEmailOwner.business_name,
+              status: existingEmailOwner.status,
+              package_key: existingEmailOwner.package?.package_key ?? null,
+              package_name: existingEmailOwner.package?.package_name ?? null,
+              two_factor_enabled: existingEmailOwner.two_factor_enabled,
+            },
+          });
+        } else {
+          return sendError(
+            res,
+            409,
+            "EMAIL_ALREADY_EXISTS",
+            "This email is already linked to a different Apple account. Please log in with that account.",
+          );
+        }
+      } else {
+        return sendError(
+          res,
+          409,
+          "LOCAL_ACCOUNT",
+          "This email is already registered with a password. Please log in with your email and password.",
+        );
+      }
+    }
+
+    // 3. Brand new user. Check if registration info is supplied.
+    if (!package_key && !phone && !business_name) {
+      return sendSuccess(res, 200, {
+        requires_additional_info: true,
+        prefill: {
+          email,
+          full_name: fullName,
+        },
+        required_fields: ["package_key", "phone", "business_name"],
+        optional_fields: ["business_category"],
+      });
+    }
+
+    if (!package_key || !phone || !business_name) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_REQUIRED_FIELDS",
+        "package_key, phone, and business_name are required for registration.",
+      );
+    }
+
+    const cleanedPackageKey = String(package_key).trim().toLowerCase();
+    const allowedPackages = new Set([
+      "hardware",
+      "clothing",
+      "grocery",
+      "store",
+    ]);
+    if (!allowedPackages.has(cleanedPackageKey)) {
+      return sendError(
+        res,
+        400,
+        "VALIDATION_PACKAGE_INVALID",
+        "Invalid package key.",
+      );
+    }
+
+    const phoneError = validatePhone(phone);
+    if (phoneError) {
+      return sendError(res, 400, "VALIDATION_PHONE_INVALID", phoneError);
+    }
+
+    const cleanedPanNumber =
+      pan_number !== undefined && pan_number !== null
+        ? String(pan_number).trim()
+        : "";
+    const panError = cleanedPanNumber ? validatePan(cleanedPanNumber) : null;
+    if (panError) {
+      return sendError(res, 400, "VALIDATION_PAN_INVALID", panError);
+    }
+
+    const existingPhoneOwner = await prisma.owner.findUnique({
+      where: { phone },
+    });
+    if (existingPhoneOwner) {
+      return sendError(
+        res,
+        409,
+        "PHONE_ALREADY_EXISTS",
+        "Phone number is already registered.",
+      );
+    }
+
+    const existingPanOwner = cleanedPanNumber
+      ? await prisma.owner.findUnique({
+          where: { pan_number: cleanedPanNumber },
+        })
+      : null;
+    if (existingPanOwner) {
+      return sendError(
+        res,
+        409,
+        "PAN_ALREADY_EXISTS",
+        "PAN number is already registered.",
+      );
+    }
+
+    let pkg = await prisma.package.findUnique({
+      where: { package_key: cleanedPackageKey },
+    });
+    if (!pkg) {
+      pkg = await prisma.package.create({
+        data: {
+          package_key: cleanedPackageKey,
+          package_name: packageNameMap[cleanedPackageKey] || cleanedPackageKey,
+        },
+      });
+    }
+
+    let finalBusinessCategory = business_category
+      ? String(business_category).trim()
+      : null;
+    if (!finalBusinessCategory) {
+      if (cleanedPackageKey === "grocery")
+        finalBusinessCategory = "Grocery Store";
+      else if (cleanedPackageKey === "clothing")
+        finalBusinessCategory = "Clothing Store";
+      else if (cleanedPackageKey === "hardware")
+        finalBusinessCategory = "Hardware Store";
+      else if (cleanedPackageKey === "store") finalBusinessCategory = "Store";
+    }
+
+    // Create owner (password is null for Apple sign-in users)
+    const newOwner = await prisma.owner.create({
+      data: {
+        full_name: fullName,
+        phone,
+        email,
+        password: null,
+        apple_id: appleId,
+        auth_provider: "apple",
+        package_id: pkg.package_id,
+        business_category: finalBusinessCategory,
+        business_name: String(business_name).trim(),
+        pan_number: cleanedPanNumber || null,
+        status: "trial",
+        trial_expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        fcm_token: fcm_token || null,
+      },
+      select: {
+        owner_id: true,
+        full_name: true,
+        email: true,
+        phone: true,
+        package_id: true,
+        auth_provider: true,
+        business_category: true,
+        business_name: true,
+        pan_number: true,
+        status: true,
+        trial_expires_at: true,
+        two_factor_enabled: true,
+        package: { select: { package_key: true, package_name: true } },
+      },
+    });
+
+    if (cleanedPackageKey === "store") {
+      try {
+        await prisma.storeCategory.create({
+          data: {
+            owner_id: newOwner.owner_id,
+            category_name: "general",
+          },
+        });
+      } catch (err) {
+        console.error("Failed to create default store category:", err);
+      }
+    }
+
+    sendRegistrationSuccessEmail({
+      to: newOwner.email,
+      full_name: newOwner.full_name,
+      business_name: newOwner.business_name,
+    }).catch((err) =>
+      console.error("Failed to send registration success email:", err),
+    );
+
+    const token = generateToken({
+      owner_id: newOwner.owner_id,
+      email: newOwner.email,
+      package_id: newOwner.package_id,
+      package_key: newOwner.package?.package_key ?? null,
+    });
+
+    return sendSuccess(res, 201, {
+      message: "Registration successful.",
+      token,
+      owner: {
+        owner_id: newOwner.owner_id,
+        full_name: newOwner.full_name,
+        email: newOwner.email,
+        phone: newOwner.phone,
+        package_id: newOwner.package_id,
+        auth_provider: newOwner.auth_provider,
+        business_category: newOwner.business_category,
+        business_name: newOwner.business_name,
+        pan_number: newOwner.pan_number,
+        status: newOwner.status,
+        package_key: newOwner.package?.package_key ?? null,
+        package_name: newOwner.package?.package_name ?? null,
+        two_factor_enabled: newOwner.two_factor_enabled,
+      },
+    });
+  } catch (err) {
+    console.error("Apple Sign-In Error:", err);
+    return sendError(res, 500, "SERVER_ERROR", "Apple login failed.", {
       detail: err?.message ?? "An unexpected error occurred.",
     });
   }
