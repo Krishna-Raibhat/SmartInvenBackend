@@ -17,6 +17,7 @@ import { generateSecret, verifySync, generateURI } from "otplib";
 import crypto from "crypto";
 import { hashOTP, verifyOTPHash } from "../utils/otp.js";
 import { uploadToS3, getSignedUrl, deleteFromS3 } from "../utils/s3.js";
+import staffService from "../services/staffService.js";
 
 const { sign, verify } = jwt;
 
@@ -70,6 +71,22 @@ const generateToken = (payload) => {
 };
 
 const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
+
+const generateStaffToken = (staff) => {
+  if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET_MISSING");
+
+  return sign(
+    {
+      owner_id: staff.owner_id,
+      staff_id: staff.staff_id,
+      email: staff.email,
+      package_id: staff.owner?.package_id ?? null,
+      package_key: staff.owner?.package?.package_key ?? null,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
+  );
+};
 
 // ================= EMAIL VALIDATION =================
 const validateEmail = (email) => {
@@ -895,8 +912,9 @@ export async function checkRegistrationAvailability(req, res) {
 // }
 export async function login(req, res) {
   try {
-    let {
+        let {
       email,
+      phone,
       password,
       fcm_token,
       device_id,
@@ -904,46 +922,80 @@ export async function login(req, res) {
       device_metadata,
     } = req.body;
     email = normalizeEmail(email);
+    const identifier = email || String(phone || "").trim();
 
-    if (!email || !password) {
+    if (!identifier || !password) {
       return sendError(
         res,
         400,
         "VALIDATION_REQUIRED_FIELDS",
-        "Email and password are required.",
+        "Email/phone and password are required.",
       );
     }
 
-    const owner = await prisma.owner.findUnique({
-      where: { email },
-      select: {
-        owner_id: true,
-        full_name: true,
-        email: true,
-        phone: true,
-        package_id: true,
-        password: true,
-        status: true,
-        created_at: true,
-        subscription_expires_at: true,
-        trial_expires_at: true,
-        two_factor_enabled: true,
-        business_category: true,
-        business_name: true,
-        auth_provider: true,
-        failed_login_attempts: true,
-        login_locked_until: true,
-        package: { select: { package_key: true, package_name: true } },
-      },
-    });
+    const owner = email
+      ? await prisma.owner.findUnique({
+          where: { email },
+          select: {
+            owner_id: true,
+            full_name: true,
+            email: true,
+            phone: true,
+            package_id: true,
+            password: true,
+            status: true,
+            created_at: true,
+            subscription_expires_at: true,
+            trial_expires_at: true,
+            two_factor_enabled: true,
+            business_category: true,
+            business_name: true,
+            auth_provider: true,
+            failed_login_attempts: true,
+            login_locked_until: true,
+            package: { select: { package_key: true, package_name: true } },
+          },
+        })
+      : null;
 
     if (!owner) {
-      return sendError(
-        res,
-        401,
-        "INVALID_CREDENTIALS",
-        "Invalid email or password.",
-      );
+      try {
+        const staff = await staffService.verifyLogin({ identifier, password });
+        const token = generateStaffToken(staff);
+
+        return sendSuccess(res, 200, {
+          message: "Login successful.",
+          token,
+          account_type: "staff",
+          staff: {
+            staff_id: staff.staff_id,
+            owner_id: staff.owner_id,
+            full_name: staff.full_name,
+            email: staff.email,
+            phone: staff.phone,
+            status: staff.status,
+            business_name: staff.owner?.business_name ?? null,
+            business_category: staff.owner?.business_category ?? null,
+            package_key: staff.owner?.package?.package_key ?? null,
+          },
+        });
+      } catch (error) {
+        if (
+          [
+            "INVALID_CREDENTIALS",
+            "STAFF_INACTIVE",
+            "BUSINESS_NOT_FOUND",
+            "BUSINESS_INACTIVE",
+            "TRIAL_EXPIRED",
+            "SUBSCRIPTION_EXPIRED",
+          ].includes(error.code)
+        ) {
+          const status = error.code === "INVALID_CREDENTIALS" ? 401 : 403;
+          return sendError(res, status, error.code, error.message);
+        }
+        console.error("Error during staff login:", error);
+        return sendError(res, 500, "SERVER_ERROR", "Login failed.");
+      }
     }
 
     // Check if account is locked due to too many failed login attempts
@@ -1809,16 +1861,31 @@ export async function forgotPasswordSendOtp(req, res) {
         "Email is required.",
       );
 
-    const owner = await prisma.owner.findUnique({
+        const owner = await prisma.owner.findUnique({
       where: { email },
       select: { owner_id: true, email: true, auth_provider: true },
     });
 
-    // Security best practice: don't reveal whether email exists
     if (!owner) {
-      return res
-        .status(200)
-        .json({ message: "If the email exists, an OTP has been sent." });
+      try {
+        const result = await staffService.forgotPasswordSendOtp(email);
+        return res.status(200).json({ success: true, ...result });
+      } catch (error) {
+        if (error.code === "LOCKED") {
+          return res.status(423).json({
+            message: error.message,
+            locked_until: error.locked_until,
+          });
+        }
+        if (error.code === "RATE_LIMITED") {
+          return res.status(429).json({ message: error.message });
+        }
+        if (error.code === "REQUIRED_FIELDS") {
+          return res.status(400).json({ message: error.message });
+        }
+        console.error("Error sending staff forgot-password OTP:", error);
+        return sendError(res, 500, "SERVER_ERROR", "Server error.");
+      }
     }
 
     // Check if this is a Google account
@@ -1894,13 +1961,40 @@ export async function forgotPasswordVerifyOtp(req, res) {
     if (!email || !otp)
       return res.status(400).json({ message: "Email and OTP are required." });
 
-    const owner = await prisma.owner.findUnique({
+        const owner = await prisma.owner.findUnique({
       where: { email },
       select: { owner_id: true },
     });
 
-    if (!owner) return res.status(401).json({ message: "Invalid OTP." });
-
+    if (!owner) {
+      try {
+        const result = await staffService.forgotPasswordVerifyOtp(email, otp);
+        return res.status(200).json({ success: true, ...result });
+      } catch (error) {
+        if (error.code === "LOCKED") {
+          return res.status(423).json({
+            message: error.message,
+            locked_until: error.locked_until,
+          });
+        }
+        if (error.code === "OTP_EXPIRED") {
+          return res.status(400).json({ message: error.message });
+        }
+        if (error.code === "INVALID_OTP") {
+          return res.status(401).json({
+            message: error.message,
+            ...(error.remaining_attempts !== undefined
+              ? { remaining_attempts: error.remaining_attempts }
+              : {}),
+          });
+        }
+        if (error.code === "REQUIRED_FIELDS") {
+          return res.status(400).json({ message: error.message });
+        }
+        console.error("Error verifying staff forgot-password OTP:", error);
+        return res.status(500).json({ message: "Server error." });
+      }
+    }
     const record = await prisma.passwordResetOtp.findFirst({
       where: { owner_id: owner.owner_id },
       orderBy: { created_at: "desc" },
@@ -1998,7 +2092,43 @@ export async function forgotPasswordReset(req, res) {
       });
     }
 
-    const decoded = verify(reset_token, process.env.JWT_SECRET);
+        let decoded;
+    try {
+      decoded = verify(reset_token, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ message: "Invalid or expired reset token." });
+    }
+
+    if (decoded.purpose === "staff_reset_password") {
+      try {
+        const result = await staffService.forgotPasswordReset(
+          reset_token,
+          new_password,
+          confirm_password,
+        );
+        return res.status(200).json({ success: true, ...result });
+      } catch (error) {
+        if (
+          ["REQUIRED_FIELDS", "PASSWORD_MISMATCH", "WEAK_PASSWORD"].includes(
+            error.code,
+          )
+        ) {
+          return res.status(400).json({
+            message: error.message,
+            ...(error.errors ? { errors: error.errors } : {}),
+          });
+        }
+        if (error.code === "INVALID_TOKEN") {
+          return res.status(401).json({ message: error.message });
+        }
+        if (error.code === "NOT_FOUND") {
+          return res.status(404).json({ message: error.message });
+        }
+        console.error("Error resetting staff password:", error);
+        return res.status(500).json({ message: "Server error." });
+      }
+    }
+
     if (decoded.purpose !== "reset_password") {
       return res.status(401).json({ message: "Invalid reset token." });
     }
