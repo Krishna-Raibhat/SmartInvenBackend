@@ -1,9 +1,8 @@
 // src/controllers/storeSalesController.js
 import storeSalesService from "../services/storeSalesService.js";
 
-const fail = (res, status, code, message) =>
-  res.status(status).json({ success: false, error_code: code, message });
-
+const fail = (res, status, code, message, extra = {}) =>
+  res.status(status).json({ success: false, error_code: code, message, ...extra });
 const storeSalesController = {
   async create(req, res) {
     try {
@@ -11,7 +10,11 @@ const storeSalesController = {
       const result = await storeSalesService.createSale(owner_id, req.body);
       return res.status(201).json({ success: true, data: result });
     } catch (err) {
-      if (err.status) return fail(res, err.status, err.code || "ERROR", err.message);
+      if (err.status) {
+        return fail(res, err.status, err.code || "ERROR", err.message, {
+          product_name: err.product_name,
+        });
+      }
       console.error("Error creating store sale:", err);
       return fail(res, 500, "SERVER_ERROR", "Failed to create sale.");
     }

@@ -100,7 +100,7 @@ class StoreSalesService {
     const promises = [
       prisma.storeProduct.findMany({
         where: { product_id: { in: productIds }, owner_id },
-        select: { product_id: true, type: true, cp: true, sp: true },
+        select: { product_id: true, product_name: true, type: true, cp: true, sp: true },
       }),
       lotIds.length > 0
         ? prisma.storeStockLot.findMany({
@@ -215,6 +215,7 @@ class StoreSalesService {
     const sales_id = uuidv4();
     let totalAmount = new Decimal(0);
     const lotUpdatesMap = new Map();
+    const lotToProductName = new Map();
     const itemsToCreate = [];
 
     for (const item of items) {
@@ -266,6 +267,7 @@ class StoreSalesService {
 
           lot.qty_remaining -= qtyNum;
           lotUpdatesMap.set(lot_id, (lotUpdatesMap.get(lot_id) || 0) + qtyNum);
+          lotToProductName.set(lot_id, product.product_name);
 
           const sellingPrice = new Decimal(itemSp ?? lot.sp);
           if (sellingPrice.lt(0)) {
@@ -314,6 +316,7 @@ class StoreSalesService {
               lot.lot_id,
               (lotUpdatesMap.get(lot.lot_id) || 0) + deduct,
             );
+            lotToProductName.set(lot.lot_id, product.product_name);
 
             const sellingPrice = new Decimal(itemSp ?? lot.sp);
             if (sellingPrice.lt(0)) {
@@ -536,21 +539,28 @@ class StoreSalesService {
       });
 
       if (lotUpdatesMap.size > 0) {
-        const updatesList = Array.from(lotUpdatesMap.entries()).map(
-          ([lot_id, decrement]) => ({ lot_id, decrement }),
-        );
-        const valuesSql = updatesList
-          .map((_, i) => `($${i * 2 + 1}::text, $${i * 2 + 2}::integer)`)
-          .join(", ");
-        const valuesArgs = updatesList.flatMap((u) => [u.lot_id, u.decrement]);
+        // Atomic, race-safe stock deduction: each decrement re-checks
+        // qty_remaining >= decrement against the CURRENT row at write time
+        // (not the stale value read earlier), so concurrent stock-outs
+        // (e.g. owner + staff at the same time) can't push stock negative.
+        for (const [lot_id, decrement] of lotUpdatesMap.entries()) {
+          const updatedRows = await tx.$executeRaw`
+            UPDATE store_stock_lots
+            SET qty_remaining = qty_remaining - ${decrement}
+            WHERE lot_id = ${lot_id} AND qty_remaining >= ${decrement}
+          `;
 
-        await tx.$executeRawUnsafe(
-          `UPDATE store_stock_lots AS sl
-           SET qty_remaining = sl.qty_remaining - tmp.decrement_qty
-           FROM (VALUES ${valuesSql}) AS tmp(lot_id, decrement_qty)
-           WHERE sl.lot_id = tmp.lot_id`,
-          ...valuesArgs,
-        );
+          if (updatedRows === 0) {
+            const productName = lotToProductName.get(lot_id) || "this product";
+            const e = new Error(
+              `Not enough stock for "${productName}". Someone else may have just sold this stock — please refresh and try again.`,
+            );
+            e.status = 409;
+            e.code = "STOCK_CONFLICT";
+            e.product_name = productName;
+            throw e;
+          }
+        }
       }
 
       await tx.storeSalesItem.createMany({ data: itemsToCreate });
