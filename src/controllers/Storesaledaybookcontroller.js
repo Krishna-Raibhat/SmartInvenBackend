@@ -1,5 +1,5 @@
-// src/controllers/storeSaleDaybookController.js
-import storeSaleDaybookService from "../services/storesaledaybookservice.js";
+// src/controllers/StoresaledaybookController.js
+import storeSaleDaybookService from "../services/Storesaledaybookservice.js";
 import { sendSuccess, sendError } from "../utils/apiResponse.js";
 
 export const getDaybook = async (req, res) => {
