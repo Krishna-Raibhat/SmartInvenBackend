@@ -660,7 +660,7 @@ class StoreDashboardService {
             COALESCE(p.updated_at, p.created_at) AS created_at,
             CASE WHEN p.updated_at > p.created_at THEN 'Product updated' ELSE 'Product added' END AS title,
             p.product_name || ' (' || p.type::text || ')' || COALESCE(' • ' || c.category_name, '') AS message,
-            p.product_id AS ref_product_id,
+            p.product_id::text AS ref_product_id,
             NULL AS ref_lot_id,
             NULL AS ref_sales_id,
             NULL AS ref_return_id
@@ -677,8 +677,8 @@ class StoreDashboardService {
             COALESCE(l.updated_at, l.created_at) AS created_at,
             CASE WHEN l.updated_at > l.created_at THEN 'Stock lot updated' ELSE 'Stock in' END AS title,
             COALESCE(p.product_name, 'Product') || ' • +' || l.qty_in || ' ' || COALESCE(u.unit_name, 'units') || COALESCE(' • ' || s.supplier_name, '') AS message,
-            p.product_id AS ref_product_id,
-            l.lot_id AS ref_lot_id,
+            p.product_id::text AS ref_product_id,
+            l.lot_id::text AS ref_lot_id,
             NULL AS ref_sales_id,
             NULL AS ref_return_id
           FROM store_stock_lots l
@@ -698,7 +698,7 @@ class StoreDashboardService {
             COALESCE(c.full_name, 'Walk-in') || ' • Rs.' || (s.total_amount - COALESCE(s.discount, 0))::numeric || CASE WHEN COALESCE(s.discount, 0) > 0 THEN ' (Disc: ' || s.discount::numeric || ')' ELSE '' END || ' • ' || s.payment_status::text AS message,
             NULL AS ref_product_id,
             NULL AS ref_lot_id,
-            s.sales_id AS ref_sales_id,
+            s.sales_id::text AS ref_sales_id,
             NULL AS ref_return_id
           FROM store_sales s
           LEFT JOIN customers c ON c.customer_id = s.customer_id
@@ -715,8 +715,8 @@ class StoreDashboardService {
             COALESCE(c.full_name, 'Customer') || ' • Refund Rs.' || COALESCE(r.refund_amount, 0)::numeric AS message,
             NULL AS ref_product_id,
             NULL AS ref_lot_id,
-            r.sales_id AS ref_sales_id,
-            r.return_id AS ref_return_id
+            r.sales_id::text AS ref_sales_id,
+            r.return_id::text AS ref_return_id
           FROM store_customer_returns r
           LEFT JOIN store_sales ss ON ss.sales_id = r.sales_id
           LEFT JOIN customers c ON c.customer_id = ss.customer_id
@@ -734,7 +734,7 @@ class StoreDashboardService {
             NULL AS ref_product_id,
             NULL AS ref_lot_id,
             NULL AS ref_sales_id,
-            r.return_id AS ref_return_id
+            r.return_id::text AS ref_return_id
           FROM store_supplier_returns r
           LEFT JOIN store_suppliers s ON s.supplier_id = r.supplier_id
           WHERE r.owner_id = ${owner_id}
@@ -750,7 +750,7 @@ class StoreDashboardService {
             COALESCE(c.full_name, 'Walk-in') || ' • Paid Rs.' || s.paid_amount::numeric || ' • Due: Rs.' || s.due_amount::numeric AS message,
             NULL AS ref_product_id,
             NULL AS ref_lot_id,
-            s.sales_id AS ref_sales_id,
+            s.sales_id::text AS ref_sales_id,
             NULL AS ref_return_id
           FROM store_sales s
           LEFT JOIN customers c ON c.customer_id = s.customer_id

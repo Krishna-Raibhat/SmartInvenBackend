@@ -154,7 +154,7 @@ class StoreCustomerReturnService {
         `UPDATE store_sales_items AS si
          SET returned_qty = si.returned_qty + tmp.return_qty
          FROM (VALUES ${valuesSql}) AS tmp(sales_item_id, return_qty)
-         WHERE si.sales_item_id = tmp.sales_item_id
+                  WHERE si.sales_item_id::text = tmp.sales_item_id
            AND (si.qty - si.returned_qty) >= tmp.return_qty`,
         ...valuesArgs,
       );
